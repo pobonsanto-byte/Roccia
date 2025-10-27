@@ -403,17 +403,18 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     # Fundo da barra
     draw.rounded_rectangle([x0, y0, x0+bar_total_w, y0+bar_h], radius=radius, fill=(50, 50, 50))
 
-    # Barra preenchida (gradiente azul neon)
+    
+    # Barra preenchida (gradiente azul neon) arredondada
     fill_w = int(bar_total_w * min(1.0, cur / next_xp))
     if fill_w > 0:
-        gradient = Image.new("RGBA", (fill_w, bar_h), 0)
-        grad_draw = ImageDraw.Draw(gradient)
-        for i in range(fill_w):
-            r = 0
-            g = 200
-            b = 255
-            grad_draw.line([(i, 0), (i, bar_h)], fill=(r, g, b))
-        img.paste(gradient, (x0, y0), gradient)
+    # Cria a barra preenchida com mesmo raio que o fundo
+        filled_bar = Image.new("RGBA", (fill_w, bar_h), (0,0,0,0))
+        fill_draw = ImageDraw.Draw(filled_bar)
+        fill_draw.rounded_rectangle([0, 0, fill_w, bar_h], radius=radius, fill=(0, 200, 255))
+    
+    # Se quiser gradiente, pode substituir fill por um gradiente similar ao que já fazia
+        img.paste(filled_bar, (x0, y0), filled_bar)
+
 
     # Texto XP dentro da barra, centralizado verticalmente
     xp_text = f"{cur} / {next_xp} XP"
