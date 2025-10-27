@@ -272,12 +272,16 @@ async def on_member_join(member: discord.Member):
 
     # Nome do usuário
     text_name = member.display_name
-    text_w, text_h = draw.textsize(text_name, font=font_b)
+    bbox_name = draw.textbbox((0, 0), text_name, font=font_b)
+    text_w = bbox_name[2] - bbox_name[0]
+    text_h = bbox_name[3] - bbox_name[1]
     draw.text(((width - text_w)//2, y + border.height + 10), text_name, font=font_b, fill=text_color)
 
     # Contagem de membros
     text_count = f"Membro #{len(member.guild.members)}"
-    text_w2, text_h2 = draw.textsize(text_count, font=font_s)
+    bbox_count = draw.textbbox((0, 0), text_count, font=font_s)
+    text_w2 = bbox_count[2] - bbox_count[0]
+    text_h2 = bbox_count[3] - bbox_count[1]
     draw.text(((width - text_w2)//2, y + border.height + 50), text_count, font=font_s, fill=text_color)
 
     # Salvar em buffer e enviar
@@ -288,6 +292,7 @@ async def on_member_join(member: discord.Member):
 
     await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
+
 
 
 # -------------------------
