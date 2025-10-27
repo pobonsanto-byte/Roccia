@@ -199,18 +199,63 @@ async def on_member_join(member: discord.Member):
     ch_id = data.get("config", {}).get("welcome_channel")
     channel = None
     if ch_id:
-        try:
-            channel = member.guild.get_channel(int(ch_id))
-        except Exception:
-            channel = None
+        channel = member.guild.get_channel(int(ch_id))
     if not channel:
         channel = discord.utils.get(member.guild.text_channels, name="boas-vindas")
-    if channel:
-        embed = discord.Embed(title="Seja bem-vindo(a)! 🎉", color=0x6EC1FF)
-        embed.add_field(name="Boas-vindas", value=f"Olá {member.mention}, seja bem-vindo(a)!", inline=False)
-        embed.set_footer(text=f"Membros: {len(member.guild.members)}")
-        await channel.send(embed=embed)
+    if not channel:
+        return
+
+    # Mensagem de boas-vindas customizada
+    welcome_msg = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
+    welcome_msg = welcome_msg.replace("{member}", member.mention)
+
+    # ----- Criando a imagem -----
+    width, height = 900, 250
+
+    # Fundo com avatar do bot
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    draw = ImageDraw.Draw(img)
+
+    try:
+        bot_avatar_bytes = await bot.user.avatar.read()
+        bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert("RGBA")
+        bot_avatar = bot_avatar.resize((width, height))
+        img.paste(bot_avatar, (0, 0))
+    except:
+        pass
+
+    # Avatar do usuário
+    try:
+        user_bytes = await member.avatar.read()
+        user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
+        user_avatar = user_avatar.resize((150, 150))
+        mask = Image.new("L", (150, 150), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, 150, 150), fill=255)
+        img.paste(user_avatar, (30, 50), mask)
+    except:
+        pass
+
+    # Texto
+    try:
+        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+    except:
+        font_b = ImageFont.load_default()
+        font_s = ImageFont.load_default()
+
+    draw.text((200, 80), member.display_name, font=font_b, fill=(255, 255, 255))
+    draw.text((200, 140), f"Membro #{len(member.guild.members)}", font=font_s, fill=(200, 200, 255))
+
+    # Salvar em buffer e enviar
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    file = discord.File(buf, filename="welcome.png")
+
+    await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
+
 
 # -------------------------
 # Reaction roles
@@ -458,7 +503,17 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
 
+# /setwelcome
+@tree.command(name="setwelcome", description="Define a mensagem de boas-vindas (admin)")
+@app_commands.describe(message="Mensagem (use {member} para mencionar)")
+async def slash_setwelcome(interaction: discord.Interaction, message: str):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        return
 
+    data.setdefault("config", {})["welcome_message"] = message
+    save_data_to_github("Set welcome message")
+    await interaction.response.send_message(f"Mensagem de boas-vindas definida!\n{message}")
 
 
 # /top
