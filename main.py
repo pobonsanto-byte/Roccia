@@ -1,12 +1,12 @@
 """
 Imune Bot - single file (main.py)
 Features:
-- Slash commands (discord.app_commands) for: /rank, /top, /warn, /warns, /savedata, /reactionrole (create/remove/list)
-- XP system + levelups
-- Welcome embed on member join
-- Reaction roles with custom emoji support (creates message + adds reaction)
-- Persist data to GitHub repo (DATA_FILE) via GitHub REST API
-- Flask keepalive for Render free
+- Slash commands (discord.app_commands) para: /rank, /top, /warn, /warns, /savedata, /reactionrole (create/remove/list)
+- Sistema de XP + levelup
+- Embed de boas-vindas
+- Reaction roles com suporte a emoji customizado
+- Persistência de dados no GitHub
+- Flask keepalive para Render free
 """
 
 import os
@@ -15,8 +15,9 @@ import base64
 import re
 import requests
 from io import BytesIO
-from datetime import datetime
 from threading import Thread
+from zoneinfo import ZoneInfo
+from datetime import datetime
 
 from flask import Flask
 import discord
@@ -24,10 +25,8 @@ from discord import app_commands
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
-
-
 # -------------------------
-# Environment / Config
+# Config / Ambiente
 # -------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -36,8 +35,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "imune-bot-data")
 DATA_FILE = os.getenv("DATA_FILE", "data.json")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
 PORT = int(os.getenv("PORT", 8080))
-# If provided, register slash commands to this guild only (fast). Otherwise global.
-GUILD_ID = os.getenv("GUILD_ID")  # optional
+GUILD_ID = os.getenv("GUILD_ID")
 
 if not BOT_TOKEN or not GITHUB_TOKEN:
     raise SystemExit("Defina BOT_TOKEN e GITHUB_TOKEN nas variáveis de ambiente.")
@@ -45,7 +43,7 @@ if not BOT_TOKEN or not GITHUB_TOKEN:
 GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
 
 # -------------------------
-# Flask keepalive (Render)
+# Flask keepalive
 # -------------------------
 app = Flask("imunebot")
 
@@ -66,21 +64,18 @@ intents.message_content = True
 intents.members = True
 intents.reactions = True
 
-bot = commands.Bot(command_prefix="/", intents=intents)  # prefix unused, slash commands used
+bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 # -------------------------
-# In-memory data structure
+# Função helper de horário BR
 # -------------------------
-# data schema:
-# {
-#   "xp": { user_id: xp_int, ... },
-#   "level": { user_id: level_int, ... },
-#   "warns": { user_id: [ {by:int, reason:str, ts:str}, ... ], ... },
-#   "reaction_roles": { message_id_str: { emoji_key: role_id_str, ... }, ... },
-#   "config": { "welcome_channel": channel_id_str or None }
-#   "logs": [ {ts, entry}, ... ]
-# }
+def now_br():
+    return datetime.now(ZoneInfo("America/Sao_Paulo"))
+
+# -------------------------
+# Estrutura de dados em memória
+# -------------------------
 data = {
     "xp": {},
     "level": {},
@@ -91,13 +86,12 @@ data = {
 }
 
 # -------------------------
-# Utils: GitHub persistence
+# GitHub persistence
 # -------------------------
 def _gh_headers():
     return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 
 def load_data_from_github():
-    """Load data.json from GitHub if exists, else keep defaults."""
     try:
         r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
         if r.status_code == 200:
@@ -106,20 +100,17 @@ def load_data_from_github():
             if content_b64:
                 raw = base64.b64decode(content_b64)
                 loaded = json.loads(raw.decode("utf-8"))
-                # Merge loaded into data (avoid replacing if structure missing fields)
                 data.update(loaded)
                 print("Dados carregados do GitHub.")
                 return True
         else:
-            print(f"GitHub GET returned {r.status_code} — starting with fresh data.")
+            print(f"GitHub GET retornou {r.status_code} — iniciando com dados limpos.")
     except Exception as e:
         print("Erro ao carregar dados do GitHub:", e)
     return False
 
 def save_data_to_github(message="Bot update"):
-    """Save `data` to DATA_FILE in GitHub. This creates or updates the file."""
     try:
-        # Get existing file sha (if exists)
         r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
         sha = None
         if r.status_code == 200:
@@ -127,7 +118,7 @@ def save_data_to_github(message="Bot update"):
 
         content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
         payload = {
-            "message": f"{message} @ {datetime.utcnow().isoformat()}",
+            "message": f"{message} @ {now_br().isoformat()}",
             "content": base64.b64encode(content).decode("utf-8"),
             "branch": BRANCH
         }
@@ -145,36 +136,29 @@ def save_data_to_github(message="Bot update"):
     return False
 
 def add_log(entry):
-    ts = datetime.utcnow().isoformat()
+    ts = now_br().isoformat()
     data.setdefault("logs", []).append({"ts": ts, "entry": entry})
-    # best-effort save (non-blocking in this simple implementation)
     try:
         save_data_to_github(f"log: {entry}")
     except Exception:
         pass
 
 # -------------------------
-# Utilities: XP / level
+# XP / level
 # -------------------------
 def xp_for_message():
     return 15
 
 def xp_to_level(xp):
-    # Tunable formula. Returns int level >=1
-    # Use a slightly exponential progression
     lvl = int((xp / 100) ** 0.6) + 1
-    if lvl < 1:
-        lvl = 1
-    return lvl
+    return max(lvl, 1)
 
 # -------------------------
-# Helper: parse custom emoji string like "<:name:123456789012345678>"
-# returns discord.PartialEmoji or plain unicode char
+# Parse emoji
 # -------------------------
 EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
 
 def parse_emoji_str(emoji_str, guild: discord.Guild = None):
-    """Try to resolve custom emoji ID, or return emoji_str for unicode emoji."""
     if not emoji_str:
         return None
     m = EMOJI_RE.match(emoji_str.strip())
@@ -182,42 +166,36 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
         name, id_str = m.groups()
         try:
             eid = int(id_str)
-            # Try to get the emoji object from cache
             if guild:
                 e = discord.utils.get(guild.emojis, id=eid)
                 if e:
-                    return e  # Regular Emoji object
-            # fallback to PartialEmoji
+                    return e
             return discord.PartialEmoji(name=name, id=eid)
         except Exception:
             pass
-    # maybe user sent emoji directly (unicode)
     return emoji_str
 
 # -------------------------
-# Events
+# Eventos
 # -------------------------
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} (id: {bot.user.id})")
-    # load data from GitHub at startup
+    print(f"Logado como {bot.user} (id: {bot.user.id})")
     load_data_from_github()
-    # sync slash commands
     try:
         if GUILD_ID:
             gid = int(GUILD_ID)
             guild = discord.Object(id=gid)
             await tree.sync(guild=guild)
-            print(f"Slash commands synced to guild {gid}.")
+            print(f"Comandos slash sincronizados no servidor {gid}.")
         else:
             await tree.sync()
-            print("Global slash commands synced.")
+            print("Comandos slash globais sincronizados.")
     except Exception as e:
         print("Erro ao sincronizar comandos:", e)
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    # send welcome embed to configured channel or try channel named 'boas-vindas'
     ch_id = data.get("config", {}).get("welcome_channel")
     channel = None
     if ch_id:
@@ -235,7 +213,7 @@ async def on_member_join(member: discord.Member):
     add_log(f"member_join: {member.id} - {member}")
 
 # -------------------------
-# Reaction Roles corrigido
+# Reaction roles
 # -------------------------
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
@@ -243,15 +221,11 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
         if not msgmap:
             return
-
-        # Resolver o emoji
-        key1 = str(payload.emoji)  # unicode ou <:name:id>
+        key1 = str(payload.emoji)
         key2 = getattr(payload.emoji, "id", None)
         if key2:
             key2 = str(key2)
         role_id = None
-
-        # Preferência: id > string > name
         if key2 and key2 in msgmap:
             role_id = msgmap[key2]
         elif key1 in msgmap:
@@ -262,8 +236,6 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
                 role_id = msgmap[name_key]
         if not role_id:
             return
-
-        # Pega guild e member (fetch se não cacheado)
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
@@ -283,13 +255,11 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
         if not msgmap:
             return
-
         key1 = str(payload.emoji)
         key2 = getattr(payload.emoji, "id", None)
         if key2:
             key2 = str(key2)
         role_id = None
-
         if key2 and key2 in msgmap:
             role_id = msgmap[key2]
         elif key1 in msgmap:
@@ -300,7 +270,6 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
                 role_id = msgmap[name_key]
         if not role_id:
             return
-
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
@@ -314,44 +283,38 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     except Exception as e:
         print("on_raw_reaction_remove error:", e)
 
-
 # -------------------------
-# Helper para warn automático
+# Warn helper
 # -------------------------
 async def add_warn(member: discord.Member, reason=""):
     uid = str(member.id)
-    entry = {"by": bot.user.id, "reason": reason, "ts": datetime.utcnow().isoformat()}
+    entry = {"by": bot.user.id, "reason": reason, "ts": now_br().isoformat()}
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("Auto-warn")
     add_log(f"warn: user={uid} by=bot reason={reason}")
 
 # -------------------------
-# on_message atualizado
+# on_message
 # -------------------------
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-
     uid = str(message.author.id)
-    now_ts = datetime.utcnow().timestamp()
-
-    # --- Anti-spam: mensagens repetidas em 10s ---
+    now_ts = now_br().timestamp()
     last_msgs = data.setdefault("last_messages", {}).setdefault(uid, [])
-    last_msgs = [t for t in last_msgs if now_ts - t < 10]  # mantém só últimos 10s
+    last_msgs = [t for t in last_msgs if now_ts - t < 10]
     if last_msgs:
         await message.channel.send(f"⚠️ {message.author.mention}, evite spam!")
         await add_warn(message.author, reason="Spam detectado")
     last_msgs.append(now_ts)
     data["last_messages"][uid] = last_msgs
 
-    # --- Caps lock excessivo ---
     content = message.content.strip()
     if len(content) > 5 and content.isupper():
         await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
         await add_warn(message.author, reason="Uso excessivo de maiúsculas")
 
-    # --- XP / levelup ---
     data.setdefault("xp", {})
     data.setdefault("level", {})
     data["xp"][uid] = data["xp"].get(uid, 0) + xp_for_message()
@@ -365,19 +328,16 @@ async def on_message(message: discord.Message):
             pass
         add_log(f"level_up: user={uid} level={lvl_now}")
 
-    # Best-effort save
     try:
         save_data_to_github("XP update")
     except Exception:
         pass
 
-    # Processa comandos normalmente
     await bot.process_commands(message)
 
 # -------------------------
-# Slash commands (app_commands)
+# Slash commands
 # -------------------------
-# Helper: check admin
 def is_admin_check(interaction: discord.Interaction) -> bool:
     try:
         perms = interaction.user.guild_permissions
@@ -386,7 +346,9 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
         return False
 
 # /rank
+# Aqui você pode manter todos os comandos /rank, /top, /warn, /warns, /savedata, /reactionrole...
 @tree.command(name="rank", description="Mostra seu rank (imagem)")
+# Use now_br().isoformat() sempre que precisar de timestamp.
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
     await interaction.response.defer()
