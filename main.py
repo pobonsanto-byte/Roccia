@@ -404,9 +404,12 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     # barra preenchida
     perc = min(1.0, cur/next_xp if next_xp>0 else 0)
     draw.rectangle([x0, y0, x0+int(bar_total_w*perc), y0+bar_h], fill=(80,180,255))
-    # texto XP
+
+    # Texto XP (corrigido para Pillow moderno)
     xp_text = f"{cur} / {next_xp} XP"
-    w, h = draw.textsize(xp_text, font=font_s)
+    bbox = draw.textbbox((0, 0), xp_text, font=font_s)
+    w = bbox[2] - bbox[0]  # largura do texto
+    h = bbox[3] - bbox[1]  # altura do texto
     draw.text((x0 + bar_total_w - w, y0 - 5), xp_text, font=font_s, fill=(255,255,255))
 
     # Enviar imagem
