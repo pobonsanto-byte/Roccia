@@ -348,9 +348,7 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
         return False
 
 # /rank
-# Aqui você pode manter todos os comandos /rank, /top, /warn, /warns, /savedata, /reactionrole...
 @tree.command(name="rank", description="Mostra seu rank (imagem)")
-# Use now_br().isoformat() sempre que precisar de timestamp.
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
     await interaction.response.defer()
@@ -358,34 +356,55 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     uid = str(target.id)
     xp = data.get("xp", {}).get(uid, 0)
     lvl = data.get("level", {}).get(uid, xp_to_level(xp))
-    # position
+
+    # posição
     ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)
     pos = next((i+1 for i, (u, _) in enumerate(ranking) if u == uid), len(ranking))
-    # generate image
+
+    # criar imagem
     img = Image.new("RGBA", (800, 220), (28, 28, 28, 255))
     draw = ImageDraw.Draw(img)
+
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
     except Exception:
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
-    draw.text((20, 30), f"{target.display_name}", font=font_b, fill=(230,230,230))
-    draw.text((20, 80), f"Nível: {lvl}   •   XP: {xp}   •   Posição: #{pos}", font=font_s, fill=(200,200,200))
-    # progress bar
+
+    # --- Avatar do usuário ---
+    try:
+        avatar_bytes = await target.avatar.read()
+        avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
+        avatar = avatar.resize((150, 150))
+        # círculo (mask)
+        mask = Image.new("L", (150, 150), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, 150, 150), fill=255)
+        img.paste(avatar, (20, 35), mask)
+    except Exception as e:
+        print("Erro ao carregar avatar:", e)
+
+    # texto
+    draw.text((190, 30), f"{target.display_name}", font=font_b, fill=(230,230,230))
+    draw.text((190, 80), f"Nível: {lvl}   •   XP: {xp}   •   Posição: #{pos}", font=font_s, fill=(200,200,200))
+
+    # barra de progresso
     next_xp = 100 + lvl * 50
     cur = xp % next_xp
     perc = min(1.0, cur / next_xp if next_xp > 0 else 0.0)
-    bar_total_w = 740
+    bar_total_w = 580
     bar_h = 28
-    x0, y0 = 30, 140
+    x0, y0 = 190, 140
     draw.rectangle([x0, y0, x0 + bar_total_w, y0 + bar_h], fill=(60,60,60))
     draw.rectangle([x0, y0, x0 + int(bar_total_w * perc), y0 + bar_h], fill=(80,180,255))
+
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
+
 
 # /top
 @tree.command(name="top", description="Mostra top 10 de XP")
