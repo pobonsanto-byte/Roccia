@@ -209,71 +209,58 @@ async def on_member_join(member: discord.Member):
     welcome_msg = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
-    # ----- Criando a imagem -----
+    # ----- Imagem de fundo personalizada -----
+    background_path = "https://cdn.discordapp.com/attachments/968238229448970331/1432455877050368070/roccia-wuwa-768x432.jpg?ex=69011dfe&is=68ffcc7e&hm=59d4f4472aacf65bb971823d779b162ce47333a2a6d41916e9037bc5173aae77"
+
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
 
-    # Fundo: banner do bot (ou avatar se não tiver)
+    # Fundo (baixa via URL)
     try:
-        if bot.user.banner:
-            banner_bytes = await bot.user.banner.read()
-            banner = Image.open(BytesIO(banner_bytes)).convert("RGBA")
-            banner = banner.resize((width, height))
-            img.paste(banner, (0, 0))
-        else:
-            bot_avatar_bytes = await bot.user.avatar.read()
-            bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert("RGBA")
-            bot_avatar = bot_avatar.resize((width, height))
-            img.paste(bot_avatar, (0, 0))
+        import requests
+        response = requests.get(background_path)
+        bg = Image.open(BytesIO(response.content)).convert("RGBA")
+        bg = bg.resize((width, height))
+        img.paste(bg, (0, 0))
     except Exception as e:
-        print(f"Erro ao carregar banner/avatar do bot: {e}")
+        print(f"Erro ao carregar imagem de fundo: {e}")
 
-    # Overlay cinza semi-transparente
+    # Overlay cinza translúcido para melhorar contraste do texto
     overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
     img = Image.alpha_composite(img, overlay)
 
-    # Criar o draw depois do alpha_composite
     draw = ImageDraw.Draw(img)
 
-    # Avatar do usuário com borda sólida suave
+    # Avatar do usuário centralizado com borda roxa clara e sem pixelar
     try:
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
 
         avatar_size = 150
         border_size = 10
-        upscale = 4  # usado para suavizar borda
+        upscale = 4
         big_size = (avatar_size + border_size * 2) * upscale
 
-        # Redimensiona avatar
         user_avatar = user_avatar.resize((avatar_size * upscale, avatar_size * upscale))
-
-        # Máscara circular em alta resolução (antialias)
         mask = Image.new("L", (avatar_size * upscale, avatar_size * upscale), 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.ellipse((0, 0, avatar_size * upscale, avatar_size * upscale), fill=255)
 
-        # Cria imagem com borda sólida
-        border_color = (180, 120, 255, 255)  # roxo claro
+        border_color = (200, 150, 255, 255)  # roxo mais claro
         border = Image.new("RGBA", (big_size, big_size), (0, 0, 0, 0))
         draw_border = ImageDraw.Draw(border)
         draw_border.ellipse((0, 0, big_size, big_size), fill=border_color)
 
-        # Cola avatar recortado dentro da borda
         border.paste(user_avatar, (border_size * upscale, border_size * upscale), mask)
-
-        # Reduz suavemente para o tamanho final
         border = border.resize((avatar_size + border_size * 2, avatar_size + border_size * 2), Image.Resampling.LANCZOS)
 
-        # Centraliza
         x = (width - border.width) // 2
         y = 30
         img.paste(border, (x, y), border)
-
     except Exception as e:
         print(f"Erro ao carregar avatar do usuário: {e}")
 
-    # Texto com sombra
+    # ----- Texto -----
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
@@ -281,14 +268,13 @@ async def on_member_join(member: discord.Member):
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    text_color = (180, 120, 255)
+    text_color = (200, 150, 255)
     shadow_color = (0, 0, 0, 180)
 
     # Nome do usuário
     text_name = member.display_name
     bbox_name = draw.textbbox((0, 0), text_name, font=font_b)
     text_w = bbox_name[2] - bbox_name[0]
-    text_h = bbox_name[3] - bbox_name[1]
     text_x = (width - text_w) // 2
     text_y = y + border.height + 10
 
@@ -299,14 +285,13 @@ async def on_member_join(member: discord.Member):
     text_count = f"Membro #{len(member.guild.members)}"
     bbox_count = draw.textbbox((0, 0), text_count, font=font_s)
     text_w2 = bbox_count[2] - bbox_count[0]
-    text_h2 = bbox_count[3] - bbox_count[1]
     text_x2 = (width - text_w2) // 2
     text_y2 = text_y + 50
 
     draw.text((text_x2 + 1, text_y2 + 1), text_count, font=font_s, fill=shadow_color)
     draw.text((text_x2, text_y2), text_count, font=font_s, fill=text_color)
 
-    # Salvar e enviar
+    # ----- Enviar mensagem -----
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -314,6 +299,7 @@ async def on_member_join(member: discord.Member):
 
     await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
+
 
 
 
