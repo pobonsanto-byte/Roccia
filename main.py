@@ -210,7 +210,7 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Criando a imagem -----
-    width, height = 900, 300  # altura maior para o texto
+    width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
 
     # Fundo: banner do bot ou avatar se não houver banner
@@ -232,10 +232,10 @@ async def on_member_join(member: discord.Member):
     overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
     img = Image.alpha_composite(img, overlay)
 
-    # Criar o draw DEPOIS do alpha_composite
+    # Criar o draw depois do alpha_composite
     draw = ImageDraw.Draw(img)
 
-    # Avatar do usuário (circular, centralizado, borda roxa)
+    # Avatar do usuário (circular, centralizado, borda degradê roxo)
     try:
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
@@ -247,12 +247,31 @@ async def on_member_join(member: discord.Member):
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
-        # Borda roxa
-        border_size = 6
-        border = Image.new("RGBA", (avatar_size + border_size*2, avatar_size + border_size*2), (128, 0, 128, 255))
+        # Borda degradê roxa
+        border_size = 8
+        border = Image.new("RGBA", (avatar_size + border_size*2, avatar_size + border_size*2), (0, 0, 0, 0))
         border_mask = Image.new("L", (avatar_size + border_size*2, avatar_size + border_size*2), 0)
         mask_draw_border = ImageDraw.Draw(border_mask)
         mask_draw_border.ellipse((0, 0, avatar_size + border_size*2, avatar_size + border_size*2), fill=255)
+
+        # Criar degradê simples
+        for i in range(border_size):
+            alpha = 255
+            color = (
+                int(180 - i*10),  # R
+                int(120 - i*5),   # G
+                int(255 - i*20),  # B
+                alpha
+            )
+            mask_draw_border.ellipse(
+                (i, i, avatar_size + border_size*2 - i, avatar_size + border_size*2 - i), 
+                fill=255
+            )
+            ImageDraw.Draw(border).ellipse(
+                (i, i, avatar_size + border_size*2 - i, avatar_size + border_size*2 - i),
+                outline=color, width=1
+            )
+
         border.paste(user_avatar, (border_size, border_size), mask)
 
         # Posição centralizada
@@ -262,7 +281,7 @@ async def on_member_join(member: discord.Member):
     except Exception as e:
         print(f"Erro ao carregar avatar do usuário: {e}")
 
-    # Texto em roxo, centralizado embaixo do avatar
+    # Texto em roxo claro com sombra, centralizado
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
@@ -270,23 +289,33 @@ async def on_member_join(member: discord.Member):
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    text_color = (128, 0, 128)  # roxo
+    text_color = (180, 120, 255)  # roxo claro
+    shadow_color = (0, 0, 0, 180) # sombra preta semi-transparente
 
-    # Nome do usuário
+    # Nome do usuário com sombra
     text_name = member.display_name
     bbox_name = draw.textbbox((0, 0), text_name, font=font_b)
     text_w = bbox_name[2] - bbox_name[0]
     text_h = bbox_name[3] - bbox_name[1]
-    draw.text(((width - text_w)//2, y + border.height + 10), text_name, font=font_b, fill=text_color)
+    text_x = (width - text_w) // 2
+    text_y = y + border.height + 10
 
-    # Contagem de membros
+    # Sombra
+    draw.text((text_x + 2, text_y + 2), text_name, font=font_b, fill=shadow_color)
+    draw.text((text_x, text_y), text_name, font=font_b, fill=text_color)
+
+    # Contagem de membros com sombra
     text_count = f"Membro #{len(member.guild.members)}"
     bbox_count = draw.textbbox((0, 0), text_count, font=font_s)
     text_w2 = bbox_count[2] - bbox_count[0]
     text_h2 = bbox_count[3] - bbox_count[1]
-    draw.text(((width - text_w2)//2, y + border.height + 50), text_count, font=font_s, fill=text_color)
+    text_x2 = (width - text_w2) // 2
+    text_y2 = y + border.height + 50
 
-    # Salvar em buffer e enviar
+    draw.text((text_x2 + 1, text_y2 + 1), text_count, font=font_s, fill=shadow_color)
+    draw.text((text_x2, text_y2), text_count, font=font_s, fill=text_color)
+
+    # Salvar e enviar
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
