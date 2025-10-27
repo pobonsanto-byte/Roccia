@@ -210,9 +210,8 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Criando a imagem -----
-    width, height = 900, 300  # Aumentei a altura para caber o texto embaixo do avatar
+    width, height = 900, 300  # altura maior para o texto
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
-    draw = ImageDraw.Draw(img)
 
     # Fundo: banner do bot ou avatar se não houver banner
     try:
@@ -229,9 +228,12 @@ async def on_member_join(member: discord.Member):
     except Exception as e:
         print(f"Erro ao carregar banner/avatar do bot: {e}")
 
-    # Camada de transparência cinza para facilitar leitura do texto
-    overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))  # cinza semi-transparente
+    # Overlay cinza semi-transparente
+    overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
     img = Image.alpha_composite(img, overlay)
+
+    # Criar o draw DEPOIS do alpha_composite
+    draw = ImageDraw.Draw(img)
 
     # Avatar do usuário (circular, centralizado, borda roxa)
     try:
@@ -292,6 +294,7 @@ async def on_member_join(member: discord.Member):
 
     await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
+
 
 
 
