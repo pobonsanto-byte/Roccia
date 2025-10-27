@@ -50,12 +50,28 @@ app = Flask("imunebot")
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Imune Bot is active!"
+    return "🤖 Bot rodando!"
 
 def run_flask():
-    app.run(host="0.0.0.0", port=PORT)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 Thread(target=run_flask, daemon=True).start()
+
+# -------------------------
+# Auto ping (manter bot ativo)
+# -------------------------
+def auto_ping():
+    while True:
+        try:
+            url = os.environ.get("REPLIT_URL") or os.environ.get("SELF_URL")
+            if url:
+                requests.get(url)
+            time.sleep(300)  # ping a cada 5 minutos
+        except Exception as e:
+            print(f"Erro no auto-ping: {e}")
+
+Thread(target=auto_ping, daemon=True).start()
 
 # -------------------------
 # Bot setup
