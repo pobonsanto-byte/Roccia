@@ -23,8 +23,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
-import sys
-sys.modules["audioop"] = None
+
 
 
 # -------------------------
