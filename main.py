@@ -414,14 +414,7 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     
     # Se quiser gradiente, pode substituir fill por um gradiente similar ao que já fazia
         img.paste(filled_bar, (x0, y0), filled_bar)
-        gradient = Image.new("RGBA", (fill_w, bar_h), 0)
-        grad_draw = ImageDraw.Draw(gradient)
-        for i in range(fill_w):
-            r = 0
-            g = 200
-            b = 255
-            grad_draw.line([(i, 0), (i, bar_h)], fill=(r, g, b))
-        img.paste(gradient, (x0, y0), gradient)
+        
 
 
     # Texto XP dentro da barra, centralizado verticalmente
