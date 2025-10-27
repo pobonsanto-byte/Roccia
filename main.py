@@ -302,40 +302,65 @@ async def add_warn(member: discord.Member, reason=""):
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    uid = str(message.author.id)
-    now_ts = now_br().timestamp()
-    last_msgs = data.setdefault("last_messages", {}).setdefault(uid, [])
-    last_msgs = [t for t in last_msgs if now_ts - t < 10]
-    if last_msgs:
-        await message.channel.send(f"⚠️ {message.author.mention}, evite spam!")
-        await add_warn(message.author, reason="Spam detectado")
-    last_msgs.append(now_ts)
-    data["last_messages"][uid] = last_msgs
 
+    uid = str(message.author.id)
     content = message.content.strip()
+    delete_message = False  # Flag para saber se devemos deletar e não dar XP
+
+    # Histórico de mensagens do usuário
+    user_msgs = data.setdefault("last_messages_content", {}).setdefault(uid, [])
+
+    # Limita histórico para as últimas 5 mensagens
+    if len(user_msgs) >= 5:
+        user_msgs.pop(0)
+
+    # Checa spam por mensagens repetidas
+    if user_msgs and content == user_msgs[-1]:
+        delete_message = True
+        try:
+            await message.delete()
+        except discord.Forbidden:
+            pass
+        await message.channel.send(f"⚠️ {message.author.mention}, evite spam com mensagens repetidas!")
+        await add_warn(message.author, reason="Spam detectado")
+    else:
+        user_msgs.append(content)
+
+    data["last_messages_content"][uid] = user_msgs
+
+    # Checa mensagens em maiúsculas
     if len(content) > 5 and content.isupper():
+        delete_message = True
+        try:
+            await message.delete()
+        except discord.Forbidden:
+            pass
         await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
         await add_warn(message.author, reason="Uso excessivo de maiúsculas")
 
-    data.setdefault("xp", {})
-    data.setdefault("level", {})
-    data["xp"][uid] = data["xp"].get(uid, 0) + xp_for_message()
-    xp_now = data["xp"][uid]
-    lvl_now = xp_to_level(xp_now)
-    if lvl_now > data["level"].get(uid, 1):
-        data["level"][uid] = lvl_now
-        try:
-            await message.channel.send(f"🎉 {message.author.mention} subiu para o nível **{lvl_now}**!")
-        except Exception:
-            pass
-        add_log(f"level_up: user={uid} level={lvl_now}")
+    # Só dá XP se a mensagem não for deletada
+    if not delete_message:
+        data.setdefault("xp", {})
+        data.setdefault("level", {})
+        data["xp"][uid] = data["xp"].get(uid, 0) + xp_for_message()
+        xp_now = data["xp"][uid]
+        lvl_now = xp_to_level(xp_now)
+        if lvl_now > data["level"].get(uid, 1):
+            data["level"][uid] = lvl_now
+            try:
+                await message.channel.send(f"🎉 {message.author.mention} subiu para o nível **{lvl_now}**!")
+            except Exception:
+                pass
+            add_log(f"level_up: user={uid} level={lvl_now}")
 
+    # Salva dados
     try:
         save_data_to_github("XP update")
     except Exception:
         pass
 
     await bot.process_commands(message)
+
 
 # -------------------------
 # Slash commands
