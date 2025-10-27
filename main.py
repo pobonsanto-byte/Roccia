@@ -401,7 +401,21 @@ async def on_message(message: discord.Message):
     content = message.content.strip()
     delete_message = False  # Flag para saber se devemos deletar e não dar XP
 
-    # Histórico de mensagens do usuário
+    # -------- Bloqueio de links por canal --------
+    blocked_channels = data.get("blocked_links_channels", [])
+    if message.channel.id in blocked_channels:
+        import re
+        url_pattern = r"https?://[^\s]+"  # Regex simples para links
+        if re.search(url_pattern, content):
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+            await message.channel.send(f"⚠️ {message.author.mention}, links não são permitidos aqui!")
+            await add_warn(message.author, reason="Enviou link em canal bloqueado")
+            return  # Sai do evento para não dar XP ou processar spam/caps
+
+    # -------- Histórico de mensagens do usuário --------
     user_msgs = data.setdefault("last_messages_content", {}).setdefault(uid, [])
 
     # Limita histórico para as últimas 5 mensagens
@@ -456,6 +470,7 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
+
 # -------------------------
 # Slash commands
 # -------------------------
@@ -496,6 +511,27 @@ async def slash_setcommandchannel(interaction: discord.Interaction, command: str
 
     save_data_to_github(f"Set command channel for {command}")
     await interaction.response.send_message(msg, ephemeral=False)
+
+# Comando para bloquear/desbloquear links em um canal
+@tree.command(name="blocklinks", description="Bloqueia ou desbloqueia links em um canal (admin)")
+@app_commands.describe(channel="Canal para bloquear/desbloquear links")
+async def block_links(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        return
+
+    data.setdefault("blocked_links_channels", [])
+    
+    if channel.id in data["blocked_links_channels"]:
+        # Remove o bloqueio
+        data["blocked_links_channels"].remove(channel.id)
+        save_data_to_github("Unblock links channel")
+        await interaction.response.send_message(f"✅ Links desbloqueados no canal {channel.mention}.")
+    else:
+        # Adiciona o bloqueio
+        data["blocked_links_channels"].append(channel.id)
+        save_data_to_github("Block links channel")
+        await interaction.response.send_message(f"✅ Links bloqueados no canal {channel.mention}.")
 
 
 # /rank
