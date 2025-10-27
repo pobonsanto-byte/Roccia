@@ -348,69 +348,110 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
         return False
 
 # /rank
-@tree.command(name="rank", description="Mostra seu rank (imagem estilo anime)")
+@tree.command(name="rank", description="Rank estilo anime/cyber ultra-estilizado")
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
-    await interaction.response.defer()
+    await interaction.response.defer(thinking=True)
+
     target = member or interaction.user
     uid = str(target.id)
     xp = data.get("xp", {}).get(uid, 0)
     lvl = data.get("level", {}).get(uid, xp_to_level(xp))
 
-    # posição
     ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)
     pos = next((i+1 for i, (u, _) in enumerate(ranking) if u == uid), len(ranking))
 
-    # Criar imagem base
-    width, height = 800, 180
-    img = Image.new("RGBA", (width, height), (30, 30, 30, 255))
+    # Imagem base
+    width, height = 960, 240
+    img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
     draw = ImageDraw.Draw(img)
-
-    # Carregar avatar
-    try:
-        avatar_bytes = await target.avatar.read()
-        avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
-        avatar = avatar.resize((100, 100))
-        # máscara circular
-        mask = Image.new("L", (100, 100), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, 100, 100), fill=255)
-        img.paste(avatar, (20, 40), mask)
-    except Exception as e:
-        print("Erro ao carregar avatar:", e)
 
     # Fontes
     try:
-        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
     except:
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    # Texto: nome
-    draw.text((140, 50), f"{target.display_name}", font=font_b, fill=(255,255,255))
+    # Avatar circular com sombra e borda neon
+    try:
+        avatar_bytes = await target.avatar.read()
+        avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
+        avatar = avatar.resize((140, 140))
 
-    # Texto: classificação e nível
-    draw.text((650, 30), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(200,200,200))
-    draw.text((650, 70), f"NÍVEL {lvl}", font=font_s, fill=(0, 180, 255))
+        # Sombra externa
+        shadow = Image.new("RGBA", (150, 150), (0,0,0,100))
+        img.paste(shadow, (15, 50), shadow)
 
-    # Barra de XP
-    next_xp = 100 + lvl * 50
+        # Máscara circular
+        mask = Image.new("L", (140, 140), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0,0,140,140), fill=255)
+        img.paste(avatar, (20, 55), mask)
+
+        # Borda neon
+        border = Image.new("RGBA", (140, 140), (0,0,0,0))
+        bdraw = ImageDraw.Draw(border)
+        for i in range(4):
+            bdraw.ellipse((i, i, 140-i, 140-i), outline=(0, 200, 255, 180))
+        img.paste(border, (20, 55), border)
+
+    except Exception as e:
+        print("Erro avatar:", e)
+
+    # Nome com sombra dupla
+    name_pos = (180, 60)
+    draw.text((name_pos[0]+3, name_pos[1]+3), target.display_name, font=font_b, fill=(0,0,0,200))
+    draw.text((name_pos[0]+1, name_pos[1]+1), target.display_name, font=font_b, fill=(0,0,0,150))
+    draw.text(name_pos, target.display_name, font=font_b, fill=(0, 255, 255))
+
+    # Classificação e nível com sombra
+    cpos = (740, 40)
+    lpos = (740, 90)
+    for pos_offset in [(3,3),(1,1)]:
+        draw.text((cpos[0]+pos_offset[0], cpos[1]+pos_offset[1]), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(0,0,0))
+        draw.text((lpos[0]+pos_offset[0], lpos[1]+pos_offset[1]), f"NÍVEL {lvl}", font=font_s, fill=(0,0,0))
+    draw.text(cpos, f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(0,255,255))
+    draw.text(lpos, f"NÍVEL {lvl}", font=font_s, fill=(255,100,255))
+
+    # Barra XP arredondada neon com gradiente
+    next_xp = 100 + lvl*50
     cur = xp % next_xp
-    bar_total_w, bar_h = 500, 30
-    x0, y0 = 140, 120
-    # fundo barra
-    draw.rectangle([x0, y0, x0+bar_total_w, y0+bar_h], fill=(50,50,50))
-    # barra preenchida
-    perc = min(1.0, cur/next_xp if next_xp>0 else 0)
-    draw.rectangle([x0, y0, x0+int(bar_total_w*perc), y0+bar_h], fill=(80,180,255))
+    bar_total_w, bar_h = 560, 40
+    x0, y0 = 180, 160
+    radius = bar_h//2
 
-    # Texto XP (corrigido para Pillow moderno)
+    # Fundo barra
+    draw.rounded_rectangle([x0, y0, x0+bar_total_w, y0+bar_h], radius=radius, fill=(30,30,40))
+
+    # Barra preenchida com gradiente neon
+    fill_w = int(bar_total_w * min(1.0, cur/next_xp if next_xp>0 else 0))
+    if fill_w > 0:
+        gradient = Image.new("RGBA", (fill_w, bar_h), (0,0,0,0))
+        grad_draw = ImageDraw.Draw(gradient)
+        for i in range(fill_w):
+            r = 50 + int(205*i/fill_w)
+            g = 50 + int(205*i/fill_w)
+            b = 255
+            grad_draw.line([(i,0),(i,bar_h)], fill=(r,g,b,220))
+        img.paste(gradient, (x0, y0), gradient)
+
+        # Brilho animado (simula movimento neon)
+        glow = Image.new("RGBA", (fill_w, bar_h), (255,255,255,0))
+        gdraw = ImageDraw.Draw(glow)
+        for i in range(0, fill_w, 4):
+            alpha = 80 if i%8==0 else 40
+            gdraw.line([(i,0),(i,bar_h)], fill=(255,255,255,alpha))
+        img.paste(glow, (x0, y0), glow)
+
+    # Texto XP com sombra
     xp_text = f"{cur} / {next_xp} XP"
-    bbox = draw.textbbox((0, 0), xp_text, font=font_s)
-    w = bbox[2] - bbox[0]  # largura do texto
-    h = bbox[3] - bbox[1]  # altura do texto
-    draw.text((x0 + bar_total_w - w, y0 - 5), xp_text, font=font_s, fill=(255,255,255))
+    bbox = draw.textbbox((0,0), xp_text, font=font_s)
+    w = bbox[2]-bbox[0]
+    xp_pos = (x0 + bar_total_w - w, y0 - 8)
+    draw.text((xp_pos[0]+2, xp_pos[1]+2), xp_text, font=font_s, fill=(0,0,0,200))
+    draw.text(xp_pos, xp_text, font=font_s, fill=(0,255,255))
 
     # Enviar imagem
     buf = BytesIO()
@@ -418,6 +459,7 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     buf.seek(0)
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
+
 
 
 
