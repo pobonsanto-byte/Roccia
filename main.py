@@ -213,7 +213,7 @@ async def on_member_join(member: discord.Member):
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
 
-    # Fundo: banner do bot ou avatar se não houver banner
+    # Fundo: banner do bot (ou avatar se não tiver)
     try:
         if bot.user.banner:
             banner_bytes = await bot.user.banner.read()
@@ -235,11 +235,13 @@ async def on_member_join(member: discord.Member):
     # Criar o draw depois do alpha_composite
     draw = ImageDraw.Draw(img)
 
-    # Avatar do usuário (circular, centralizado, borda degradê roxo)
+    # Avatar do usuário com borda degradê roxa suave
     try:
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
+
         avatar_size = 150
+        border_size = 10
         user_avatar = user_avatar.resize((avatar_size, avatar_size))
 
         # Máscara circular
@@ -247,41 +249,35 @@ async def on_member_join(member: discord.Member):
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
 
-        # Borda degradê roxa
-        border_size = 8
+        # Base da borda
         border = Image.new("RGBA", (avatar_size + border_size*2, avatar_size + border_size*2), (0, 0, 0, 0))
-        border_mask = Image.new("L", (avatar_size + border_size*2, avatar_size + border_size*2), 0)
-        mask_draw_border = ImageDraw.Draw(border_mask)
-        mask_draw_border.ellipse((0, 0, avatar_size + border_size*2, avatar_size + border_size*2), fill=255)
+        draw_border = ImageDraw.Draw(border)
 
-        # Criar degradê simples
+        # Cria degradê radial roxo suave
         for i in range(border_size):
-            alpha = 255
+            ratio = i / border_size
             color = (
-                int(180 - i*10),  # R
-                int(120 - i*5),   # G
-                int(255 - i*20),  # B
-                alpha
+                int(180 - 50 * ratio),  # roxo mais escuro nas bordas
+                int(120 - 40 * ratio),
+                int(255 - 80 * ratio),
+                255
             )
-            mask_draw_border.ellipse(
-                (i, i, avatar_size + border_size*2 - i, avatar_size + border_size*2 - i), 
-                fill=255
-            )
-            ImageDraw.Draw(border).ellipse(
+            draw_border.ellipse(
                 (i, i, avatar_size + border_size*2 - i, avatar_size + border_size*2 - i),
                 outline=color, width=1
             )
 
+        # Colar o avatar no meio
         border.paste(user_avatar, (border_size, border_size), mask)
 
-        # Posição centralizada
+        # Centralizar
         x = (width - border.width) // 2
         y = 30
-        img.paste(border, (x, y), border_mask)
+        img.paste(border, (x, y), border)
     except Exception as e:
         print(f"Erro ao carregar avatar do usuário: {e}")
 
-    # Texto em roxo claro com sombra, centralizado
+    # Texto com sombra
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
@@ -289,10 +285,10 @@ async def on_member_join(member: discord.Member):
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    text_color = (180, 120, 255)  # roxo claro
-    shadow_color = (0, 0, 0, 180) # sombra preta semi-transparente
+    text_color = (180, 120, 255)
+    shadow_color = (0, 0, 0, 180)
 
-    # Nome do usuário com sombra
+    # Nome do usuário
     text_name = member.display_name
     bbox_name = draw.textbbox((0, 0), text_name, font=font_b)
     text_w = bbox_name[2] - bbox_name[0]
@@ -300,17 +296,16 @@ async def on_member_join(member: discord.Member):
     text_x = (width - text_w) // 2
     text_y = y + border.height + 10
 
-    # Sombra
     draw.text((text_x + 2, text_y + 2), text_name, font=font_b, fill=shadow_color)
     draw.text((text_x, text_y), text_name, font=font_b, fill=text_color)
 
-    # Contagem de membros com sombra
+    # Contagem de membros
     text_count = f"Membro #{len(member.guild.members)}"
     bbox_count = draw.textbbox((0, 0), text_count, font=font_s)
     text_w2 = bbox_count[2] - bbox_count[0]
     text_h2 = bbox_count[3] - bbox_count[1]
     text_x2 = (width - text_w2) // 2
-    text_y2 = y + border.height + 50
+    text_y2 = text_y + 50
 
     draw.text((text_x2 + 1, text_y2 + 1), text_count, font=font_s, fill=shadow_color)
     draw.text((text_x2, text_y2), text_count, font=font_s, fill=text_color)
@@ -323,6 +318,7 @@ async def on_member_join(member: discord.Member):
 
     await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
+
 
 
 
