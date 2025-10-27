@@ -237,7 +237,7 @@ async def on_member_join(member: discord.Member):
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
 
         avatar_size = 150
-        border_size = 10
+        border_size = 5
         upscale = 4
         big_size = (avatar_size + border_size * 2) * upscale
 
