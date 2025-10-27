@@ -210,33 +210,57 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Criando a imagem -----
-    width, height = 900, 250
-
-    # Fundo com avatar do bot
+    width, height = 900, 300  # Aumentei a altura para caber o texto embaixo do avatar
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(img)
 
+    # Fundo: banner do bot ou avatar se não houver banner
     try:
-        bot_avatar_bytes = await bot.user.avatar.read()
-        bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert("RGBA")
-        bot_avatar = bot_avatar.resize((width, height))
-        img.paste(bot_avatar, (0, 0))
-    except:
-        pass
+        if bot.user.banner:
+            banner_bytes = await bot.user.banner.read()
+            banner = Image.open(BytesIO(banner_bytes)).convert("RGBA")
+            banner = banner.resize((width, height))
+            img.paste(banner, (0, 0))
+        else:
+            bot_avatar_bytes = await bot.user.avatar.read()
+            bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert("RGBA")
+            bot_avatar = bot_avatar.resize((width, height))
+            img.paste(bot_avatar, (0, 0))
+    except Exception as e:
+        print(f"Erro ao carregar banner/avatar do bot: {e}")
 
-    # Avatar do usuário
+    # Camada de transparência cinza para facilitar leitura do texto
+    overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))  # cinza semi-transparente
+    img = Image.alpha_composite(img, overlay)
+
+    # Avatar do usuário (circular, centralizado, borda roxa)
     try:
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
-        user_avatar = user_avatar.resize((150, 150))
-        mask = Image.new("L", (150, 150), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, 150, 150), fill=255)
-        img.paste(user_avatar, (30, 50), mask)
-    except:
-        pass
+        avatar_size = 150
+        user_avatar = user_avatar.resize((avatar_size, avatar_size))
 
-    # Texto
+        # Máscara circular
+        mask = Image.new("L", (avatar_size, avatar_size), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+
+        # Borda roxa
+        border_size = 6
+        border = Image.new("RGBA", (avatar_size + border_size*2, avatar_size + border_size*2), (128, 0, 128, 255))
+        border_mask = Image.new("L", (avatar_size + border_size*2, avatar_size + border_size*2), 0)
+        mask_draw_border = ImageDraw.Draw(border_mask)
+        mask_draw_border.ellipse((0, 0, avatar_size + border_size*2, avatar_size + border_size*2), fill=255)
+        border.paste(user_avatar, (border_size, border_size), mask)
+
+        # Posição centralizada
+        x = (width - border.width) // 2
+        y = 30
+        img.paste(border, (x, y), border_mask)
+    except Exception as e:
+        print(f"Erro ao carregar avatar do usuário: {e}")
+
+    # Texto em roxo, centralizado embaixo do avatar
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
@@ -244,8 +268,17 @@ async def on_member_join(member: discord.Member):
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    draw.text((200, 80), member.display_name, font=font_b, fill=(255, 255, 255))
-    draw.text((200, 140), f"Membro #{len(member.guild.members)}", font=font_s, fill=(200, 200, 255))
+    text_color = (128, 0, 128)  # roxo
+
+    # Nome do usuário
+    text_name = member.display_name
+    text_w, text_h = draw.textsize(text_name, font=font_b)
+    draw.text(((width - text_w)//2, y + border.height + 10), text_name, font=font_b, fill=text_color)
+
+    # Contagem de membros
+    text_count = f"Membro #{len(member.guild.members)}"
+    text_w2, text_h2 = draw.textsize(text_count, font=font_s)
+    draw.text(((width - text_w2)//2, y + border.height + 50), text_count, font=font_s, fill=text_color)
 
     # Salvar em buffer e enviar
     buf = BytesIO()
