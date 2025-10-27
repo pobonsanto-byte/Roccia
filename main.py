@@ -23,6 +23,7 @@ from flask import Flask
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 
 # -------------------------
@@ -176,12 +177,55 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
     return emoji_str
 
 # -------------------------
+# View para múltiplos botões
+# -------------------------
+class PersistentRoleButtonView(ui.View):
+    def __init__(self, message_id: int, buttons_dict: dict):
+        """
+        message_id: ID da mensagem que contém os botões
+        buttons_dict = {
+            "Nome do Botão 1": role_id1,
+            "Nome do Botão 2": role_id2,
+        }
+        """
+        super().__init__(timeout=None)
+        self.message_id = message_id
+        for label, role_id in buttons_dict.items():
+            self.add_item(PersistentRoleButton(label=label, role_id=role_id, message_id=message_id))
+
+class PersistentRoleButton(ui.Button):
+    def __init__(self, label: str, role_id: int, message_id: int):
+        super().__init__(label=label, style=ButtonStyle.primary)
+        self.role_id = role_id
+        self.message_id = message_id
+
+    async def callback(self, interaction: Interaction):
+        guild = interaction.guild
+        member = interaction.user
+        role = guild.get_role(self.role_id)
+        if not role:
+            await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
+            return
+
+        if role in member.roles:
+            await member.remove_roles(role, reason="Role button")
+            await interaction.response.send_message(f"Você **removeu** o cargo {role.mention}.", ephemeral=True)
+        else:
+            await member.add_roles(role, reason="Role button")
+            await interaction.response.send_message(f"Você **recebeu** o cargo {role.mention}.", ephemeral=True)
+
+        # Log
+        add_log(f"role_button_click: user={member.id} role={role.id} message={self.message_id}")
+
+# -------------------------
 # Eventos
 # -------------------------
 @bot.event
 async def on_ready():
     print(f"Logado como {bot.user} (id: {bot.user.id})")
     load_data_from_github()
+
+    # Sincronizar comandos slash
     try:
         if GUILD_ID:
             gid = int(GUILD_ID)
@@ -193,6 +237,28 @@ async def on_ready():
             print("Comandos slash globais sincronizados.")
     except Exception as e:
         print("Erro ao sincronizar comandos:", e)
+
+    # ---------- Reconstruir Role Buttons persistentes ----------
+    for msg_id_str, buttons_dict in data.get("role_buttons", {}).items():
+        try:
+            msg_id = int(msg_id_str)
+            message = None
+            for guild in bot.guilds:
+                for channel in guild.text_channels:
+                    try:
+                        message = await channel.fetch_message(msg_id)
+                        break
+                    except Exception:
+                        continue
+                if message:
+                    break
+            if message:
+                view = PersistentRoleButtonView(msg_id, buttons_dict)
+                await message.edit(view=view)
+                print(f"Role Buttons restaurados para mensagem {msg_id}")
+        except Exception as e:
+            print(f"Erro ao restaurar role buttons para a mensagem {msg_id_str}: {e}")
+
 
 @bot.event
 async def on_member_join(member: discord.Member):
@@ -511,6 +577,46 @@ async def slash_setcommandchannel(interaction: discord.Interaction, command: str
 
     save_data_to_github(f"Set command channel for {command}")
     await interaction.response.send_message(msg, ephemeral=False)
+
+# -------------------------
+# Comando para criar mensagem com botões
+# -------------------------
+@tree.command(name="create_role_buttons", description="Cria uma mensagem com botões de cargos")
+@app_commands.describe(
+    channel="Canal para enviar a mensagem",
+    content="Texto da mensagem",
+    roles="Cargos separados por vírgula (ex: Cargo1,Cargo2)"
+)
+async def create_role_buttons(interaction: Interaction, channel: discord.TextChannel, content: str, roles: str):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        return
+
+    # Criar dicionário de botões
+    buttons_dict = {}
+    for role_name in [r.strip() for r in roles.split(",")]:
+        role = discord.utils.get(interaction.guild.roles, name=role_name)
+        if role:
+            buttons_dict[role.name] = role.id
+        else:
+            await interaction.response.send_message(f"Cargo `{role_name}` não encontrado.", ephemeral=True)
+            return
+
+    # Envia mensagem
+    view = PersistentRoleButtonView(0, buttons_dict)  # temporário, substituiremos depois pelo ID
+    sent = await channel.send(content=content, view=view)
+
+    # Atualiza view com ID real da mensagem
+    view.message_id = sent.id
+    for item in view.children:
+        if isinstance(item, PersistentRoleButton):
+            item.message_id = sent.id
+
+    # Salva no data.json
+    data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
+    save_data_to_github("Create role buttons")
+
+    await interaction.response.send_message(f"Mensagem criada em {channel.mention} com {len(buttons_dict)} botões.", ephemeral=True)
 
 # Comando para bloquear/desbloquear links em um canal
 @tree.command(name="blocklinks", description="Bloqueia ou desbloqueia links em um canal (admin)")
