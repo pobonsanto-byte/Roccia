@@ -407,6 +407,13 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     # Barra preenchida (gradiente azul neon) arredondada
     fill_w = int(bar_total_w * min(1.0, cur / next_xp))
     if fill_w > 0:
+    # Cria a barra preenchida com mesmo raio que o fundo
+        filled_bar = Image.new("RGBA", (fill_w, bar_h), (0,0,0,0))
+        fill_draw = ImageDraw.Draw(filled_bar)
+        fill_draw.rounded_rectangle([0, 0, fill_w, bar_h], radius=radius, fill=(0, 200, 255))
+    
+    # Se quiser gradiente, pode substituir fill por um gradiente similar ao que já fazia
+        img.paste(filled_bar, (x0, y0), filled_bar)
         gradient = Image.new("RGBA", (fill_w, bar_h), 0)
         grad_draw = ImageDraw.Draw(gradient)
         for i in range(fill_w):
