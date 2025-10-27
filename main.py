@@ -234,34 +234,42 @@ async def on_member_join(member: discord.Member):
         await channel.send(embed=embed)
     add_log(f"member_join: {member.id} - {member}")
 
+# -------------------------
+# Reaction Roles corrigido
+# -------------------------
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     try:
         msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
         if not msgmap:
             return
-        # payload.emoji may be PartialEmoji-like; we check several keys
-        key1 = str(payload.emoji)  # for unicode or <:name:id>
-        key2 = None
-        if hasattr(payload.emoji, "id") and payload.emoji.id:
-            key2 = str(payload.emoji.id)
+
+        # Resolver o emoji
+        key1 = str(payload.emoji)  # unicode ou <:name:id>
+        key2 = getattr(payload.emoji, "id", None)
+        if key2:
+            key2 = str(key2)
         role_id = None
-        # preference: id match, then string match
+
+        # Preferência: id > string > name
         if key2 and key2 in msgmap:
             role_id = msgmap[key2]
         elif key1 in msgmap:
             role_id = msgmap[key1]
-        if not role_id:
-            # also check by name if present
+        else:
             name_key = getattr(payload.emoji, "name", None)
             if name_key and name_key in msgmap:
                 role_id = msgmap[name_key]
         if not role_id:
             return
+
+        # Pega guild e member (fetch se não cacheado)
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
         member = guild.get_member(payload.user_id)
+        if not member:
+            member = await guild.fetch_member(payload.user_id)
         role = guild.get_role(int(role_id))
         if member and role:
             await member.add_roles(role, reason="reaction role add")
@@ -275,25 +283,30 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
         if not msgmap:
             return
+
         key1 = str(payload.emoji)
-        key2 = None
-        if hasattr(payload.emoji, "id") and payload.emoji.id:
-            key2 = str(payload.emoji.id)
+        key2 = getattr(payload.emoji, "id", None)
+        if key2:
+            key2 = str(key2)
         role_id = None
+
         if key2 and key2 in msgmap:
             role_id = msgmap[key2]
         elif key1 in msgmap:
             role_id = msgmap[key1]
-        if not role_id:
+        else:
             name_key = getattr(payload.emoji, "name", None)
             if name_key and name_key in msgmap:
                 role_id = msgmap[name_key]
         if not role_id:
             return
+
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
         member = guild.get_member(payload.user_id)
+        if not member:
+            member = await guild.fetch_member(payload.user_id)
         role = guild.get_role(int(role_id))
         if member and role:
             await member.remove_roles(role, reason="reaction role remove")
@@ -301,12 +314,44 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     except Exception as e:
         print("on_raw_reaction_remove error:", e)
 
+
+# -------------------------
+# Helper para warn automático
+# -------------------------
+async def add_warn(member: discord.Member, reason=""):
+    uid = str(member.id)
+    entry = {"by": bot.user.id, "reason": reason, "ts": datetime.utcnow().isoformat()}
+    data.setdefault("warns", {}).setdefault(uid, []).append(entry)
+    save_data_to_github("Auto-warn")
+    add_log(f"warn: user={uid} by=bot reason={reason}")
+
+# -------------------------
+# on_message atualizado
+# -------------------------
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    # XP awarding
+
     uid = str(message.author.id)
+    now_ts = datetime.utcnow().timestamp()
+
+    # --- Anti-spam: mensagens repetidas em 10s ---
+    last_msgs = data.setdefault("last_messages", {}).setdefault(uid, [])
+    last_msgs = [t for t in last_msgs if now_ts - t < 10]  # mantém só últimos 10s
+    if last_msgs:
+        await message.channel.send(f"⚠️ {message.author.mention}, evite spam!")
+        await add_warn(message.author, reason="Spam detectado")
+    last_msgs.append(now_ts)
+    data["last_messages"][uid] = last_msgs
+
+    # --- Caps lock excessivo ---
+    content = message.content.strip()
+    if len(content) > 5 and content.isupper():
+        await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
+        await add_warn(message.author, reason="Uso excessivo de maiúsculas")
+
+    # --- XP / levelup ---
     data.setdefault("xp", {})
     data.setdefault("level", {})
     data["xp"][uid] = data["xp"].get(uid, 0) + xp_for_message()
@@ -319,12 +364,15 @@ async def on_message(message: discord.Message):
         except Exception:
             pass
         add_log(f"level_up: user={uid} level={lvl_now}")
-    # Best-effort save (synchronous)
+
+    # Best-effort save
     try:
         save_data_to_github("XP update")
     except Exception:
         pass
-    await bot.process_commands(message)  # ensures commands still run if any text commands exist
+
+    # Processa comandos normalmente
+    await bot.process_commands(message)
 
 # -------------------------
 # Slash commands (app_commands)
