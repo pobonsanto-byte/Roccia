@@ -585,7 +585,7 @@ async def slash_setcommandchannel(interaction: discord.Interaction, command: str
 @app_commands.describe(
     channel="Canal para enviar a mensagem",
     content="Texto da mensagem",
-    roles="Cargos separados por vírgula (ex: Cargo1,Cargo2)"
+    roles="Botão:Cargo separados por vírgula (ex: Aceitar:Regra,VIP:VIP)"
 )
 async def create_role_buttons(interaction: Interaction, channel: discord.TextChannel, content: str, roles: str):
     if not is_admin_check(interaction):
@@ -594,13 +594,19 @@ async def create_role_buttons(interaction: Interaction, channel: discord.TextCha
 
     # Criar dicionário de botões
     buttons_dict = {}
-    for role_name in [r.strip() for r in roles.split(",")]:
-        role = discord.utils.get(interaction.guild.roles, name=role_name)
-        if role:
-            buttons_dict[role.name] = role.id
-        else:
+    for pair in [r.strip() for r in roles.split(",")]:
+        try:
+            button_name, role_name = pair.split(":")
+        except ValueError:
+            await interaction.response.send_message(f"Formato inválido: `{pair}`. Use Botão:Cargo", ephemeral=True)
+            return
+        
+        role = discord.utils.get(interaction.guild.roles, name=role_name.strip())
+        if not role:
             await interaction.response.send_message(f"Cargo `{role_name}` não encontrado.", ephemeral=True)
             return
+        
+        buttons_dict[button_name.strip()] = role.id
 
     # Envia mensagem
     view = PersistentRoleButtonView(0, buttons_dict)  # temporário, substituiremos depois pelo ID
@@ -617,6 +623,7 @@ async def create_role_buttons(interaction: Interaction, channel: discord.TextCha
     save_data_to_github("Create role buttons")
 
     await interaction.response.send_message(f"Mensagem criada em {channel.mention} com {len(buttons_dict)} botões.", ephemeral=True)
+
 
 # Comando para bloquear/desbloquear links em um canal
 @tree.command(name="blocklinks", description="Bloqueia ou desbloqueia links em um canal (admin)")
