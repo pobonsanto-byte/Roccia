@@ -221,21 +221,23 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
         if not msgmap:
             return
-        key1 = str(payload.emoji)
-        key2 = getattr(payload.emoji, "id", None)
-        if key2:
-            key2 = str(key2)
+
+        # Resolver o emoji
         role_id = None
-        if key2 and key2 in msgmap:
-            role_id = msgmap[key2]
-        elif key1 in msgmap:
-            role_id = msgmap[key1]
-        else:
-            name_key = getattr(payload.emoji, "name", None)
-            if name_key and name_key in msgmap:
-                role_id = msgmap[name_key]
+        # Checa pelo ID (custom emoji)
+        if payload.emoji.id and str(payload.emoji.id) in msgmap:
+            role_id = msgmap[str(payload.emoji.id)]
+        # Checa pelo nome (custom emoji)
+        elif payload.emoji.id is not None and payload.emoji.name in msgmap:
+            role_id = msgmap[payload.emoji.name]
+        # Checa unicode
+        elif str(payload.emoji) in msgmap:
+            role_id = msgmap[str(payload.emoji)]
+
         if not role_id:
             return
+
+        # Busca guild e member
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
@@ -246,6 +248,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         if member and role:
             await member.add_roles(role, reason="reaction role add")
             add_log(f"reaction add: user={member.id} role={role.id} msg={payload.message_id}")
+
     except Exception as e:
         print("on_raw_reaction_add error:", e)
 
@@ -255,21 +258,18 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
         if not msgmap:
             return
-        key1 = str(payload.emoji)
-        key2 = getattr(payload.emoji, "id", None)
-        if key2:
-            key2 = str(key2)
+
         role_id = None
-        if key2 and key2 in msgmap:
-            role_id = msgmap[key2]
-        elif key1 in msgmap:
-            role_id = msgmap[key1]
-        else:
-            name_key = getattr(payload.emoji, "name", None)
-            if name_key and name_key in msgmap:
-                role_id = msgmap[name_key]
+        if payload.emoji.id and str(payload.emoji.id) in msgmap:
+            role_id = msgmap[str(payload.emoji.id)]
+        elif payload.emoji.id is not None and payload.emoji.name in msgmap:
+            role_id = msgmap[payload.emoji.name]
+        elif str(payload.emoji) in msgmap:
+            role_id = msgmap[str(payload.emoji)]
+
         if not role_id:
             return
+
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
@@ -280,8 +280,10 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         if member and role:
             await member.remove_roles(role, reason="reaction role remove")
             add_log(f"reaction remove: user={member.id} role={role.id} msg={payload.message_id}")
+
     except Exception as e:
         print("on_raw_reaction_remove error:", e)
+
 
 # -------------------------
 # Warn helper
