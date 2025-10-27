@@ -348,7 +348,7 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
         return False
 
 # /rank
-@tree.command(name="rank", description="Mostra seu rank (imagem)")
+@tree.command(name="rank", description="Mostra seu rank (imagem estilo anime)")
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
     await interaction.response.defer()
@@ -361,49 +361,61 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)
     pos = next((i+1 for i, (u, _) in enumerate(ranking) if u == uid), len(ranking))
 
-    # criar imagem
-    img = Image.new("RGBA", (800, 220), (28, 28, 28, 255))
+    # Criar imagem base
+    width, height = 800, 180
+    img = Image.new("RGBA", (width, height), (30, 30, 30, 255))
     draw = ImageDraw.Draw(img)
 
-    try:
-        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-    except Exception:
-        font_b = ImageFont.load_default()
-        font_s = ImageFont.load_default()
-
-    # --- Avatar do usuário ---
+    # Carregar avatar
     try:
         avatar_bytes = await target.avatar.read()
         avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
-        avatar = avatar.resize((150, 150))
-        # círculo (mask)
-        mask = Image.new("L", (150, 150), 0)
+        avatar = avatar.resize((100, 100))
+        # máscara circular
+        mask = Image.new("L", (100, 100), 0)
         mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, 150, 150), fill=255)
-        img.paste(avatar, (20, 35), mask)
+        mask_draw.ellipse((0, 0, 100, 100), fill=255)
+        img.paste(avatar, (20, 40), mask)
     except Exception as e:
         print("Erro ao carregar avatar:", e)
 
-    # texto
-    draw.text((190, 30), f"{target.display_name}", font=font_b, fill=(230,230,230))
-    draw.text((190, 80), f"Nível: {lvl}   •   XP: {xp}   •   Posição: #{pos}", font=font_s, fill=(200,200,200))
+    # Fontes
+    try:
+        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+    except:
+        font_b = ImageFont.load_default()
+        font_s = ImageFont.load_default()
 
-    # barra de progresso
+    # Texto: nome
+    draw.text((140, 50), f"{target.display_name}", font=font_b, fill=(255,255,255))
+
+    # Texto: classificação e nível
+    draw.text((650, 30), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(200,200,200))
+    draw.text((650, 70), f"NÍVEL {lvl}", font=font_s, fill=(0, 180, 255))
+
+    # Barra de XP
     next_xp = 100 + lvl * 50
     cur = xp % next_xp
-    perc = min(1.0, cur / next_xp if next_xp > 0 else 0.0)
-    bar_total_w = 580
-    bar_h = 28
-    x0, y0 = 190, 140
-    draw.rectangle([x0, y0, x0 + bar_total_w, y0 + bar_h], fill=(60,60,60))
-    draw.rectangle([x0, y0, x0 + int(bar_total_w * perc), y0 + bar_h], fill=(80,180,255))
+    bar_total_w, bar_h = 500, 30
+    x0, y0 = 140, 120
+    # fundo barra
+    draw.rectangle([x0, y0, x0+bar_total_w, y0+bar_h], fill=(50,50,50))
+    # barra preenchida
+    perc = min(1.0, cur/next_xp if next_xp>0 else 0)
+    draw.rectangle([x0, y0, x0+int(bar_total_w*perc), y0+bar_h], fill=(80,180,255))
+    # texto XP
+    xp_text = f"{cur} / {next_xp} XP"
+    w, h = draw.textsize(xp_text, font=font_s)
+    draw.text((x0 + bar_total_w - w, y0 - 5), xp_text, font=font_s, fill=(255,255,255))
 
+    # Enviar imagem
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
+
 
 
 # /top
