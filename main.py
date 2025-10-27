@@ -465,11 +465,47 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
         return perms.administrator or perms.manage_guild or perms.manage_roles
     except Exception:
         return False
+        
+def is_command_allowed(interaction: discord.Interaction, command_name: str) -> bool:
+    allowed = data.get("command_channels", {}).get(command_name, [])
+    # Se nenhum canal estiver configurado, o comando é liberado em todos
+    if not allowed:
+        return True
+    return interaction.channel_id in allowed
+
+#/setcommandchannel
+@tree.command(name="setcommandchannel", description="Define canais onde um comando pode ser usado (admin)")
+@app_commands.describe(
+    command="Nome do comando (ex: rank, top, warn)",
+    channel="Canal de texto para permitir o comando"
+)
+async def slash_setcommandchannel(interaction: discord.Interaction, command: str, channel: discord.TextChannel):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+        return
+
+    cmd_channels = data.setdefault("command_channels", {})
+    channels = cmd_channels.setdefault(command.lower(), [])
+
+    if channel.id in channels:
+        channels.remove(channel.id)
+        msg = f"❌ O canal {channel.mention} **foi removido** da lista do comando `{command}`."
+    else:
+        channels.append(channel.id)
+        msg = f"✅ O canal {channel.mention} **foi adicionado** para o comando `{command}`."
+
+    save_data_to_github(f"Set command channel for {command}")
+    await interaction.response.send_message(msg, ephemeral=False)
+
 
 # /rank
 @tree.command(name="rank", description="Rank estilo anime/fundo preto, XP dentro da barra")
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
+    if not is_command_allowed(interaction, "rank"):
+        await interaction.response.send_message("❌ Este comando só pode ser usado em canais autorizados.", ephemeral=True)
+        return
+
     await interaction.response.defer(thinking=True)
 
     target = member or interaction.user
@@ -568,6 +604,9 @@ async def slash_setwelcome(interaction: discord.Interaction, message: str):
 # /top
 @tree.command(name="top", description="Mostra top 10 de XP")
 async def slash_top(interaction: discord.Interaction):
+    if not is_command_allowed(interaction, "top"):
+        await interaction.response.send_message("❌ Este comando só pode ser usado em canais autorizados.", ephemeral=True)
+        return
     await interaction.response.defer()
     ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)[:10]
     lines = []
@@ -594,6 +633,9 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
 @tree.command(name="warns", description="Mostra advertências de um membro")
 @app_commands.describe(member="Membro (opcional)")
 async def slash_warns(interaction: discord.Interaction, member: discord.Member = None):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("Você não tem permissão para usar este comando.", ephemeral=True)
+        return
     target = member or interaction.user
     arr = data.get("warns", {}).get(str(target.id), [])
     if not arr:
