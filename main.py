@@ -577,7 +577,7 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
     return interaction.channel_id in allowed
 
 #/setcommandchannel
-@tree.command(name="definir canal comando", description="Define canais onde um comando pode ser usado (admin)")
+@tree.command(name="definir_canal_comando", description="Define canais onde um comando pode ser usado (admin)")
 @app_commands.describe(
     command="Nome do comando (ex: rank, top, aviso)",
     channel="Canal de texto para permitir o comando"
@@ -603,7 +603,7 @@ async def slash_setcommandchannel(interaction: discord.Interaction, command: str
 # -------------------------
 # Comando para criar mensagem com botões
 # -------------------------
-@tree.command(name="criar reação com botão", description="Cria uma mensagem com botões de cargos")
+@tree.command(name="criar_reação_com_botao", description="Cria uma mensagem com botões de cargos")
 @app_commands.describe(
     channel="Canal para enviar a mensagem",
     content="Texto da mensagem",
@@ -648,7 +648,7 @@ async def create_role_buttons(interaction: Interaction, channel: discord.TextCha
 
 
 # Comando para bloquear/desbloquear links em um canal
-@tree.command(name="bloquear links", description="Bloqueia ou desbloqueia links em um canal (admin)")
+@tree.command(name="bloquear_links", description="Bloqueia ou desbloqueia links em um canal (admin)")
 @app_commands.describe(channel="Canal para bloquear/desbloquear links")
 async def block_links(interaction: discord.Interaction, channel: discord.TextChannel):
     if not is_admin_check(interaction):
@@ -760,7 +760,7 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     await interaction.followup.send(file=file)
 
 # /setwelcome
-@tree.command(name="definir boas-vindas", description="Define a mensagem de boas-vindas (admin)")
+@tree.command(name="definir_boas-vindas", description="Define a mensagem de boas-vindas (admin)")
 @app_commands.describe(message="Mensagem (use {member} para mencionar)")
 async def slash_setwelcome(interaction: discord.Interaction, message: str):
     if not is_admin_check(interaction):
@@ -829,7 +829,7 @@ async def slash_savedata(interaction: discord.Interaction):
     await interaction.response.send_message("Dados salvos no GitHub." if ok else "Falha ao salvar (veja logs).")
 
 # /setwelcomechannel (admin)
-@tree.command(name="definir canal boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
+@tree.command(name="definir_canal_boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
 @app_commands.describe(channel="Canal de texto")
 async def slash_setwelcome(interaction: discord.Interaction, channel: discord.TextChannel = None):
     if not is_admin_check(interaction):
@@ -845,7 +845,7 @@ async def slash_setwelcome(interaction: discord.Interaction, channel: discord.Te
         await interaction.response.send_message(f"Canal de boas-vindas definido: {channel.mention}")
 
 # ReactionRole group: /reactionrole create /reactionrole remove /reactionrole list
-reactionrole_group = app_commands.Group(name="reajir com emoji", description="Gerenciar reaction roles (admin)")
+reactionrole_group = app_commands.Group(name="reajir_com_emoji", description="Gerenciar reaction roles (admin)")
 
 @reactionrole_group.command(name="criar", description="Cria mensagem com reação e mapeia para um cargo (admin)")
 @app_commands.describe(channel="Canal para enviar a mensagem", content="Conteúdo da mensagem", emoji="Emoji (custom <:_name_:id> ou unicode)", role="Cargo a ser atribuído")
