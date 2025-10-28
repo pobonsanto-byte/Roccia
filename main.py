@@ -805,7 +805,7 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
     await interaction.response.send_message(f"⚠️ {member.mention} advertido.\nMotivo: {reason}")
 
 # /warns
-@tree.command(name="lista de advertência", description="Mostra advertências de um membro")
+@tree.command(name="lista_de_advertência", description="Mostra advertências de um membro")
 @app_commands.describe(member="Membro (opcional)")
 async def slash_warns(interaction: discord.Interaction, member: discord.Member = None):
     if not is_admin_check(interaction):
