@@ -844,6 +844,59 @@ async def slash_setwelcome(interaction: discord.Interaction, channel: discord.Te
         save_data_to_github("Set welcome channel")
         await interaction.response.send_message(f"Canal de boas-vindas definido: {channel.mention}")
 
+# -------------------------
+# Reaction Role com Embed personalizada pelo ADM
+# -------------------------
+@tree.command(name="reaction_role_custom", description="Cria uma mensagem de reaction role com embed personalizada.")
+@app_commands.describe(
+    canal="Canal onde será enviada a mensagem",
+    titulo="Título da embed",
+    descricao="Texto dentro da embed",
+    cargo="Cargo que será dado ao reagir",
+    emoji="Emoji que será usado na reação",
+    cor_hex="Cor da embed em hexadecimal (ex: #5865F2)",
+    thumbnail_url="URL da imagem (opcional, miniatura no canto direito)"
+)
+async def reaction_role_custom(
+    interaction: Interaction,
+    canal: discord.TextChannel,
+    titulo: str,
+    descricao: str,
+    cargo: discord.Role,
+    emoji: str,
+    cor_hex: str = "#5865F2",
+    thumbnail_url: str = None
+):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("🚫 Você não tem permissão para isso.", ephemeral=True)
+        return
+
+    # Converter cor hexadecimal
+    try:
+        color_value = int(cor_hex.strip("#"), 16)
+    except:
+        color_value = 0x5865F2  # fallback
+
+    # Criar embed personalizada
+    embed = Embed(title=titulo, description=descricao, color=color_value)
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+    embed.set_footer(text=f"Reaja com {emoji} para receber o cargo {cargo.name}.")
+
+    # Envia a mensagem
+    msg = await canal.send(embed=embed)
+    await msg.add_reaction(emoji)
+
+    # Salvar configuração no JSON
+    data.setdefault("reaction_roles", {})
+    data["reaction_roles"][str(msg.id)] = {emoji: cargo.id}
+    save_data_to_github("Added custom reaction role")
+
+    await interaction.response.send_message(
+        f"✅ Mensagem criada em {canal.mention} com reação {emoji} vinculada ao cargo `{cargo.name}`.",
+        ephemeral=True
+    )
+
 # ReactionRole group: /reactionrole create /reactionrole remove /reactionrole list
 reactionrole_group = app_commands.Group(name="reactionrole", description="Gerenciar reaction roles (admin)")
 
