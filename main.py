@@ -467,10 +467,15 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 # -------------------------
 async def add_warn(member: discord.Member, reason=""):
     uid = str(member.id)
-    entry = {"by": bot.user.id, "reason": reason, "ts": now_br().isoformat()}
+    entry = {
+        "by": bot.user.id,
+        "reason": reason,
+        "ts": now_br().strftime("%d/%m/%Y %H:%M")  # dia/mês/ano hora:minuto
+    }
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("Auto-warn")
     add_log(f"warn: user={uid} by=bot reason={reason}")
+
 
 # -------------------------
 # on_message
@@ -789,7 +794,11 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
         await interaction.response.send_message("Você não tem permissão para usar este comando.", ephemeral=True)
         return
     uid = str(member.id)
-    entry = {"by": interaction.user.id, "reason": reason, "ts": datetime.utcnow().isoformat()}
+    entry = {
+        "by": interaction.user.id,
+        "reason": reason,
+        "ts": datetime.utcnow().strftime("%d/%m/%Y %H:%M")  # formato dia/mês/ano hora:minuto
+    }
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("New warn")
     add_log(f"warn: user={uid} by={interaction.user.id} reason={reason}")
