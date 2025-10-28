@@ -670,7 +670,7 @@ async def block_links(interaction: discord.Interaction, channel: discord.TextCha
 
 
 # /rank
-@tree.command(name="rank", description="Rank estilo anime/fundo preto, XP dentro da barra")
+@tree.command(name="perfil", description="mostra o seu perfil")
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
     if not is_command_allowed(interaction, "rank"):
@@ -773,7 +773,7 @@ async def slash_setwelcome(interaction: discord.Interaction, message: str):
 
 
 # /top
-@tree.command(name="top", description="Mostra top 10 de XP")
+@tree.command(name="rank", description="Mostra top 10 de XP")
 async def slash_top(interaction: discord.Interaction):
     if not is_command_allowed(interaction, "top"):
         await interaction.response.send_message("❌ Este comando só pode ser usado em canais autorizados.", ephemeral=True)
@@ -882,7 +882,7 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
     add_log(f"reactionrole created msg={sent.id} emoji={key} role={role.id}")
     await interaction.followup.send(f"Mensagem criada em {channel.mention} com ID `{sent.id}`. Reaja para receber o cargo {role.mention}.")
 
-@reactionrole_group.command(name="remover", description="Remove mapeamento reaction-role de uma mensagem (admin)")
+@reactionrole_group.command(name="remover", description="Remove uma emoji com reação de uma mensagem (admin)")
 @app_commands.describe(message_id="ID da mensagem", emoji="Emoji usado quando criado")
 async def rr_remove(interaction: discord.Interaction, message_id: str, emoji: str):
     if not is_admin_check(interaction):
@@ -915,14 +915,14 @@ async def rr_remove(interaction: discord.Interaction, message_id: str, emoji: st
     add_log(f"reactionrole removed msg={message_id} emoji={found}")
     await interaction.response.send_message("Removido com sucesso.", ephemeral=False)
 
-@reactionrole_group.command(name="lista", description="Lista reaction-roles configurados")
+@reactionrole_group.command(name="lista", description="Lista de reação de emoji configuradas")
 async def rr_list(interaction: discord.Interaction):
     if not is_admin_check(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
     rr = data.get("reaction_roles", {})
     if not rr:
-        await interaction.response.send_message("Nenhum reaction-role configurado.", ephemeral=True)
+        await interaction.response.send_message("Nenhuma reação com emoji configurada.", ephemeral=True)
         return
     lines = []
     for msgid, mapping in rr.items():
