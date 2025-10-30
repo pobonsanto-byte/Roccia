@@ -1,14 +1,3 @@
-"""
-Imune Bot - single file (main.py)
-Features:
-- Slash commands (discord.app_commands) para: /rank, /top, /warn, /warns, /savedata, /reactionrole (create/remove/list)
-- Sistema de XP + levelup
-- Embed de boas-vindas
-- Reaction roles com suporte a emoji customizado
-- Persistência de dados no GitHub
-- Flask keepalive para Render free
-"""
-
 import os
 import json
 import base64
@@ -86,7 +75,7 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 # -------------------------
-# Função helper de horário BR
+# Função de horário BR
 # -------------------------
 def now_br():
     return datetime.now(ZoneInfo("America/Sao_Paulo"))
@@ -172,7 +161,7 @@ def xp_to_level(xp):
     return max(lvl, 1)
 
 # -------------------------
-# Parse emoji
+# emoji
 # -------------------------
 EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
 
@@ -194,7 +183,7 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
     return emoji_str
 
 # -------------------------
-# View para múltiplos botões
+# múltiplos botões
 # -------------------------
 class PersistentRoleButtonView(ui.View):
     def __init__(self, message_id: int, buttons_dict: dict):
@@ -255,7 +244,7 @@ async def on_ready():
     except Exception as e:
         print("Erro ao sincronizar comandos:", e)
 
-    # ---------- Reconstruir Role Buttons persistentes ----------
+    # ---------- Reconstruir botões persistentes ----------
     for msg_id_str, buttons_dict in data.get("role_buttons", {}).items():
         try:
             msg_id = int(msg_id_str)
@@ -576,7 +565,7 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
         return True
     return interaction.channel_id in allowed
 
-#/setcommandchannel
+#/definir_canal_comando
 @tree.command(name="definir_canal_comando", description="Define canais onde um comando pode ser usado (admin)")
 @app_commands.describe(
     command="Nome do comando (ex: rank, top, aviso)",
@@ -669,7 +658,7 @@ async def block_links(interaction: discord.Interaction, channel: discord.TextCha
         await interaction.response.send_message(f"✅ Links bloqueados no canal {channel.mention}.")
 
 
-# /rank
+# /perfil
 @tree.command(name="perfil", description="mostra o seu perfil")
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
@@ -759,7 +748,7 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
 
-# /setwelcome
+# /definir_boas-vindas
 @tree.command(name="definir_boas-vindas", description="Define a mensagem de boas-vindas (admin)")
 @app_commands.describe(message="Mensagem (use {member} para mencionar)")
 async def slash_setwelcome(interaction: discord.Interaction, message: str):
@@ -772,7 +761,7 @@ async def slash_setwelcome(interaction: discord.Interaction, message: str):
     await interaction.response.send_message(f"Mensagem de boas-vindas definida!\n{message}")
 
 
-# /top
+# /rank
 @tree.command(name="rank", description="Mostra top 10 de XP")
 async def slash_top(interaction: discord.Interaction):
     if not is_command_allowed(interaction, "top"):
@@ -786,7 +775,7 @@ async def slash_top(interaction: discord.Interaction):
     text = "\n".join(lines) if lines else "Sem dados ainda."
     await interaction.followup.send(f"🏆 **Top 10 XP**\n{text}")
 
-# /warn (admin)
+# /advertir
 @tree.command(name="advertir", description="Advertir um membro (admin)")
 @app_commands.describe(member="Membro a ser advertido", reason="Motivo da advertência")
 async def slash_warn(interaction: discord.Interaction, member: discord.Member, reason: str = "Sem motivo informado"):
@@ -804,7 +793,7 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
     add_log(f"warn: user={uid} by={interaction.user.id} reason={reason}")
     await interaction.response.send_message(f"⚠️ {member.mention} advertido.\nMotivo: {reason}")
 
-# /warns
+# /lista_de_advertência
 @tree.command(name="lista_de_advertência", description="Mostra advertências de um membro")
 @app_commands.describe(member="Membro (opcional)")
 async def slash_warns(interaction: discord.Interaction, member: discord.Member = None):
@@ -828,7 +817,7 @@ async def slash_savedata(interaction: discord.Interaction):
     ok = save_data_to_github("Manual save via /savedata")
     await interaction.response.send_message("Dados salvos no GitHub." if ok else "Falha ao salvar (veja logs).")
 
-# /setwelcomechannel (admin)
+# /definir_canal_boas-vindas (admin)
 @tree.command(name="definir_canal_boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
 @app_commands.describe(channel="Canal de texto")
 async def slash_setwelcome(interaction: discord.Interaction, channel: discord.TextChannel = None):
@@ -844,7 +833,7 @@ async def slash_setwelcome(interaction: discord.Interaction, channel: discord.Te
         save_data_to_github("Set welcome channel")
         await interaction.response.send_message(f"Canal de boas-vindas definido: {channel.mention}")
 
-# ReactionRole group: /reactionrole create /reactionrole remove /reactionrole list
+# reajir_com_emoji
 reactionrole_group = app_commands.Group(name="reajir_com_emoji", description="Gerenciar reaction roles (admin)")
 
 @reactionrole_group.command(name="criar", description="Cria mensagem com reação e mapeia para um cargo (admin)")
