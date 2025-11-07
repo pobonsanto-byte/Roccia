@@ -578,52 +578,56 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
     return interaction.channel_id in allowed
 
 #/mensagem_personalizada
-@tree.command(name="mensagem_personalizada", description="Cria uma mensagem em anexo personalizada (admin)")
+@tree.command(name="embed", description="Cria uma embed bonita e personalizada (admin)")
 @app_commands.describe(
     canal="Canal onde a embed será enviada",
-    titulo="Título da embed",
-    descricao="Texto que ficará dentro da embed",
-    imagem="Link da imagem (opcional)",
-    cor="Cor em hexadecimal (ex: #5865F2)",
+    titulo="Título principal da embed",
+    corpo="Texto interno da embed (use \\n para quebra de linha)",
+    imagem="Link da imagem opcional (no final da embed)",
+    cor="Cor em hexadecimal (ex: #5865F2 ou #ff00ff)",
     mencionar="Mencionar @everyone ou @here (opcional)"
 )
 async def criar_embed(
     interaction: discord.Interaction,
     canal: discord.TextChannel,
     titulo: str,
-    descricao: str,
+    corpo: str,
     imagem: str = None,
     cor: str = "#5865F2",
     mencionar: str = None
 ):
-    # Somente administradores podem usar
     if not is_admin_check(interaction):
         await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
         return
 
-    # Verifica e converte cor
+    # Converte cor
     try:
         color = discord.Color(int(cor.replace("#", ""), 16))
-    except Exception:
+    except:
         color = discord.Color.blurple()
 
+    # 🔹 Melhora o texto automaticamente
+    formatted_text = corpo.replace("\\n", "\n").strip()
+
+    # Adiciona marcadores automáticos se o texto contiver linhas com "-"
+    if "-" in formatted_text:
+        formatted_text = formatted_text.replace("-", "•")
+
     # Cria embed
-    embed = discord.Embed(title=titulo, description=descricao, color=color)
-    embed.set_footer(text=f"Enviado por {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+    embed = discord.Embed(
+        title=f"**{titulo} 🪄**",
+        description=formatted_text,
+        color=color
+    )
 
     if imagem:
         embed.set_image(url=imagem)
 
-    # Envia mensagem
-    content = ""
-    if mencionar in ["@everyone", "@here"]:
-        content = mencionar
+    # Envia
+    mention_text = mencionar if mencionar in ["@everyone", "@here"] else ""
+    await canal.send(content=mention_text, embed=embed)
+    await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
 
-    try:
-        await canal.send(content=content, embed=embed)
-        await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erro ao enviar embed: {e}", ephemeral=True)
 
 
 #/definir_canal_comando
