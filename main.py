@@ -870,6 +870,62 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
     save_data_to_github("reactionrole create")
     add_log(f"reactionrole created msg={sent.id} emoji={key} role={role.id}")
     await interaction.followup.send(f"Mensagem criada em {channel.mention} com ID `{sent.id}`. Reaja para receber o cargo {role.mention}.")
+    
+@reactionrole_group.command(name="multi", description="Adiciona vários emojis e cargos a uma mesma mensagem (admin)")
+@app_commands.describe(
+    message_id="ID da mensagem existente para adicionar as reações",
+    emoji_cargo="Lista de emoji:cargo separados por vírgula."
+)
+async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    try:
+        msg = await guild.get_channel(interaction.channel_id).fetch_message(int(message_id))
+    except Exception:
+        await interaction.response.send_message("❌ Mensagem não encontrada. Verifique o ID.", ephemeral=True)
+        return
+
+    # Processa os pares emoji:cargo
+    pairs = [x.strip() for x in emoji_cargo.split(",") if ":" in x]
+    if not pairs:
+        await interaction.response.send_message("❌ Formato inválido. Use emoji:cargo separados por vírgula.", ephemeral=True)
+        return
+
+    data.setdefault("reaction_roles", {}).setdefault(str(msg.id), {})
+
+    added = []
+    for pair in pairs:
+        emoji_str, role_name = pair.split(":", 1)
+        emoji_str, role_name = emoji_str.strip(), role_name.strip()
+
+        role = discord.utils.get(guild.roles, name=role_name)
+        if not role:
+            await interaction.followup.send(f"⚠️ Cargo `{role_name}` não encontrado.")
+            continue
+
+        parsed = parse_emoji_str(emoji_str, guild)
+        if not parsed:
+            await interaction.followup.send(f"⚠️ Emoji `{emoji_str}` inválido.")
+            continue
+
+        # Adiciona reação e salva
+        try:
+            await msg.add_reaction(parsed)
+            key = str(parsed.id) if isinstance(parsed, (discord.Emoji, discord.PartialEmoji)) else str(parsed)
+            data["reaction_roles"][str(msg.id)][key] = str(role.id)
+            added.append(f"{emoji_str} → {role.name}")
+        except Exception as e:
+            await interaction.followup.send(f"Erro ao adicionar {emoji_str}: {e}")
+
+    save_data_to_github("ReactionRole multi")
+    if added:
+        await interaction.response.send_message(f"✅ Adicionados:\n" + "\n".join(added))
+    else:
+        await interaction.response.send_message("Nenhum emoji/cargo válido foi adicionado.")
+
 
 @reactionrole_group.command(name="remover", description="Remove uma emoji com reação de uma mensagem (admin)")
 @app_commands.describe(message_id="ID da mensagem", emoji="Emoji usado quando criado")
