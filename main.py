@@ -282,7 +282,9 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Imagem de fundo personalizada -----
-    background_path = "https://media.discordapp.net/attachments/968238229448970331/1436420624548630549/roccia-wuwa-768x432.jpg?ex=690f8a74&is=690e38f4&hm=d7b8214158c8627ce1b8b883fefb27244c00c48eab629c6a37478409db9ad9f4&=&format=webp"
+    background_path = data.get("config", {}).get(
+    "welcome_background")
+
 
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
@@ -633,6 +635,37 @@ async def criar_embed(
     await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
 
 
+# -------------------------
+# /setwelcomeimage - Define ou remove a imagem de fundo da mensagem de boas-vindas
+# -------------------------
+@tree.command(name="selecionar_imagem_boas-vindas", description="Define ou remove a imagem de fundo da mensagem de boas-vindas (admin)")
+@app_commands.describe(url="URL da imagem que será usada no fundo (deixe vazio para remover)")
+async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = None):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+        return
+
+    config = data.setdefault("config", {})
+
+    # --- Remover imagem personalizada ---
+    if not url:
+        if "welcome_background" in config:
+            del config["welcome_background"]
+            save_data_to_github("Unset welcome background")
+            await interaction.response.send_message("🧹 Imagem de fundo personalizada removida. Voltará a usar a padrão.", ephemeral=False)
+        else:
+            await interaction.response.send_message("ℹ️ Nenhuma imagem personalizada estava configurada.", ephemeral=True)
+        return
+
+    # --- Validar URL ---
+    if not (url.startswith("http://") or url.startswith("https://")):
+        await interaction.response.send_message("❌ Forneça uma URL válida começando com http:// ou https://", ephemeral=True)
+        return
+
+    # --- Salvar nova imagem ---
+    config["welcome_background"] = url
+    save_data_to_github("Set welcome background")
+    await interaction.response.send_message(f"✅ Imagem de fundo definida com sucesso!\n{url}", ephemeral=False)
 
 
 #/definir_canal_comando
