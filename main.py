@@ -581,11 +581,11 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
 @tree.command(name="mensagem_personalizada", description="Cria uma mensagem personalizada (admin)")
 @app_commands.describe(
     canal="Canal onde a mensagem será enviada",
-    titulo="Título principal da mensagem",
-    corpo="Texto interno da mensagem (use \\n para quebra de linha)",
-    imagem="Link da imagem opcional (no final da mensagem)",
-    cor="Cor em hexadecimal (ex: #5865F2 ou #ff00ff)",
-    mencionar="Mencionar @everyone ou @here (opcional)"
+    titulo="Título da mensagem",
+    corpo="Texto interno (use \n para quebra de linha)",
+    imagem="Link da imagem (opcional)",
+    cor="Cor em hexadecimal (ex: #5865F2)",
+    mencionar="Mencionar @everyone (opcional)"
 )
 async def criar_embed(
     interaction: discord.Interaction,
@@ -597,36 +597,41 @@ async def criar_embed(
     mencionar: str = None
 ):
     if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
-    # Converte cor
+    # Converter a cor de string para objeto Color
     try:
         color = discord.Color(int(cor.replace("#", ""), 16))
     except:
         color = discord.Color.blurple()
 
-    # 🔹 Melhora o texto automaticamente
+    # 🔹 Formatar o texto da descrição
     formatted_text = corpo.replace("\\n", "\n").strip()
 
-    # Adiciona marcadores automáticos se o texto contiver linhas com "-"
-    if "-" in formatted_text:
-        formatted_text = formatted_text.replace("-", "•")
+    # Substitui marcadores por ● (grande e sólido)
+    formatted_text = formatted_text.replace("- ", "● ").replace("• ", "● ")
 
-    # Cria embed
+    # Adiciona espaçamento entre linhas
+    lines = formatted_text.split("\n")
+    formatted_text = "\n\n".join(line.strip() for line in lines if line.strip())
+
+    # Cria a embed
     embed = discord.Embed(
-        title=f"**{titulo} 🪄**",
+        title=f"**{titulo}**",  # sem emoji
         description=formatted_text,
         color=color
     )
 
+    # Imagem (se fornecida)
     if imagem:
         embed.set_image(url=imagem)
 
-    # Envia
+    # Envia a embed
     mention_text = mencionar if mencionar in ["@everyone", "@here"] else ""
     await canal.send(content=mention_text, embed=embed)
     await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
+
 
 
 
