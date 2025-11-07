@@ -578,12 +578,12 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
     return interaction.channel_id in allowed
 
 #/mensagem_personalizada
-@tree.command(name="embed", description="Cria uma embed bonita e personalizada (admin)")
+@tree.command(name="mensagem_personalizada", description="Cria uma mensagem personalizada (admin)")
 @app_commands.describe(
-    canal="Canal onde a embed será enviada",
-    titulo="Título principal da embed",
-    corpo="Texto interno da embed (use \\n para quebra de linha)",
-    imagem="Link da imagem opcional (no final da embed)",
+    canal="Canal onde a mensagem será enviada",
+    titulo="Título principal da mensagem",
+    corpo="Texto interno da mensagem (use \\n para quebra de linha)",
+    imagem="Link da imagem opcional (no final da mensagem)",
     cor="Cor em hexadecimal (ex: #5865F2 ou #ff00ff)",
     mencionar="Mencionar @everyone ou @here (opcional)"
 )
