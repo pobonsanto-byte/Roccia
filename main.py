@@ -282,7 +282,7 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Imagem de fundo personalizada -----
-    background_path = "https://cdn.discordapp.com/attachments/968238229448970331/1432455877050368070/roccia-wuwa-768x432.jpg?ex=69011dfe&is=68ffcc7e&hm=59d4f4472aacf65bb971823d779b162ce47333a2a6d41916e9037bc5173aae77"
+    background_path = "https://media.discordapp.net/attachments/968238229448970331/1436420624548630549/roccia-wuwa-768x432.jpg?ex=690f8a74&is=690e38f4&hm=d7b8214158c8627ce1b8b883fefb27244c00c48eab629c6a37478409db9ad9f4&=&format=webp"
 
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
