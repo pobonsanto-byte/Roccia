@@ -478,11 +478,11 @@ async def on_message(message: discord.Message):
     content = message.content.strip()
     delete_message = False  # Flag para saber se devemos deletar e não dar XP
 
-    # -------- Bloqueio de links por canal --------
+    # -------- BLOQUEIO DE LINKS --------
     blocked_channels = data.get("blocked_links_channels", [])
     if message.channel.id in blocked_channels:
         import re
-        url_pattern = r"https?://[^\s]+"  # Regex simples para links
+        url_pattern = r"https?://[^\s]+"  # Regex simples para detectar links
         if re.search(url_pattern, content):
             try:
                 await message.delete()
@@ -490,30 +490,28 @@ async def on_message(message: discord.Message):
                 pass
             await message.channel.send(f"⚠️ {message.author.mention}, links não são permitidos aqui!")
             await add_warn(message.author, reason="Enviou link em canal bloqueado")
-            return  # Sai do evento para não dar XP ou processar spam/caps
+            return  # Sai do evento — não ganha XP nem continua processando
+            
 
-    # -------- Histórico de mensagens do usuário --------
+    # -------- ANTI-SPAM / HISTÓRICO DE MENSAGENS --------
     user_msgs = data.setdefault("last_messages_content", {}).setdefault(uid, [])
-
-    # Limita histórico para as últimas 5 mensagens
     if len(user_msgs) >= 5:
         user_msgs.pop(0)
 
-    # Checa spam por mensagens repetidas
     if user_msgs and content == user_msgs[-1]:
         delete_message = True
         try:
             await message.delete()
         except discord.Forbidden:
             pass
-        await message.channel.send(f"⚠️ {message.author.mention}, evite spam com mensagens repetidas!")
+        await message.channel.send(f"⚠️ {message.author.mention}, evite enviar mensagens repetidas!")
         await add_warn(message.author, reason="Spam detectado")
     else:
         user_msgs.append(content)
-
     data["last_messages_content"][uid] = user_msgs
 
-    # Checa mensagens em maiúsculas
+
+    # -------- DETECÇÃO DE MAIÚSCULAS --------
     if len(content) > 5 and content.isupper():
         delete_message = True
         try:
@@ -523,30 +521,44 @@ async def on_message(message: discord.Message):
         await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
         await add_warn(message.author, reason="Uso excessivo de maiúsculas")
 
-    # Só dá XP se a mensagem não for deletada
+
+    # -------- SISTEMA DE XP --------
     if not delete_message:
         data.setdefault("xp", {})
         data.setdefault("level", {})
         data["xp"][uid] = data["xp"].get(uid, 0) + xp_for_message()
+
         xp_now = data["xp"][uid]
         lvl_now = xp_to_level(xp_now)
-        if lvl_now > data["level"].get(uid, 1):
+        prev_lvl = data["level"].get(uid, 1)
+
+        if lvl_now > prev_lvl:
             data["level"][uid] = lvl_now
+
+            # Canal configurável de level up
+            levelup_channel_id = data.get("config", {}).get("levelup_channel")
+            channel_to_send = None
+
+            if levelup_channel_id:
+                channel_to_send = message.guild.get_channel(int(levelup_channel_id))
+            if not channel_to_send:
+                channel_to_send = message.channel  # fallback: usa o canal atual se nenhum configurado
+
             try:
-                await message.channel.send(f"🎉 {message.author.mention} subiu para o nível **{lvl_now}**!")
-            except Exception:
-                pass
+                await channel_to_send.send(f"🎉 {message.author.mention} subiu para o nível **{lvl_now}**!")
+            except Exception as e:
+                print(f"Erro ao enviar mensagem de level up: {e}")
+
             add_log(f"level_up: user={uid} level={lvl_now}")
 
-    # Salva dados
+
+    # -------- SALVAR DADOS --------
     try:
         save_data_to_github("XP update")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Erro ao salvar XP: {e}")
 
     await bot.process_commands(message)
-
-
 
 # -------------------------
 # Slash commands
@@ -832,6 +844,20 @@ async def slash_setwelcome(interaction: discord.Interaction, channel: discord.Te
         data.setdefault("config", {})["welcome_channel"] = str(channel.id)
         save_data_to_github("Set welcome channel")
         await interaction.response.send_message(f"Canal de boas-vindas definido: {channel.mention}")
+        
+#/Canal_xp
+@tree.command(name="canal_xp", description="Define o canal onde serão enviadas as mensagens de level up (admin)")
+@app_commands.describe(channel="Canal onde o bot vai enviar as mensagens de level up")
+async def set_levelup_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not is_admin_check(interaction):
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        return
+
+    data.setdefault("config", {})["levelup_channel"] = channel.id
+    save_data_to_github("Set level up channel")
+
+    await interaction.response.send_message(f"✅ Canal de level up definido para {channel.mention}.", ephemeral=False)
+
 
 # reajir_com_emoji
 reactionrole_group = app_commands.Group(name="reajir_com_emoji", description="Gerenciar reaction roles (admin)")
