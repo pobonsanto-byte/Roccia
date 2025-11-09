@@ -570,7 +570,7 @@ async def on_message(message: discord.Message):
                 if role:
                     try:
                         await message.author.add_roles(role, reason=f"Alcançou nível {lvl_now}")
-                        await channel_to_send.send(f"🎉 {message.author.mention} recebeu o cargo {role.mention}!")
+                        #await channel_to_send.send(f"🎉 {message.author.mention} recebeu o cargo {role.mention}!")
                     except discord.Forbidden:
                         await channel_to_send.send(f"⚠️ Não consegui dar o cargo {role.mention}, verifique minhas permissões.")
                         
