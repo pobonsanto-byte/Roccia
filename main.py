@@ -16,8 +16,8 @@ from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 
-# Import do painel
-from panel import app as panel_app
+# Import do painel (removido do mesmo arquivo - será separado no Render)
+# No Render, vamos rodar o painel como um serviço separado
 
 # -------------------------
 # Config / Ambiente
@@ -28,7 +28,7 @@ GITHUB_USER = os.getenv("GITHUB_USER", "pobonsanto-byte")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "imune-bot-data")
 DATA_FILE = os.getenv("DATA_FILE", "data.json")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
-PORT = int(os.getenv("PORT", 8080))
+PORT = int(os.getenv("PORT", 10000))
 GUILD_ID = os.getenv("GUILD_ID")
 
 if not BOT_TOKEN or not GITHUB_TOKEN:
@@ -37,24 +37,19 @@ if not BOT_TOKEN or not GITHUB_TOKEN:
 GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
 
 # -------------------------
-# Flask keepalive + Painel
+# Flask keepalive
 # -------------------------
 app = Flask("imunebot")
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Bot rodando!"
+    return "🤖 Bot rodando! Para acessar o painel, vá para: https://seu-painel.onrender.com"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-def run_panel():
-    port = int(os.environ.get("PANEL_PORT", 5001))
-    panel_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
 Thread(target=run_flask, daemon=True).start()
-Thread(target=run_panel, daemon=True).start()
 
 # -------------------------
 # Auto ping (manter bot ativo)
@@ -62,9 +57,10 @@ Thread(target=run_panel, daemon=True).start()
 def auto_ping():
     while True:
         try:
-            url = os.environ.get("REPLIT_URL") or os.environ.get("SELF_URL")
+            # No Render, pingamos a própria URL
+            url = os.environ.get("RENDER_EXTERNAL_URL")
             if url:
-                requests.get(url)
+                requests.get(url, timeout=10)
             time.sleep(300)  # ping a cada 5 minutos
         except Exception as e:
             print(f"Erro no auto-ping: {e}")
@@ -344,8 +340,9 @@ async def on_member_join(member: discord.Member):
 
     # ----- Texto -----
     try:
-        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+        # No Render, use fontes padrão
+        font_b = ImageFont.load_default()
+        font_s = ImageFont.load_default()
     except:
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
@@ -556,18 +553,6 @@ async def on_message(message: discord.Message):
     else:
         user_msgs.append(content)
     data["last_messages_content"][uid] = user_msgs
-
-    # -------- DETECÇÃO DE MAIÚSCULAS --------
-    #if len(content) > 5 and content.isupper():
-        #if not is_staff:
-            #delete_message = True
-           # try:
-            #    await message.delete()
-           # except discord.Forbidden:
-            #    pass
-           # await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
-          #  await add_warn(message.author, reason="Uso excessivo de maiúsculas")
-           # return
 
     # -------- SISTEMA DE XP --------
     if not delete_message:
@@ -886,13 +871,9 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))  # fundo preto
     draw = ImageDraw.Draw(img)
 
-    # Fontes
-    try:
-        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
-    except:
-        font_b = ImageFont.load_default()
-        font_s = ImageFont.load_default()
+    # Fontes - No Render use padrão
+    font_b = ImageFont.load_default()
+    font_s = ImageFont.load_default()
 
     # Avatar circular
     try:
