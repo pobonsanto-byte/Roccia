@@ -943,6 +943,154 @@ def api_config():
     
     return jsonify({"success": True})
 
+# -------------------------
+# APIs para configuração do bot
+# -------------------------
+
+@app.route("/api/config/welcome", methods=["POST"])
+def api_config_welcome():
+    """API para configurar mensagem de boas-vindas"""
+    if 'user' not in session:
+        return jsonify({"error": "Não autenticado"}), 401
+    
+    try:
+        data = request.json
+        message = data.get('message', '')
+        channel_id = data.get('channel_id', '')
+        
+        # Atualiza configuração
+        config = data.setdefault("config", {})
+        if message:
+            config["welcome_message"] = message
+        if channel_id:
+            config["welcome_channel"] = channel_id
+        
+        # Salva no GitHub
+        success = save_data_to_github("Config via dashboard")
+        
+        return jsonify({
+            "success": success,
+            "message": "Configuração salva com sucesso!" if success else "Erro ao salvar"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/config/xp", methods=["POST"])
+def api_config_xp():
+    """API para configurar sistema de XP"""
+    if 'user' not in session:
+        return jsonify({"error": "Não autenticado"}), 401
+    
+    try:
+        data = request.json
+        xp_rate = data.get('rate')
+        levelup_channel = data.get('channel_id', '')
+        
+        # Validação
+        if xp_rate is not None:
+            if xp_rate < 1 or xp_rate > 10:
+                return jsonify({"error": "Taxa de XP deve ser entre 1 e 10"}), 400
+            data.setdefault("config", {})["xp_rate"] = xp_rate
+        
+        if levelup_channel:
+            data.setdefault("config", {})["levelup_channel"] = levelup_channel
+        
+        # Salva no GitHub
+        success = save_data_to_github("Config XP via dashboard")
+        
+        return jsonify({
+            "success": success,
+            "message": "Configuração de XP salva!" if success else "Erro ao salvar"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/level-roles", methods=["GET", "POST", "DELETE"])
+def api_level_roles():
+    """API para gerenciar cargos por nível"""
+    if 'user' not in session:
+        return jsonify({"error": "Não autenticado"}), 401
+    
+    try:
+        if request.method == "GET":
+            # Retorna lista de cargos por nível
+            level_roles = data.get("level_roles", {})
+            return jsonify({"level_roles": level_roles})
+        
+        elif request.method == "POST":
+            # Adiciona/atualiza cargo por nível
+            req_data = request.json
+            level = str(req_data.get('level'))
+            role_id = req_data.get('role_id')
+            
+            if not level or not role_id:
+                return jsonify({"error": "Nível e cargo são obrigatórios"}), 400
+            
+            data.setdefault("level_roles", {})[level] = role_id
+            save_data_to_github(f"Add level role: nível {level}")
+            
+            return jsonify({"success": True, "message": f"Cargo definido para nível {level}"})
+        
+        elif request.method == "DELETE":
+            # Remove cargo por nível
+            level = request.args.get('level')
+            if not level:
+                return jsonify({"error": "Nível é obrigatório"}), 400
+            
+            if level in data.get("level_roles", {}):
+                del data["level_roles"][level]
+                save_data_to_github(f"Remove level role: nível {level}")
+                return jsonify({"success": True, "message": f"Cargo removido do nível {level}"})
+            else:
+                return jsonify({"error": "Nível não encontrado"}), 404
+                
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/command-channels", methods=["GET", "POST"])
+def api_command_channels():
+    """API para gerenciar canais de comandos"""
+    if 'user' not in session:
+        return jsonify({"error": "Não autenticado"}), 401
+    
+    try:
+        command_channels = data.setdefault("command_channels", {})
+        
+        if request.method == "GET":
+            return jsonify({"command_channels": command_channels})
+        
+        elif request.method == "POST":
+            req_data = request.json
+            command = req_data.get('command', '').lower()
+            channel_id = req_data.get('channel_id')
+            action = req_data.get('action', 'add')  # add ou remove
+            
+            if not command or not channel_id:
+                return jsonify({"error": "Comando e canal são obrigatórios"}), 400
+            
+            channels = command_channels.setdefault(command, [])
+            
+            if action == 'add':
+                if channel_id not in channels:
+                    channels.append(channel_id)
+                    message = f"Canal adicionado para /{command}"
+            elif action == 'remove':
+                if channel_id in channels:
+                    channels.remove(channel_id)
+                    message = f"Canal removido de /{command}"
+                else:
+                    return jsonify({"error": "Canal não encontrado para este comando"}), 404
+            else:
+                return jsonify({"error": "Ação inválida"}), 400
+            
+            save_data_to_github(f"Command channels update: {command}")
+            return jsonify({"success": True, "message": message})
+                
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/stats")
 def api_stats():
     """API para obter estatísticas do bot"""
