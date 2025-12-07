@@ -7,7 +7,7 @@ from functools import wraps
 from datetime import datetime
 import secrets
 
-# Configurações
+# Configurações para Render
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER = os.getenv("GITHUB_USER", "pobonsanto-byte")
@@ -15,11 +15,14 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "imune-bot-data")
 DATA_FILE = os.getenv("DATA_FILE", "data.json")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
 SECRET_KEY = os.getenv("PANEL_SECRET_KEY", secrets.token_hex(16))
-ADMIN_PASSWORD = os.getenv("PANEL_ADMIN_PASSWORD", "admin123")  # Mude isso!
+ADMIN_PASSWORD = os.getenv("PANEL_ADMIN_PASSWORD", "admin123")
 
+# No Render, o painel será um serviço separado
 GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
 
-app = Flask(__name__)
+app = Flask(__name__, 
+            template_folder='templates',
+            static_folder='static')
 app.secret_key = SECRET_KEY
 
 # ========== Funções Auxiliares ==========
@@ -391,6 +394,11 @@ def backup_data():
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     return response
 
+# ========== Health Check ==========
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "service": "imune-bot-panel"})
+
 # ========== Página de Erro ==========
 @app.errorhandler(404)
 def page_not_found(e):
@@ -398,5 +406,5 @@ def page_not_found(e):
 
 # ========== Inicialização ==========
 if __name__ == '__main__':
-    port = int(os.environ.get('PANEL_PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
