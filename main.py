@@ -96,16 +96,21 @@ async def execute_bot_action_internal(action):
     action_type = action["type"]
     action_data = action["data"]
     
+    print(f"[BOT ACTION] Executando {action_type} com dados: {action_data}")
+    
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if not guild:
-        print("Erro: Guild não encontrada")
-        return
+        print(f"[BOT ACTION] ERRO: Guild {GUILD_ID} não encontrada!")
+        print(f"[BOT ACTION] Guilds disponíveis: {[g.name for g in bot.guilds]}")
+        return False
     
     try:
         if action_type == "create_embed":
             # Cria uma mensagem embed
-            channel = guild.get_channel(int(action_data["channel_id"]))
+            channel_id = int(action_data["channel_id"])
+            channel = guild.get_channel(channel_id)
             if channel:
+                print(f"[BOT ACTION] Enviando embed para #{channel.name}")
                 embed = discord.Embed(
                     title=action_data["title"],
                     description=action_data["body"],
@@ -113,20 +118,28 @@ async def execute_bot_action_internal(action):
                 )
                 embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
                 await channel.send(embed=embed)
-                print(f"[BOT] Embed criada em #{channel.name}")
+                print(f"[BOT ACTION] Embed criada em #{channel.name}")
                 return True
+            else:
+                print(f"[BOT ACTION] ERRO: Canal {channel_id} não encontrado!")
+                print(f"[BOT ACTION] Canais disponíveis: {[c.name for c in guild.text_channels]}")
+                return False
         
         elif action_type == "create_reaction_role":
             # Cria reaction role
-            channel = guild.get_channel(int(action_data["channel_id"]))
+            channel_id = int(action_data["channel_id"])
+            channel = guild.get_channel(channel_id)
             if channel:
+                print(f"[BOT ACTION] Criando reaction role em #{channel.name}")
                 # Envia mensagem
                 message = await channel.send(action_data["content"])
                 message_id = str(message.id)
+                print(f"[BOT ACTION] Mensagem enviada com ID: {message_id}")
                 
                 # Processa pares emoji:cargo
                 pairs = action_data.get("emoji_cargo", "").split(",")
                 reaction_roles_data = {}
+                print(f"[BOT ACTION] Processando {len(pairs)} pares")
                 
                 for pair in pairs:
                     if ":" in pair:
@@ -134,6 +147,7 @@ async def execute_bot_action_internal(action):
                             emoji_str, role_name = pair.split(":", 1)
                             emoji_str = emoji_str.strip()
                             role_name = role_name.strip()
+                            print(f"[BOT ACTION] Processando: {emoji_str} -> {role_name}")
                             
                             # Encontra o cargo
                             role = discord.utils.get(guild.roles, name=role_name)
@@ -141,30 +155,43 @@ async def execute_bot_action_internal(action):
                                 # Adiciona reação
                                 try:
                                     await message.add_reaction(emoji_str)
+                                    print(f"[BOT ACTION] Reação adicionada: {emoji_str}")
                                 except Exception as e:
-                                    print(f"Erro ao adicionar reação {emoji_str}: {e}")
+                                    print(f"[BOT ACTION] Erro ao adicionar reação {emoji_str}: {e}")
                                     continue
                                 
                                 # Prepara dados para salvar
                                 reaction_roles_data[emoji_str] = str(role.id)
-                                print(f"[BOT] Reaction role: {emoji_str} -> {role.name}")
+                                print(f"[BOT ACTION] Mapeamento: {emoji_str} -> {role.name}")
+                            else:
+                                print(f"[BOT ACTION] ERRO: Cargo '{role_name}' não encontrado!")
+                                print(f"[BOT ACTION] Cargos disponíveis: {[r.name for r in guild.roles]}")
                         except Exception as e:
-                            print(f"Erro ao processar par {pair}: {e}")
+                            print(f"[BOT ACTION] Erro ao processar par {pair}: {e}")
                 
                 # Salva no data.json se houver dados
                 if reaction_roles_data:
                     data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
                     save_data_to_github("Reaction role via site")
-                    print(f"[BOT] Reaction role salva: {message_id}")
+                    print(f"[BOT ACTION] Reaction role salva: {message_id}")
                     return True
+                else:
+                    print(f"[BOT ACTION] AVISO: Nenhum mapeamento válido criado")
+                    return False
+            else:
+                print(f"[BOT ACTION] ERRO: Canal {channel_id} não encontrado!")
+                return False
         
         elif action_type == "create_role_buttons":
             # Cria botões de cargos
-            channel = guild.get_channel(int(action_data["channel_id"]))
+            channel_id = int(action_data["channel_id"])
+            channel = guild.get_channel(channel_id)
             if channel:
+                print(f"[BOT ACTION] Criando botões de cargo em #{channel.name}")
                 # Processa pares botão:cargo
                 pairs = action_data.get("roles", "").split(",")
                 buttons_dict = {}
+                print(f"[BOT ACTION] Processando {len(pairs)} botões")
                 
                 for pair in pairs:
                     if ":" in pair:
@@ -172,19 +199,23 @@ async def execute_bot_action_internal(action):
                             button_name, role_name = pair.split(":", 1)
                             button_name = button_name.strip()
                             role_name = role_name.strip()
+                            print(f"[BOT ACTION] Processando botão: {button_name} -> {role_name}")
                             
                             # Encontra o cargo
                             role = discord.utils.get(guild.roles, name=role_name)
                             if role:
                                 buttons_dict[button_name] = role.id
-                                print(f"[BOT] Botão: {button_name} -> {role.name}")
+                                print(f"[BOT ACTION] Botão mapeado: {button_name} -> {role.name}")
+                            else:
+                                print(f"[BOT ACTION] ERRO: Cargo '{role_name}' não encontrado!")
                         except Exception as e:
-                            print(f"Erro ao processar par {pair}: {e}")
+                            print(f"[BOT ACTION] Erro ao processar par {pair}: {e}")
                 
                 if buttons_dict:
                     # Cria view com botões
                     view = PersistentRoleButtonView(0, buttons_dict)
                     sent = await channel.send(action_data["content"], view=view)
+                    print(f"[BOT ACTION] Mensagem com botões enviada: {sent.id}")
                     
                     # Atualiza IDs
                     view.message_id = sent.id
@@ -196,13 +227,21 @@ async def execute_bot_action_internal(action):
                     data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
                     save_data_to_github("Role buttons via site")
                     
-                    print(f"[BOT] Botões de cargo criados em #{channel.name}")
+                    print(f"[BOT ACTION] Botões de cargo criados em #{channel.name}")
                     return True
+                else:
+                    print(f"[BOT ACTION] AVISO: Nenhum botão válido criado")
+                    return False
+            else:
+                print(f"[BOT ACTION] ERRO: Canal {channel_id} não encontrado!")
+                return False
         
         elif action_type == "warn_member":
             # Adverte um membro
-            member = guild.get_member(int(action_data["member_id"]))
+            member_id = int(action_data["member_id"])
+            member = guild.get_member(member_id)
             if member:
+                print(f"[BOT ACTION] Advertindo membro: {member.display_name}")
                 # Adiciona advertência
                 entry = {
                     "by": "site_admin",
@@ -213,34 +252,121 @@ async def execute_bot_action_internal(action):
                 data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
                 save_data_to_github(f"Warn via site: {member.display_name}")
                 
-                print(f"[BOT] Membro advertido: {member.display_name}")
+                # Envia mensagem no canal de logs, se configurado
+                logs_channel_id = data.get("config", {}).get("logs_channel")
+                if logs_channel_id:
+                    logs_channel = guild.get_channel(int(logs_channel_id))
+                    if logs_channel:
+                        await logs_channel.send(
+                            f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
+                            f"Motivo: {action_data['reason']}"
+                        )
+                        print(f"[BOT ACTION] Log enviado para #{logs_channel.name}")
+                
+                print(f"[BOT ACTION] Membro advertido: {member.display_name}")
                 return True
+            else:
+                print(f"[BOT ACTION] ERRO: Membro {member_id} não encontrado!")
+                print(f"[BOT ACTION] Membros disponíveis: {[m.display_name for m in guild.members[:10]]}")
+                return False
+        
+        else:
+            print(f"[BOT ACTION] ERRO: Tipo de ação desconhecida: {action_type}")
+            return False
     
+    except discord.Forbidden as e:
+        print(f"[BOT ACTION] ERRO DE PERMISSÃO: {e}")
+        print(f"[BOT ACTION] Verifique as permissões do bot no servidor!")
+        return False
+        
+    except discord.HTTPException as e:
+        print(f"[BOT ACTION] ERRO HTTP: {e}")
+        return False
+        
+    except ValueError as e:
+        print(f"[BOT ACTION] ERRO DE VALOR: {e}")
+        return False
+        
     except Exception as e:
-        print(f"Erro ao executar ação {action_type}: {e}")
+        print(f"[BOT ACTION] Erro ao executar ação {action_type}: {e}")
         import traceback
         traceback.print_exc()
-    
-    return False
+        return False
 
 async def process_bot_actions_continuous():
     """Processa ações do site continuamente"""
+    print("[ACTION PROCESSOR] Aguardando bot ficar pronto...")
     await bot.wait_until_ready()
     
+    # Aguarda mais um pouco para garantir tudo está carregado
+    await asyncio.sleep(3)
+    
+    print("\n" + "="*50)
+    print("🚀 PROCESSADOR DE AÇÕES DO SITE INICIADO")
+    print("="*50)
+    
+    # Verifica o estado atual
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
+    if guild:
+        print(f"🎯 Guild alvo: {guild.name} (ID: {guild.id})")
+        print(f"   📍 Canais disponíveis: {len(guild.text_channels)}")
+        print(f"   📍 Cargos disponíveis: {len(guild.roles)}")
+    else:
+        print(f"⚠️ Guild alvo não encontrada! Verifique GUILD_ID: {GUILD_ID}")
+    
+    print(f"⏰ Iniciando loop de processamento...")
+    print("="*50 + "\n")
+    
+    counter = 0
+    last_log_time = time.time()
+    
     while not bot.is_closed():
-        if bot_actions_queue:
-            try:
-                action = bot_actions_queue.pop(0)
-                success = await execute_bot_action_internal(action)
-                if success:
-                    print(f"[BOT ACTION] Ação {action['type']} executada com sucesso")
-                else:
-                    print(f"[BOT ACTION] Falha ao executar ação {action['type']}")
-            except Exception as e:
-                print(f"Erro ao processar ação do site: {e}")
+        counter += 1
         
-        await asyncio.sleep(1)  # Verifica a cada segundo
-
+        # Log a cada 30 segundos
+        current_time = time.time()
+        if current_time - last_log_time > 30:
+            print(f"[ACTION PROCESSOR] 👁️ Monitorando... Fila: {len(bot_actions_queue)} ações")
+            last_log_time = current_time
+        
+        # Processa ações na fila
+        if bot_actions_queue:
+            action_count = len(bot_actions_queue)
+            print(f"\n[ACTION PROCESSOR] 🔍 Encontradas {action_count} ação(ões) na fila")
+            
+            for i, action in enumerate(bot_actions_queue[:3]):  # Mostra até 3 ações
+                print(f"   {i+1}. {action['type']} - {action.get('timestamp', 'sem timestamp')}")
+            
+            # Processa a primeira ação
+            action = bot_actions_queue.pop(0)
+            print(f"[ACTION PROCESSOR] ⚙️ Processando: {action['type']}")
+            
+            try:
+                success = await execute_bot_action_internal(action)
+                
+                if success:
+                    print(f"[ACTION PROCESSOR] ✅ Ação '{action['type']}' concluída com sucesso!")
+                else:
+                    print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action['type']}'")
+                    
+                    # Tenta novamente (máximo 2 tentativas)
+                    attempts = action.get('attempts', 0)
+                    if attempts < 2:
+                        action['attempts'] = attempts + 1
+                        bot_actions_queue.insert(0, action)
+                        print(f"[ACTION PROCESSOR] 🔄 Recolocando na fila (tentativa {action['attempts']}/2)")
+                    else:
+                        print(f"[ACTION PROCESSOR] 🗑️ Descarte após 2 tentativas falhas")
+                        
+            except Exception as e:
+                print(f"[ACTION PROCESSOR] 💥 ERRO CRÍTICO: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Aguarda antes de verificar novamente
+        await asyncio.sleep(2)
+    
+    print("\n[ACTION PROCESSOR] ⏹️ Processador encerrado")
 # -------------------------
 # Site Routes (continuação)
 # -------------------------
@@ -1739,6 +1865,78 @@ def api_command_channels():
     return jsonify({"success": True, "command_channels": command_channels})
 
 # -------------------------
+# Debug endpoints
+# -------------------------
+
+@app.route("/api/debug/actions", methods=["GET"])
+def api_debug_actions():
+    """API para debug das ações"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    # Verifica se o loop de processamento está ativo
+    processing_active = hasattr(bot, '_processing_task') and not bot._processing_task.done()
+    
+    return jsonify({
+        "success": True,
+        "queue_length": len(bot_actions_queue),
+        "queue": bot_actions_queue[:5],  # Mostra as 5 primeiras
+        "bot_ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
+        "bot_user": str(bot.user) if hasattr(bot, 'user') else "None",
+        "guild_id": GUILD_ID,
+        "processing_active": processing_active,
+        "guilds": [g.name for g in bot.guilds] if hasattr(bot, 'guilds') else []
+    })
+
+@app.route("/api/debug/test_action", methods=["POST"])
+def api_debug_test_action():
+    """API para testar uma ação manualmente"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        action_type = req_data.get('type')
+        
+        if action_type == "create_embed":
+            # Executa a ação diretamente (sem fila)
+            import asyncio
+            
+            # Cria uma task para executar no loop do bot
+            async def test_action():
+                guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
+                if guild:
+                    channel = guild.get_channel(int(req_data.get('channel_id', 0)))
+                    if channel:
+                        embed = discord.Embed(
+                            title=req_data.get('title', 'Teste'),
+                            description=req_data.get('body', 'Corpo do teste'),
+                            color=discord.Color.blue()
+                        )
+                        await channel.send(embed=embed)
+                        return True
+                return False
+            
+            # Executa no loop do bot
+            success = False
+            try:
+                # Tenta executar diretamente
+                future = asyncio.run_coroutine_threadsafe(test_action(), bot.loop)
+                success = future.result(timeout=10)
+            except Exception as e:
+                print(f"Erro no teste: {e}")
+            
+            return jsonify({
+                "success": success,
+                "message": "✅ Ação de teste executada!" if success else "❌ Falha ao executar ação"
+            })
+        
+        return jsonify({"success": False, "message": "Tipo de ação inválido"})
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+# -------------------------
 # Auto ping (manter bot ativo)
 # -------------------------
 def auto_ping():
@@ -1890,50 +2088,128 @@ class PersistentRoleButton(ui.Button):
 @bot.event
 async def on_ready():
     bot.start_time = datetime.now()
-    print(f"Logado como {bot.user} (id: {bot.user.id})")
-    print(f"Bot está pronto? {bot.is_ready()}")
-    print(f"Guilds conectadas: {[g.name for g in bot.guilds]}")
     
-    load_data_from_github()
+    print(f"\n{'='*50}")
+    print(f"🤖 BOT INICIADO COM SUCESSO!")
+    print(f"{'='*50}")
+    print(f"📛 Nome: {bot.user}")
+    print(f"🆔 ID: {bot.user.id}")
+    print(f"✅ Status: {'PRONTO' if bot.is_ready() else 'NÃO PRONTO'}")
+    print(f"{'='*50}")
+    
+    # Mostra todas as guilds conectadas
+    print(f"🏠 GUILDS CONECTADAS ({len(bot.guilds)}):")
+    for i, guild in enumerate(bot.guilds, 1):
+        print(f"  {i}. {guild.name} (ID: {guild.id}) - Membros: {len(guild.members)}")
+    print(f"{'='*50}")
+    
+    # Verifica se está na guild alvo
+    target_guild = None
+    if GUILD_ID:
+        target_guild = bot.get_guild(int(GUILD_ID))
+        if target_guild:
+            print(f"🎯 GUILD ALVO ENCONTRADA:")
+            print(f"   Nome: {target_guild.name}")
+            print(f"   ID: {target_guild.id}")
+            print(f"   👥 Membros: {len(target_guild.members)}")
+            print(f"   📝 Canais de texto: {len(target_guild.text_channels)}")
+            print(f"   🎭 Cargos: {len(target_guild.roles)}")
+            
+            # Lista alguns canais e cargos para debug
+            print(f"   📋 Canais (5 primeiros): {[c.name for c in list(target_guild.text_channels)[:5]]}")
+            print(f"   📋 Cargos (5 primeiros): {[r.name for r in list(target_guild.roles)[:5]]}")
+        else:
+            print(f"⚠️ AVISO CRÍTICO: Guild alvo não encontrada!")
+            print(f"   GUILD_ID configurado: {GUILD_ID}")
+            print(f"   Guilds disponíveis: {[g.id for g in bot.guilds]}")
+    else:
+        print(f"⚠️ AVISO: GUILD_ID não configurado no ambiente")
+    
+    print(f"{'='*50}")
+    
+    # Carrega dados do GitHub
+    print("📂 Carregando dados do GitHub...")
+    load_success = load_data_from_github()
+    print(f"   {'✅ Dados carregados' if load_success else '⚠️ Usando dados locais'}")
 
     # Sincronizar comandos slash
+    print("⚙️ Sincronizando comandos slash...")
     try:
         if GUILD_ID:
             gid = int(GUILD_ID)
             guild = discord.Object(id=gid)
             await tree.sync(guild=guild)
-            print(f"Comandos slash sincronizados no servidor {gid}.")
+            print(f"   ✅ Comandos sincronizados no servidor {gid}")
         else:
             await tree.sync()
-            print("Comandos slash globais sincronizados.")
+            print("   ✅ Comandos globais sincronizados")
     except Exception as e:
-        print("Erro ao sincronizar comandos:", e)
+        print(f"   ❌ Erro ao sincronizar comandos: {e}")
 
     # ---------- Reconstruir botões persistentes ----------
-    for msg_id_str, buttons_dict in data.get("role_buttons", {}).items():
-        try:
-            msg_id = int(msg_id_str)
-            message = None
-            for guild in bot.guilds:
-                for channel in guild.text_channels:
-                    try:
-                        message = await channel.fetch_message(msg_id)
+    print("🔄 Restaurando botões persistentes...")
+    role_buttons = data.get("role_buttons", {})
+    if role_buttons:
+        print(f"   📊 {len(role_buttons)} mensagens com botões para restaurar")
+        restored = 0
+        for msg_id_str, buttons_dict in role_buttons.items():
+            try:
+                msg_id = int(msg_id_str)
+                message = None
+                
+                # Procura a mensagem em todas as guilds e canais
+                for guild in bot.guilds:
+                    for channel in guild.text_channels:
+                        try:
+                            message = await channel.fetch_message(msg_id)
+                            if message:
+                                break
+                        except discord.NotFound:
+                            continue
+                        except discord.Forbidden:
+                            continue
+                        except Exception:
+                            continue
+                    if message:
                         break
-                    except Exception:
-                        continue
+                
                 if message:
-                    break
-            if message:
-                view = PersistentRoleButtonView(msg_id, buttons_dict)
-                await message.edit(view=view)
-                print(f"Role Buttons restaurados para mensagem {msg_id}")
-        except Exception as e:
-            print(f"Erro ao restaurar role buttons para a mensagem {msg_id_str}: {e}")
-    
+                    view = PersistentRoleButtonView(msg_id, buttons_dict)
+                    await message.edit(view=view)
+                    restored += 1
+                    print(f"   ✅ Botões restaurados para mensagem {msg_id}")
+                else:
+                    print(f"   ⚠️ Mensagem {msg_id} não encontrada (botões não restaurados)")
+                    
+            except Exception as e:
+                print(f"   ❌ Erro ao restaurar botões para {msg_id_str}: {e}")
+        
+        print(f"   📊 {restored}/{len(role_buttons)} mensagens restauradas com sucesso")
+    else:
+        print("   ℹ️ Nenhum botão persistente para restaurar")
+
     # ---------- Iniciar processamento de ações do site ----------
-    bot.loop.create_task(process_bot_actions_continuous())
+    print("🚀 Iniciando sistema de ações do site...")
+    try:
+        bot.loop.create_task(process_bot_actions_continuous())
+        print("   ✅ Sistema de ações INICIADO!")
+    except Exception as e:
+        print(f"   ❌ Erro ao iniciar sistema de ações: {e}")
     
-    print("[BOT] Sistema de ações do site iniciado!")
+    # Mostra estatísticas finais
+    print(f"{'='*50}")
+    print(f"📊 ESTATÍSTICAS CARREGADAS:")
+    print(f"   📈 Usuários com XP: {len(data.get('xp', {}))}")
+    print(f"   ⚠️ Advertências: {sum(len(w) for w in data.get('warns', {}).values())}")
+    print(f"   🎭 Reaction Roles: {len(data.get('reaction_roles', {}))}")
+    print(f"   🔘 Botões de Cargo: {len(data.get('role_buttons', {}))}")
+    print(f"   📝 Logs: {len(data.get('logs', []))}")
+    print(f"{'='*50}")
+    print(f"✨ BOT PRONTO PARA USO!")
+    print(f"{'='*50}\n")
+    
+    # Adiciona um log de inicialização
+    add_log(f"Bot iniciado: {bot.user.name} ({bot.user.id}) em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
 @bot.event
 async def on_member_join(member: discord.Member):
