@@ -1,3 +1,4 @@
+# main.py - Imune Bot Completo
 import os
 import json
 import base64
@@ -18,9 +19,9 @@ from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 
-# -------------------------
-# Config / Ambiente
-# -------------------------
+# ========================
+# CONFIGURAÇÃO DO AMBIENTE
+# ========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER = os.getenv("GITHUB_USER", "pobonsanto-byte")
@@ -43,15 +44,15 @@ GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/
 
 bot_actions_queue = []
 
-# -------------------------
-# Flask App
-# -------------------------
+# ========================
+# FLASK APP
+# ========================
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# -------------------------
-# Bot setup (precisa ser definido antes das rotas que o referenciam)
-# -------------------------
+# ========================
+# BOT SETUP
+# ========================
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -60,9 +61,9 @@ intents.reactions = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
-# -------------------------
-# Estrutura de dados em memória (deve vir antes das rotas)
-# -------------------------
+# ========================
+# ESTRUTURA DE DADOS
+# ========================
 data = {
     "xp": {},
     "level": {},
@@ -72,15 +73,144 @@ data = {
     "logs": []
 }
 
-# -------------------------
-# Função de horário BR
-# -------------------------
+# ========================
+# FUNÇÕES UTILITÁRIAS
+# ========================
 def now_br():
     return datetime.now(ZoneInfo("America/Sao_Paulo"))
 
-# -------------------------
-# Sistema de execução de ações do site (DEVE VIR ANTES DAS ROTAS QUE O USAM)
-# -------------------------
+def _gh_headers():
+    return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+
+def load_data_from_github():
+    try:
+        r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
+        if r.status_code == 200:
+            js = r.json()
+            content_b64 = js.get("content", "")
+            if content_b64:
+                raw = base64.b64decode(content_b64)
+                loaded = json.loads(raw.decode("utf-8"))
+                data.update(loaded)
+                print("✅ Dados carregados do GitHub.")
+                return True
+        else:
+            print(f"⚠️ GitHub GET retornou {r.status_code} — iniciando com dados limpos.")
+    except Exception as e:
+        print(f"❌ Erro ao carregar dados do GitHub: {e}")
+    return False
+
+def save_data_to_github(message="Bot update"):
+    try:
+        r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
+        sha = None
+        if r.status_code == 200:
+            sha = r.json().get("sha")
+
+        content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        payload = {
+            "message": f"{message} @ {now_br().isoformat()}",
+            "content": base64.b64encode(content).decode("utf-8"),
+            "branch": BRANCH
+        }
+        if sha:
+            payload["sha"] = sha
+
+        put = requests.put(GITHUB_API_CONTENT, headers=_gh_headers(), json=payload, timeout=30)
+        if put.status_code in (200, 201):
+            print("✅ Dados salvos no GitHub.")
+            return True
+        else:
+            print(f"❌ Erro ao salvar no GitHub: {put.status_code}, {put.text[:400]}")
+    except Exception as e:
+        print(f"❌ Exception saving to GitHub: {e}")
+    return False
+
+def add_log(entry):
+    ts = now_br().isoformat()
+    data.setdefault("logs", []).append({"ts": ts, "entry": entry})
+    try:
+        save_data_to_github(f"log: {entry}")
+    except Exception:
+        pass
+
+def xp_for_message():
+    return 15
+
+def xp_to_level(xp):
+    lvl = int((xp / 100) ** 0.6) + 1
+    return max(lvl, 1)
+
+EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
+
+def parse_emoji_str(emoji_str, guild: discord.Guild = None):
+    if not emoji_str:
+        return None
+    m = EMOJI_RE.match(emoji_str.strip())
+    if m:
+        name, id_str = m.groups()
+        try:
+            eid = int(id_str)
+            if guild:
+                e = discord.utils.get(guild.emojis, id=eid)
+                if e:
+                    return e
+            return discord.PartialEmoji(name=name, id=eid)
+        except Exception:
+            pass
+    return emoji_str
+
+# ========================
+# DIAGNÓSTICO DE CONEXÃO
+# ========================
+async def check_bot_connection():
+    """Verifica se o bot está conectado corretamente"""
+    await bot.wait_until_ready()
+    
+    print("\n" + "="*60)
+    print("🔍 DIAGNÓSTICO DE CONEXÃO BOT-SITE")
+    print("="*60)
+    
+    # Verifica Guild
+    if GUILD_ID:
+        guild = bot.get_guild(int(GUILD_ID))
+        if guild:
+            print(f"✅ Guild encontrada: {guild.name} (ID: {guild.id})")
+            print(f"   👥 Membros: {len(guild.members)}")
+            print(f"   📝 Canais: {len(guild.text_channels)}")
+            
+            # Lista canais disponíveis
+            print(f"   📋 Canais disponíveis:")
+            for channel in guild.text_channels[:10]:  # Mostra até 10
+                print(f"      #{channel.name} (ID: {channel.id})")
+            
+            if len(guild.text_channels) > 10:
+                print(f"      ... e mais {len(guild.text_channels) - 10} canais")
+        else:
+            print(f"❌ Guild NÃO encontrada! ID: {GUILD_ID}")
+            print(f"   Guilds disponíveis: {[f'{g.name} ({g.id})' for g in bot.guilds]}")
+    else:
+        print("⚠️ GUILD_ID não configurado")
+    
+    # Verifica permissões
+    if GUILD_ID and bot.get_guild(int(GUILD_ID)):
+        guild = bot.get_guild(int(GUILD_ID))
+        bot_member = guild.get_member(bot.user.id)
+        if bot_member:
+            permissions = bot_member.guild_permissions
+            print(f"🔑 Permissões do bot em {guild.name}:")
+            print(f"   📝 Enviar mensagens: {'✅' if permissions.send_messages else '❌'}")
+            print(f"   📋 Gerenciar mensagens: {'✅' if permissions.manage_messages else '❌'}")
+            print(f"   🎭 Gerenciar cargos: {'✅' if permissions.manage_roles else '❌'}")
+            print(f"   📢 Menções @everyone: {'✅' if permissions.mention_everyone else '❌'}")
+            print(f"   🔗 Embed links: {'✅' if permissions.embed_links else '❌'}")
+            print(f"   🎨 Adicionar reações: {'✅' if permissions.add_reactions else '❌'}")
+    
+    print("="*60 + "\n")
+
+# ========================
+# SISTEMA DE AÇÕES DO SITE
+# ========================
 def execute_bot_action(action_type, **kwargs):
     """Adiciona uma ação à fila para ser executada pelo bot"""
     bot_actions_queue.append({
@@ -88,7 +218,8 @@ def execute_bot_action(action_type, **kwargs):
         "data": kwargs,
         "timestamp": datetime.now().isoformat()
     })
-    print(f"[BOT ACTION] Adicionada ação: {action_type} - Dados: {kwargs}")
+    print(f"🤖 [BOT ACTION] Adicionada ação: {action_type}")
+    print(f"   📊 Dados: {kwargs}")
     return True
 
 async def execute_bot_action_internal(action):
@@ -96,206 +227,274 @@ async def execute_bot_action_internal(action):
     action_type = action["type"]
     action_data = action["data"]
     
-    print(f"[BOT ACTION] Executando {action_type} com dados: {action_data}")
+    print(f"\n{'='*50}")
+    print(f"🤖 EXECUTANDO AÇÃO DO SITE: {action_type}")
+    print(f"📊 Dados: {action_data}")
+    print(f"⏰ Timestamp: {action.get('timestamp')}")
+    print(f"{'='*50}")
+    
+    # Verifica se o bot está pronto
+    if not bot.is_ready():
+        print("❌ Bot não está pronto ainda!")
+        return False
     
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if not guild:
-        print(f"[BOT ACTION] ERRO: Guild {GUILD_ID} não encontrada!")
-        print(f"[BOT ACTION] Guilds disponíveis: {[g.name for g in bot.guilds]}")
+        print(f"❌ Guild {GUILD_ID} não encontrada!")
+        print(f"   Guilds disponíveis: {[g.id for g in bot.guilds]}")
         return False
+    
+    print(f"✅ Guild: {guild.name}")
     
     try:
         if action_type == "create_embed":
-            # Cria uma mensagem embed
             channel_id = int(action_data["channel_id"])
             channel = guild.get_channel(channel_id)
-            if channel:
-                print(f"[BOT ACTION] Enviando embed para #{channel.name}")
-                embed = discord.Embed(
-                    title=action_data["title"],
-                    description=action_data["body"],
-                    color=discord.Color.blue()
-                )
-                embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
-                await channel.send(embed=embed)
-                print(f"[BOT ACTION] Embed criada em #{channel.name}")
-                return True
-            else:
-                print(f"[BOT ACTION] ERRO: Canal {channel_id} não encontrado!")
-                print(f"[BOT ACTION] Canais disponíveis: {[c.name for c in guild.text_channels]}")
+            
+            if not channel:
+                print(f"❌ Canal {channel_id} não encontrado!")
+                print(f"   Canais disponíveis:")
+                for c in guild.text_channels:
+                    print(f"      {c.id}: #{c.name}")
                 return False
+            
+            print(f"✅ Canal: #{channel.name} ({channel.id})")
+            print(f"📝 Título: {action_data['title'][:50]}...")
+            print(f"📄 Corpo: {action_data['body'][:100]}...")
+            
+            # Verifica permissões
+            bot_member = guild.get_member(bot.user.id)
+            if bot_member:
+                permissions = channel.permissions_for(bot_member)
+                if not permissions.send_messages:
+                    print("❌ Bot não tem permissão para enviar mensagens neste canal!")
+                    return False
+                if not permissions.embed_links:
+                    print("❌ Bot não tem permissão para enviar embeds neste canal!")
+                    return False
+            
+            # Cria e envia embed
+            embed = discord.Embed(
+                title=action_data["title"],
+                description=action_data["body"],
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
+            
+            print("📤 Enviando embed...")
+            await channel.send(embed=embed)
+            print(f"✅ Embed enviada com sucesso para #{channel.name}")
+            
+            # Log no canal de logs se configurado
+            logs_channel_id = data.get("config", {}).get("logs_channel")
+            if logs_channel_id:
+                logs_channel = guild.get_channel(int(logs_channel_id))
+                if logs_channel:
+                    await logs_channel.send(
+                        f"📝 Embed criada por {action_data.get('admin', 'Site Admin')} em #{channel.name}\n"
+                        f"Título: {action_data['title'][:100]}"
+                    )
+            
+            return True
         
         elif action_type == "create_reaction_role":
-            # Cria reaction role
             channel_id = int(action_data["channel_id"])
             channel = guild.get_channel(channel_id)
-            if channel:
-                print(f"[BOT ACTION] Criando reaction role em #{channel.name}")
-                # Envia mensagem
-                message = await channel.send(action_data["content"])
-                message_id = str(message.id)
-                print(f"[BOT ACTION] Mensagem enviada com ID: {message_id}")
-                
-                # Processa pares emoji:cargo
-                pairs = action_data.get("emoji_cargo", "").split(",")
-                reaction_roles_data = {}
-                print(f"[BOT ACTION] Processando {len(pairs)} pares")
-                
-                for pair in pairs:
-                    if ":" in pair:
-                        try:
-                            emoji_str, role_name = pair.split(":", 1)
-                            emoji_str = emoji_str.strip()
-                            role_name = role_name.strip()
-                            print(f"[BOT ACTION] Processando: {emoji_str} -> {role_name}")
-                            
-                            # Encontra o cargo
-                            role = discord.utils.get(guild.roles, name=role_name)
-                            if role:
-                                # Adiciona reação
-                                try:
-                                    await message.add_reaction(emoji_str)
-                                    print(f"[BOT ACTION] Reação adicionada: {emoji_str}")
-                                except Exception as e:
-                                    print(f"[BOT ACTION] Erro ao adicionar reação {emoji_str}: {e}")
-                                    continue
-                                
-                                # Prepara dados para salvar
-                                reaction_roles_data[emoji_str] = str(role.id)
-                                print(f"[BOT ACTION] Mapeamento: {emoji_str} -> {role.name}")
-                            else:
-                                print(f"[BOT ACTION] ERRO: Cargo '{role_name}' não encontrado!")
-                                print(f"[BOT ACTION] Cargos disponíveis: {[r.name for r in guild.roles]}")
-                        except Exception as e:
-                            print(f"[BOT ACTION] Erro ao processar par {pair}: {e}")
-                
-                # Salva no data.json se houver dados
-                if reaction_roles_data:
-                    data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
-                    save_data_to_github("Reaction role via site")
-                    print(f"[BOT ACTION] Reaction role salva: {message_id}")
-                    return True
-                else:
-                    print(f"[BOT ACTION] AVISO: Nenhum mapeamento válido criado")
+            
+            if not channel:
+                print(f"❌ Canal {channel_id} não encontrado!")
+                return False
+            
+            print(f"✅ Canal: #{channel.name}")
+            print(f"📝 Conteúdo: {action_data['content'][:100]}...")
+            
+            # Verifica permissões
+            bot_member = guild.get_member(bot.user.id)
+            if bot_member:
+                permissions = channel.permissions_for(bot_member)
+                if not permissions.send_messages:
+                    print("❌ Sem permissão para enviar mensagens")
                     return False
+                if not permissions.add_reactions:
+                    print("❌ Sem permissão para adicionar reações")
+                    return False
+            
+            # Envia mensagem
+            message = await channel.send(action_data["content"])
+            message_id = str(message.id)
+            print(f"✅ Mensagem enviada com ID: {message_id}")
+            
+            # Processa pares emoji:cargo
+            pairs = action_data.get("emoji_cargo", "").split(",")
+            reaction_roles_data = {}
+            print(f"🔄 Processando {len(pairs)} pares")
+            
+            for pair in pairs:
+                if ":" in pair:
+                    try:
+                        emoji_str, role_name = pair.split(":", 1)
+                        emoji_str = emoji_str.strip()
+                        role_name = role_name.strip()
+                        print(f"   Processando: {emoji_str} -> {role_name}")
+                        
+                        # Encontra o cargo
+                        role = discord.utils.get(guild.roles, name=role_name)
+                        if role:
+                            # Adiciona reação
+                            try:
+                                await message.add_reaction(emoji_str)
+                                print(f"   ✅ Reação adicionada: {emoji_str}")
+                            except Exception as e:
+                                print(f"   ❌ Erro ao adicionar reação {emoji_str}: {e}")
+                                continue
+                            
+                            # Prepara dados para salvar
+                            if emoji_str.startswith("<"):
+                                # Emoji custom
+                                parsed = parse_emoji_str(emoji_str, guild)
+                                if parsed and hasattr(parsed, 'id'):
+                                    reaction_roles_data[str(parsed.id)] = str(role.id)
+                                else:
+                                    reaction_roles_data[emoji_str] = str(role.id)
+                            else:
+                                # Unicode emoji
+                                reaction_roles_data[emoji_str] = str(role.id)
+                            
+                            print(f"   ✅ Mapeamento: {emoji_str} -> {role.name}")
+                        else:
+                            print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                    except Exception as e:
+                        print(f"   ❌ Erro ao processar par {pair}: {e}")
+            
+            # Salva no data.json se houver dados
+            if reaction_roles_data:
+                data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
+                save_data_to_github("Reaction role via site")
+                print(f"✅ Reaction role salva: {message_id}")
+                return True
             else:
-                print(f"[BOT ACTION] ERRO: Canal {channel_id} não encontrado!")
+                print("⚠️ Nenhum mapeamento válido criado")
                 return False
         
         elif action_type == "create_role_buttons":
-            # Cria botões de cargos
             channel_id = int(action_data["channel_id"])
             channel = guild.get_channel(channel_id)
-            if channel:
-                print(f"[BOT ACTION] Criando botões de cargo em #{channel.name}")
-                # Processa pares botão:cargo
-                pairs = action_data.get("roles", "").split(",")
-                buttons_dict = {}
-                print(f"[BOT ACTION] Processando {len(pairs)} botões")
+            
+            if not channel:
+                print(f"❌ Canal {channel_id} não encontrado!")
+                return False
+            
+            print(f"✅ Canal: #{channel.name}")
+            
+            # Processa pares botão:cargo
+            pairs = action_data.get("roles", "").split(",")
+            buttons_dict = {}
+            print(f"🔄 Processando {len(pairs)} botões")
+            
+            for pair in pairs:
+                if ":" in pair:
+                    try:
+                        button_name, role_name = pair.split(":", 1)
+                        button_name = button_name.strip()
+                        role_name = role_name.strip()
+                        print(f"   Processando botão: {button_name} -> {role_name}")
+                        
+                        # Encontra o cargo
+                        role = discord.utils.get(guild.roles, name=role_name)
+                        if role:
+                            buttons_dict[button_name] = role.id
+                            print(f"   ✅ Botão mapeado: {button_name} -> {role.name}")
+                        else:
+                            print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                    except Exception as e:
+                        print(f"   ❌ Erro ao processar par {pair}: {e}")
+            
+            if buttons_dict:
+                # Cria view com botões
+                view = PersistentRoleButtonView(0, buttons_dict)
+                sent = await channel.send(action_data["content"], view=view)
+                print(f"✅ Mensagem com botões enviada: {sent.id}")
                 
-                for pair in pairs:
-                    if ":" in pair:
-                        try:
-                            button_name, role_name = pair.split(":", 1)
-                            button_name = button_name.strip()
-                            role_name = role_name.strip()
-                            print(f"[BOT ACTION] Processando botão: {button_name} -> {role_name}")
-                            
-                            # Encontra o cargo
-                            role = discord.utils.get(guild.roles, name=role_name)
-                            if role:
-                                buttons_dict[button_name] = role.id
-                                print(f"[BOT ACTION] Botão mapeado: {button_name} -> {role.name}")
-                            else:
-                                print(f"[BOT ACTION] ERRO: Cargo '{role_name}' não encontrado!")
-                        except Exception as e:
-                            print(f"[BOT ACTION] Erro ao processar par {pair}: {e}")
+                # Atualiza IDs
+                view.message_id = sent.id
+                for item in view.children:
+                    if isinstance(item, PersistentRoleButton):
+                        item.message_id = sent.id
                 
-                if buttons_dict:
-                    # Cria view com botões
-                    view = PersistentRoleButtonView(0, buttons_dict)
-                    sent = await channel.send(action_data["content"], view=view)
-                    print(f"[BOT ACTION] Mensagem com botões enviada: {sent.id}")
-                    
-                    # Atualiza IDs
-                    view.message_id = sent.id
-                    for item in view.children:
-                        if isinstance(item, PersistentRoleButton):
-                            item.message_id = sent.id
-                    
-                    # Salva no data.json
-                    data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
-                    save_data_to_github("Role buttons via site")
-                    
-                    print(f"[BOT ACTION] Botões de cargo criados em #{channel.name}")
-                    return True
-                else:
-                    print(f"[BOT ACTION] AVISO: Nenhum botão válido criado")
-                    return False
+                # Salva no data.json
+                data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
+                save_data_to_github("Role buttons via site")
+                
+                print(f"✅ Botões de cargo criados em #{channel.name}")
+                return True
             else:
-                print(f"[BOT ACTION] ERRO: Canal {channel_id} não encontrado!")
+                print("⚠️ Nenhum botão válido criado")
                 return False
         
         elif action_type == "warn_member":
-            # Adverte um membro
             member_id = int(action_data["member_id"])
             member = guild.get_member(member_id)
-            if member:
-                print(f"[BOT ACTION] Advertindo membro: {member.display_name}")
-                # Adiciona advertência
-                entry = {
-                    "by": "site_admin",
-                    "reason": action_data["reason"],
-                    "ts": now_br().strftime("%d/%m/%Y %H:%M"),
-                    "admin": action_data.get('admin', 'Site Admin')
-                }
-                data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
-                save_data_to_github(f"Warn via site: {member.display_name}")
-                
-                # Envia mensagem no canal de logs, se configurado
-                logs_channel_id = data.get("config", {}).get("logs_channel")
-                if logs_channel_id:
-                    logs_channel = guild.get_channel(int(logs_channel_id))
-                    if logs_channel:
-                        await logs_channel.send(
-                            f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
-                            f"Motivo: {action_data['reason']}"
-                        )
-                        print(f"[BOT ACTION] Log enviado para #{logs_channel.name}")
-                
-                print(f"[BOT ACTION] Membro advertido: {member.display_name}")
-                return True
-            else:
-                print(f"[BOT ACTION] ERRO: Membro {member_id} não encontrado!")
-                print(f"[BOT ACTION] Membros disponíveis: {[m.display_name for m in guild.members[:10]]}")
+            
+            if not member:
+                print(f"❌ Membro {member_id} não encontrado!")
                 return False
+            
+            print(f"✅ Membro: {member.display_name}")
+            print(f"📝 Motivo: {action_data['reason']}")
+            
+            # Adiciona advertência
+            entry = {
+                "by": "site_admin",
+                "reason": action_data["reason"],
+                "ts": now_br().strftime("%d/%m/%Y %H:%M"),
+                "admin": action_data.get('admin', 'Site Admin')
+            }
+            data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
+            save_data_to_github(f"Warn via site: {member.display_name}")
+            
+            # Envia mensagem no canal de logs, se configurado
+            logs_channel_id = data.get("config", {}).get("logs_channel")
+            if logs_channel_id:
+                logs_channel = guild.get_channel(int(logs_channel_id))
+                if logs_channel:
+                    await logs_channel.send(
+                        f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
+                        f"Motivo: {action_data['reason']}"
+                    )
+                    print(f"📝 Log enviado para #{logs_channel.name}")
+            
+            print(f"✅ Membro advertido: {member.display_name}")
+            return True
         
         else:
-            print(f"[BOT ACTION] ERRO: Tipo de ação desconhecida: {action_type}")
+            print(f"❌ Tipo de ação desconhecida: {action_type}")
             return False
     
     except discord.Forbidden as e:
-        print(f"[BOT ACTION] ERRO DE PERMISSÃO: {e}")
-        print(f"[BOT ACTION] Verifique as permissões do bot no servidor!")
+        print(f"❌ ERRO DE PERMISSÃO: {e}")
+        print("   Verifique as permissões do bot no servidor!")
         return False
         
     except discord.HTTPException as e:
-        print(f"[BOT ACTION] ERRO HTTP: {e}")
+        print(f"❌ ERRO HTTP: {e}")
         return False
         
     except ValueError as e:
-        print(f"[BOT ACTION] ERRO DE VALOR: {e}")
+        print(f"❌ ERRO DE VALOR: {e}")
         return False
         
     except Exception as e:
-        print(f"[BOT ACTION] Erro ao executar ação {action_type}: {e}")
+        print(f"❌ Erro ao executar ação {action_type}: {e}")
         import traceback
         traceback.print_exc()
         return False
+    
+    finally:
+        print(f"{'='*50}\n")
 
 async def process_bot_actions_continuous():
     """Processa ações do site continuamente"""
-    print("[ACTION PROCESSOR] Aguardando bot ficar pronto...")
+    print("⏳ [ACTION PROCESSOR] Aguardando bot ficar pronto...")
     await bot.wait_until_ready()
     
     # Aguarda mais um pouco para garantir tudo está carregado
@@ -334,7 +533,7 @@ async def process_bot_actions_continuous():
             action_count = len(bot_actions_queue)
             print(f"\n[ACTION PROCESSOR] 🔍 Encontradas {action_count} ação(ões) na fila")
             
-            for i, action in enumerate(bot_actions_queue[:3]):  # Mostra até 3 ações
+            for i, action in enumerate(bot_actions_queue[:3]):
                 print(f"   {i+1}. {action['type']} - {action.get('timestamp', 'sem timestamp')}")
             
             # Processa a primeira ação
@@ -367,9 +566,43 @@ async def process_bot_actions_continuous():
         await asyncio.sleep(2)
     
     print("\n[ACTION PROCESSOR] ⏹️ Processador encerrado")
-# -------------------------
-# Site Routes (continuação)
-# -------------------------
+
+# ========================
+# CLASSES DE BOTÕES
+# ========================
+class PersistentRoleButtonView(ui.View):
+    def __init__(self, message_id: int, buttons_dict: dict):
+        super().__init__(timeout=None)
+        self.message_id = message_id
+        for label, role_id in buttons_dict.items():
+            self.add_item(PersistentRoleButton(label=label, role_id=role_id, message_id=message_id))
+
+class PersistentRoleButton(ui.Button):
+    def __init__(self, label: str, role_id: int, message_id: int):
+        super().__init__(label=label, style=ButtonStyle.primary)
+        self.role_id = role_id
+        self.message_id = message_id
+
+    async def callback(self, interaction: Interaction):
+        guild = interaction.guild
+        member = interaction.user
+        role = guild.get_role(self.role_id)
+        if not role:
+            await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
+            return
+
+        if role in member.roles:
+            await member.remove_roles(role, reason="Role button")
+            await interaction.response.send_message(f"Você **removeu** o cargo {role.mention}.", ephemeral=True)
+        else:
+            await member.add_roles(role, reason="Role button")
+            await interaction.response.send_message(f"Você **recebeu** o cargo {role.mention}.", ephemeral=True)
+
+        add_log(f"role_button_click: user={member.id} role={role.id} message={self.message_id}")
+
+# ========================
+# ROTAS DO SITE
+# ========================
 @app.route("/", methods=["GET"])
 def home():
     """Página inicial"""
@@ -596,8 +829,6 @@ def dashboard():
     channels_json = json.dumps(channels, ensure_ascii=False)
     roles_json = json.dumps(roles, ensure_ascii=False)
     
-    # Dashboard HTML (o HTML continua igual, vou pular para economizar espaço)
-    # ... [TODO: O HTML completo do dashboard aqui] ...
     return f'''
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -816,6 +1047,7 @@ def dashboard():
                 <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
                 <button class="tab-btn" onclick="showTab('commands')">⚡ Comandos</button>
                 <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
+                <button class="tab-btn" onclick="showTab('diagnostic')">🔧 Diagnóstico</button>
             </div>
             
             <!-- Tab: Visão Geral -->
@@ -848,6 +1080,7 @@ def dashboard():
                     <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
                     <p><strong>Membros:</strong> {len(guild.members) if guild else 0}</p>
                     <p><strong>Taxa de XP atual:</strong> {xp_rate}x</p>
+                    <p><strong>Ações na fila:</strong> {len(bot_actions_queue)}</p>
                 </div>
             </div>
             
@@ -1073,6 +1306,35 @@ def dashboard():
                     </div>
                 </div>
             </div>
+            
+            <!-- Tab: Diagnóstico -->
+            <div id="diagnostic" class="tab">
+                <div class="card">
+                    <h2>🔧 Diagnóstico do Sistema</h2>
+                    
+                    <div class="form-group">
+                        <h3>🔄 Testar Conexão Bot</h3>
+                        <button onclick="testBotConnection()" class="btn btn-primary">Testar Conexão</button>
+                        <div id="bot-test-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <h3>📊 Fila de Ações</h3>
+                        <button onclick="checkQueue()" class="btn btn-primary">Verificar Fila</button>
+                        <div id="queue-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <h3>🚀 Testar Ação Rápida</h3>
+                        <p>Criar uma embed de teste no canal selecionado:</p>
+                        <select id="test-channel" class="form-control">
+                            <option value="">Selecione um canal</option>
+                        </select>
+                        <button onclick="sendTestAction()" class="btn btn-success" style="margin-top: 1rem;">Enviar Teste</button>
+                        <div id="test-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <script>
@@ -1093,6 +1355,7 @@ def dashboard():
                 if (tabId === 'xp') loadLevelRoles();
                 if (tabId === 'commands' || tabId === 'moderation') loadMembers();
                 if (tabId === 'moderation') loadCommandChannels();
+                if (tabId === 'diagnostic') loadDiagnosticData();
             }}
             
             // Inicialização
@@ -1105,7 +1368,7 @@ def dashboard():
             function populateSelects() {{
                 // Canais
                 const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 
-                                       'embed-channel', 'blocklinks-channel'];
+                                       'embed-channel', 'blocklinks-channel', 'test-channel'];
                 
                 channelSelects.forEach(selectId => {{
                     const select = document.getElementById(selectId);
@@ -1162,6 +1425,11 @@ def dashboard():
                 }} catch (error) {{
                     console.error('Erro ao carregar membros:', error);
                 }}
+            }}
+            
+            // Carrega dados para diagnóstico
+            async function loadDiagnosticData() {{
+                // Já preenchido por populateSelects()
             }}
             
             // Funções para salvar configurações
@@ -1534,6 +1802,120 @@ def dashboard():
                 }}
             }}
             
+            // Funções de diagnóstico
+            async function testBotConnection() {{
+                const resultDiv = document.getElementById('bot-test-result');
+                resultDiv.innerHTML = '<p>🔍 Testando conexão...</p>';
+                
+                try {{
+                    const response = await fetch('/api/test/bot');
+                    const data = await response.json();
+                    
+                    let html = '<h4>Resultado do Teste:</h4>';
+                    
+                    if (data.success) {{
+                        html += `<p>✅ Conexão com API estabelecida</p>`;
+                        html += `<p><strong>Bot Status:</strong> ${{data.bot.ready ? '✅ Online' : '❌ Offline'}}</p>`;
+                        html += `<p><strong>Bot User:</strong> ${{data.bot.user || 'Não conectado'}}</p>`;
+                        html += `<p><strong>Guilds Conectadas:</strong> ${{data.bot.guilds.length}}</p>`;
+                        
+                        if (data.bot.target_guild) {{
+                            html += `<p><strong>Guild Alvo:</strong> ✅ ${{data.bot.target_guild.name}}</p>`;
+                            html += `<p><strong>Canais Disponíveis:</strong> ${{data.bot.target_guild.channels.length}}</p>`;
+                            html += `<p><strong>Permissões:</strong></p>`;
+                            html += `<ul>`;
+                            html += `<li>Enviar Mensagens: ${{data.bot.target_guild.permissions.send_messages ? '✅' : '❌'}}</li>`;
+                            html += `<li>Embed Links: ${{data.bot.target_guild.permissions.embed_links ? '✅' : '❌'}}</li>`;
+                            html += `<li>Gerenciar Cargos: ${{data.bot.target_guild.permissions.manage_roles ? '✅' : '❌'}}</li>`;
+                            html += `</ul>`;
+                        }}
+                        
+                        html += `<p><strong>Ações na Fila:</strong> ${{data.queue_length}}</p>`;
+                        
+                        if (data.bot.guilds && data.bot.guilds.length > 0) {{
+                            html += `<details><summary>Ver Todas as Guilds</summary><pre>${{JSON.stringify(data.bot.guilds, null, 2)}}</pre></details>`;
+                        }}
+                    }} else {{
+                        html += `<p class="error">❌ Falha na conexão com a API</p>`;
+                        html += `<p>${{data.message || 'Erro desconhecido'}}</p>`;
+                    }}
+                    
+                    resultDiv.innerHTML = html;
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<p class="error">❌ Erro de conexão: ${{error.message}}</p>`;
+                }}
+            }}
+            
+            async function checkQueue() {{
+                const resultDiv = document.getElementById('queue-result');
+                resultDiv.innerHTML = '<p>🔍 Verificando fila...</p>';
+                
+                try {{
+                    const response = await fetch('/api/debug/actions');
+                    const data = await response.json();
+                    
+                    let html = '<h4>Estado da Fila:</h4>';
+                    
+                    if (data.success) {{
+                        html += `<p><strong>Ações na fila:</strong> ${{data.queue_length}}</p>`;
+                        html += `<p><strong>Bot pronto:</strong> ${{data.bot_ready ? '✅ Sim' : '❌ Não'}}</p>`;
+                        html += `<p><strong>Processamento ativo:</strong> ${{data.processing_active ? '✅ Sim' : '❌ Não'}}</p>`;
+                        
+                        if (data.queue && data.queue.length > 0) {{
+                            html += '<h5>Próximas ações:</h5><ul>';
+                            data.queue.forEach((action, index) => {{
+                                html += `<li><strong>${{action.type}}</strong> - ${{action.timestamp}}</li>`;
+                            }});
+                            html += '</ul>';
+                        }} else {{
+                            html += '<p>✅ Nenhuma ação pendente na fila</p>';
+                        }}
+                        
+                        html += `<details><summary>Ver Detalhes Completos</summary><pre>${{JSON.stringify(data, null, 2)}}</pre></details>`;
+                    }} else {{
+                        html += `<p class="error">❌ Erro ao verificar fila</p>`;
+                        html += `<p>${{data.message}}</p>`;
+                    }}
+                    
+                    resultDiv.innerHTML = html;
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<p class="error">❌ Erro: ${{error.message}}</p>`;
+                }}
+            }}
+            
+            async function sendTestAction() {{
+                const channelId = document.getElementById('test-channel').value;
+                if (!channelId) {{
+                    alert('Selecione um canal primeiro');
+                    return;
+                }}
+                
+                const resultDiv = document.getElementById('test-result');
+                resultDiv.innerHTML = '<p>🚀 Enviando teste...</p>';
+                
+                try {{
+                    const response = await fetch('/api/command/embed', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            channel_id: channelId,
+                            title: "Teste do Site - Diagnóstico",
+                            body: "Esta é uma mensagem de teste enviada pelo site para verificar a conexão entre o site e o bot Discord. Se esta mensagem aparecer, o sistema está funcionando corretamente! ✅",
+                            admin: "Sistema de Diagnóstico"
+                        }})
+                    }});
+                    
+                    const data = await response.json();
+                    if (data.success) {{
+                        resultDiv.innerHTML = '<div class="alert-success">✅ Teste enviado com sucesso! A embed será criada no Discord em instantes.</div>';
+                    }} else {{
+                        resultDiv.innerHTML = `<div class="alert-error">❌ Falha: ${{data.message}}</div>`;
+                    }}
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro de conexão: ${{error.message}}</div>`;
+                }}
+            }}
+            
             // Utilitários
             function showAlert(elementId, message, isSuccess) {{
                 const alertEl = document.getElementById(elementId);
@@ -1550,10 +1932,9 @@ def dashboard():
     </html>
     '''
 
-# -------------------------
-# APIs do Site
-# -------------------------
-
+# ========================
+# APIs DO SITE
+# ========================
 @app.route("/api/config/welcome", methods=["POST"])
 def api_config_welcome():
     """API para configurar boas-vindas"""
@@ -1659,7 +2040,7 @@ def api_guild_members():
                     "avatar": str(member.avatar.url) if member.avatar else None
                 })
         
-        return jsonify({"success": True, "members": members[:100]})  # Limita a 100 membros
+        return jsonify({"success": True, "members": members[:100]})
         
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -1864,9 +2245,45 @@ def api_command_channels():
     command_channels = data.get("command_channels", {})
     return jsonify({"success": True, "command_channels": command_channels})
 
-# -------------------------
-# Debug endpoints
-# -------------------------
+@app.route("/api/test/bot", methods=["GET"])
+def api_test_bot():
+    """API para testar conexão com o bot"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    bot_status = {
+        "ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
+        "user": str(bot.user) if hasattr(bot, 'user') else None,
+        "guild_id": GUILD_ID,
+        "guilds": []
+    }
+    
+    if bot.is_ready():
+        bot_status["guilds"] = [{"id": g.id, "name": g.name, "member_count": len(g.members)} for g in bot.guilds]
+        
+        # Verifica guild específica
+        if GUILD_ID:
+            guild = bot.get_guild(int(GUILD_ID))
+            if guild:
+                bot_member = guild.get_member(bot.user.id)
+                permissions = bot_member.guild_permissions if bot_member else None
+                
+                bot_status["target_guild"] = {
+                    "name": guild.name,
+                    "channels": [{"id": c.id, "name": c.name} for c in guild.text_channels],
+                    "permissions": {
+                        "send_messages": permissions.send_messages if permissions else False,
+                        "embed_links": permissions.embed_links if permissions else False,
+                        "manage_roles": permissions.manage_roles if permissions else False
+                    }
+                }
+    
+    return jsonify({
+        "success": True,
+        "bot": bot_status,
+        "queue_length": len(bot_actions_queue),
+        "timestamp": datetime.now().isoformat()
+    })
 
 @app.route("/api/debug/actions", methods=["GET"])
 def api_debug_actions():
@@ -1875,12 +2292,12 @@ def api_debug_actions():
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
     # Verifica se o loop de processamento está ativo
-    processing_active = hasattr(bot, '_processing_task') and not bot._processing_task.done()
+    processing_active = hasattr(bot, '_processing_task') and not bot._processing_task.done() if hasattr(bot, '_processing_task') else False
     
     return jsonify({
         "success": True,
         "queue_length": len(bot_actions_queue),
-        "queue": bot_actions_queue[:5],  # Mostra as 5 primeiras
+        "queue": bot_actions_queue[:5],
         "bot_ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
         "bot_user": str(bot.user) if hasattr(bot, 'user') else "None",
         "guild_id": GUILD_ID,
@@ -1888,57 +2305,9 @@ def api_debug_actions():
         "guilds": [g.name for g in bot.guilds] if hasattr(bot, 'guilds') else []
     })
 
-@app.route("/api/debug/test_action", methods=["POST"])
-def api_debug_test_action():
-    """API para testar uma ação manualmente"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        req_data = request.json
-        action_type = req_data.get('type')
-        
-        if action_type == "create_embed":
-            # Executa a ação diretamente (sem fila)
-            import asyncio
-            
-            # Cria uma task para executar no loop do bot
-            async def test_action():
-                guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
-                if guild:
-                    channel = guild.get_channel(int(req_data.get('channel_id', 0)))
-                    if channel:
-                        embed = discord.Embed(
-                            title=req_data.get('title', 'Teste'),
-                            description=req_data.get('body', 'Corpo do teste'),
-                            color=discord.Color.blue()
-                        )
-                        await channel.send(embed=embed)
-                        return True
-                return False
-            
-            # Executa no loop do bot
-            success = False
-            try:
-                # Tenta executar diretamente
-                future = asyncio.run_coroutine_threadsafe(test_action(), bot.loop)
-                success = future.result(timeout=10)
-            except Exception as e:
-                print(f"Erro no teste: {e}")
-            
-            return jsonify({
-                "success": success,
-                "message": "✅ Ação de teste executada!" if success else "❌ Falha ao executar ação"
-            })
-        
-        return jsonify({"success": False, "message": "Tipo de ação inválido"})
-        
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-# -------------------------
-# Auto ping (manter bot ativo)
-# -------------------------
+# ========================
+# AUTO PING (MANTER ATIVO)
+# ========================
 def auto_ping():
     while True:
         try:
@@ -1951,140 +2320,9 @@ def auto_ping():
 
 Thread(target=auto_ping, daemon=True).start()
 
-# -------------------------
-# GitHub persistence
-# -------------------------
-def _gh_headers():
-    return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-
-def load_data_from_github():
-    try:
-        r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
-        if r.status_code == 200:
-            js = r.json()
-            content_b64 = js.get("content", "")
-            if content_b64:
-                raw = base64.b64decode(content_b64)
-                loaded = json.loads(raw.decode("utf-8"))
-                data.update(loaded)
-                print("Dados carregados do GitHub.")
-                return True
-        else:
-            print(f"GitHub GET retornou {r.status_code} — iniciando com dados limpos.")
-    except Exception as e:
-        print("Erro ao carregar dados do GitHub:", e)
-    return False
-
-def save_data_to_github(message="Bot update"):
-    try:
-        r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
-        sha = None
-        if r.status_code == 200:
-            sha = r.json().get("sha")
-
-        content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-        payload = {
-            "message": f"{message} @ {now_br().isoformat()}",
-            "content": base64.b64encode(content).decode("utf-8"),
-            "branch": BRANCH
-        }
-        if sha:
-            payload["sha"] = sha
-
-        put = requests.put(GITHUB_API_CONTENT, headers=_gh_headers(), json=payload, timeout=30)
-        if put.status_code in (200, 201):
-            print("Dados salvos no GitHub.")
-            return True
-        else:
-            print("Erro ao salvar no GitHub:", put.status_code, put.text[:400])
-    except Exception as e:
-        print("Exception saving to GitHub:", e)
-    return False
-
-def add_log(entry):
-    ts = now_br().isoformat()
-    data.setdefault("logs", []).append({"ts": ts, "entry": entry})
-    try:
-        save_data_to_github(f"log: {entry}")
-    except Exception:
-        pass
-
-# -------------------------
-# XP / level
-# -------------------------
-def xp_for_message():
-    return 15
-
-def xp_to_level(xp):
-    lvl = int((xp / 100) ** 0.6) + 1
-    return max(lvl, 1)
-
-# -------------------------
-# emoji
-# -------------------------
-EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
-
-def parse_emoji_str(emoji_str, guild: discord.Guild = None):
-    if not emoji_str:
-        return None
-    m = EMOJI_RE.match(emoji_str.strip())
-    if m:
-        name, id_str = m.groups()
-        try:
-            eid = int(id_str)
-            if guild:
-                e = discord.utils.get(guild.emojis, id=eid)
-                if e:
-                    return e
-            return discord.PartialEmoji(name=name, id=eid)
-        except Exception:
-            pass
-    return emoji_str
-
-# -------------------------
-# múltiplos botões
-# -------------------------
-class PersistentRoleButtonView(ui.View):
-    def __init__(self, message_id: int, buttons_dict: dict):
-        """
-        message_id: ID da mensagem que contém os botões
-        buttons_dict = {
-            "Nome do Botão 1": role_id1,
-            "Nome do Botão 2": role_id2,
-        }
-        """
-        super().__init__(timeout=None)
-        self.message_id = message_id
-        for label, role_id in buttons_dict.items():
-            self.add_item(PersistentRoleButton(label=label, role_id=role_id, message_id=message_id))
-
-class PersistentRoleButton(ui.Button):
-    def __init__(self, label: str, role_id: int, message_id: int):
-        super().__init__(label=label, style=ButtonStyle.primary)
-        self.role_id = role_id
-        self.message_id = message_id
-
-    async def callback(self, interaction: Interaction):
-        guild = interaction.guild
-        member = interaction.user
-        role = guild.get_role(self.role_id)
-        if not role:
-            await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
-            return
-
-        if role in member.roles:
-            await member.remove_roles(role, reason="Role button")
-            await interaction.response.send_message(f"Você **removeu** o cargo {role.mention}.", ephemeral=True)
-        else:
-            await member.add_roles(role, reason="Role button")
-            await interaction.response.send_message(f"Você **recebeu** o cargo {role.mention}.", ephemeral=True)
-
-        # Log
-        add_log(f"role_button_click: user={member.id} role={role.id} message={self.message_id}")
-
-# -------------------------
-# Eventos
-# -------------------------
+# ========================
+# EVENTOS DO BOT
+# ========================
 @bot.event
 async def on_ready():
     bot.start_time = datetime.now()
@@ -2114,10 +2352,6 @@ async def on_ready():
             print(f"   👥 Membros: {len(target_guild.members)}")
             print(f"   📝 Canais de texto: {len(target_guild.text_channels)}")
             print(f"   🎭 Cargos: {len(target_guild.roles)}")
-            
-            # Lista alguns canais e cargos para debug
-            print(f"   📋 Canais (5 primeiros): {[c.name for c in list(target_guild.text_channels)[:5]]}")
-            print(f"   📋 Cargos (5 primeiros): {[r.name for r in list(target_guild.roles)[:5]]}")
         else:
             print(f"⚠️ AVISO CRÍTICO: Guild alvo não encontrada!")
             print(f"   GUILD_ID configurado: {GUILD_ID}")
@@ -2146,7 +2380,7 @@ async def on_ready():
     except Exception as e:
         print(f"   ❌ Erro ao sincronizar comandos: {e}")
 
-    # ---------- Reconstruir botões persistentes ----------
+    # Reconstruir botões persistentes
     print("🔄 Restaurando botões persistentes...")
     role_buttons = data.get("role_buttons", {})
     if role_buttons:
@@ -2188,10 +2422,14 @@ async def on_ready():
     else:
         print("   ℹ️ Nenhum botão persistente para restaurar")
 
-    # ---------- Iniciar processamento de ações do site ----------
+    # Iniciar sistema de diagnóstico
+    print("🔍 Executando diagnóstico de conexão...")
+    await check_bot_connection()
+
+    # Iniciar processamento de ações do site
     print("🚀 Iniciando sistema de ações do site...")
     try:
-        bot.loop.create_task(process_bot_actions_continuous())
+        bot._processing_task = bot.loop.create_task(process_bot_actions_continuous())
         print("   ✅ Sistema de ações INICIADO!")
     except Exception as e:
         print(f"   ❌ Erro ao iniciar sistema de ações: {e}")
@@ -2226,7 +2464,7 @@ async def on_member_join(member: discord.Member):
     welcome_msg = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
-    # ----- Imagem de fundo personalizada -----
+    # Imagem de fundo personalizada
     background_path = data.get("config", {}).get("welcome_background", "")
 
     width, height = 900, 300
@@ -2248,7 +2486,7 @@ async def on_member_join(member: discord.Member):
 
     draw = ImageDraw.Draw(img)
 
-    # Avatar do usuário centralizado com borda roxa clara e sem pixelar
+    # Avatar do usuário
     try:
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
@@ -2263,7 +2501,7 @@ async def on_member_join(member: discord.Member):
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.ellipse((0, 0, avatar_size * upscale, avatar_size * upscale), fill=255)
 
-        border_color = (200, 150, 255, 255)  # roxo mais claro
+        border_color = (200, 150, 255, 255)
         border = Image.new("RGBA", (big_size, big_size), (0, 0, 0, 0))
         draw_border = ImageDraw.Draw(border)
         draw_border.ellipse((0, 0, big_size, big_size), fill=border_color)
@@ -2277,7 +2515,7 @@ async def on_member_join(member: discord.Member):
     except Exception as e:
         print(f"Erro ao carregar avatar do usuário: {e}")
 
-    # ----- Texto -----
+    # Texto
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
@@ -2308,7 +2546,7 @@ async def on_member_join(member: discord.Member):
     draw.text((text_x2 + 1, text_y2 + 1), text_count, font=font_s, fill=shadow_color)
     draw.text((text_x2, text_y2), text_count, font=font_s, fill=text_color)
 
-    # ----- Enviar mensagem -----
+    # Enviar mensagem
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -2317,9 +2555,9 @@ async def on_member_join(member: discord.Member):
     await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
 
-# -------------------------
-# Reaction roles
-# -------------------------
+# ========================
+# REACTION ROLES
+# ========================
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     try:
@@ -2389,23 +2627,23 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     except Exception as e:
         print("on_raw_reaction_remove error:", e)
 
-# -------------------------
-# Warn helper
-# -------------------------
+# ========================
+# WARN HELPER
+# ========================
 async def add_warn(member: discord.Member, reason=""):
     uid = str(member.id)
     entry = {
         "by": bot.user.id,
         "reason": reason,
-        "ts": now_br().strftime("%d/%m/%Y %H:%M")  # dia/mês/ano hora:minuto
+        "ts": now_br().strftime("%d/%m/%Y %H:%M")
     }
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("Auto-warn")
     add_log(f"warn: user={uid} by=bot reason={reason}")
 
-# -------------------------
-# on_message
-# -------------------------
+# ========================
+# ON MESSAGE
+# ========================
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
@@ -2415,7 +2653,7 @@ async def on_message(message: discord.Message):
     content = message.content.strip()
     delete_message = False
 
-    # -------- IGNORAR COMANDOS DO MUDAE --------
+    # IGNORAR COMANDOS DO MUDAE
     mudae_commands = [
         "$w", "$wa", "$wg", "$h", "$ha", "$hg",
         "$W", "$WA", "$WG", "$H", "$HA", "$HG",
@@ -2425,23 +2663,17 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # -------- IGNORAR ADVERTÊNCIAS PARA ADM E MOD --------
+    # IGNORAR ADVERTÊNCIAS PARA ADM E MOD
     ignored_roles = {"Administrador", "Moderador"}
     member_roles = {r.name for r in message.author.roles}
     is_staff = any(role in ignored_roles for role in member_roles)
 
-    # -------- IGNORAR MÍDIA (imagem, vídeo, gif, sticker, arquivo) --------
+    # IGNORAR MÍDIA
     has_media = False
-
-    # Imagens/vídeos/arquivos
     if message.attachments:
         has_media = True
-
-    # Stickers
     if message.stickers:
         has_media = True
-
-    # GIFs de sites conhecidos
     gif_domains = ["tenor.com", "media.tenor.com", "giphy.com", "imgur.com"]
     if any(domain in content.lower() for domain in gif_domains):
         has_media = True
@@ -2450,7 +2682,7 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # -------- BLOQUEIO DE LINKS --------
+    # BLOQUEIO DE LINKS
     blocked_channels = data.get("blocked_links_channels", [])
     if message.channel.id in blocked_channels:
         import re
@@ -2465,7 +2697,7 @@ async def on_message(message: discord.Message):
                 await add_warn(message.author, reason="Enviou link em canal bloqueado")
                 return
 
-    # -------- ANTI-SPAM --------
+    # ANTI-SPAM
     user_msgs = data.setdefault("last_messages_content", {}).setdefault(uid, [])
     if len(user_msgs) >= 5:
         user_msgs.pop(0)
@@ -2484,7 +2716,7 @@ async def on_message(message: discord.Message):
         user_msgs.append(content)
     data["last_messages_content"][uid] = user_msgs
 
-    # -------- DETECÇÃO DE MAIÚSCULAS --------
+    # DETECÇÃO DE MAIÚSCULAS
     if len(content) > 5 and content.isupper():
         if not is_staff:
             delete_message = True
@@ -2496,7 +2728,7 @@ async def on_message(message: discord.Message):
             await add_warn(message.author, reason="Uso excessivo de maiúsculas")
             return
 
-    # -------- SISTEMA DE XP --------
+    # SISTEMA DE XP
     if not delete_message:
         data.setdefault("xp", {})
         data.setdefault("level", {})
@@ -2539,7 +2771,7 @@ async def on_message(message: discord.Message):
 
             add_log(f"level_up: user={uid} level={lvl_now}")
 
-    # -------- SALVAR DADOS --------
+    # SALVAR DADOS
     try:
         save_data_to_github("XP update")
     except Exception as e:
@@ -2547,9 +2779,9 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
-# -------------------------
-# Slash commands
-# -------------------------
+# ========================
+# SLASH COMMANDS
+# ========================
 def is_admin_check(interaction: discord.Interaction) -> bool:
     try:
         perms = interaction.user.guild_permissions
@@ -2559,7 +2791,6 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
         
 def is_command_allowed(interaction: discord.Interaction, command_name: str) -> bool:
     allowed = data.get("command_channels", {}).get(command_name, [])
-    # Se nenhum canal estiver configurado, o comando é liberado em todos
     if not allowed:
         return True
     return interaction.channel_id in allowed
@@ -2584,11 +2815,9 @@ async def set_level_role(interaction: discord.Interaction, level: int, role: dis
         ephemeral=False
     )
 
-# -------------------------
-# /setxprate — ajusta a taxa de ganho de XP
-# -------------------------
+#/xp_rate
 @tree.command(name="xp_rate", description="Define a taxa de ganho de XP (admin)")
-@app_commands.describe(rate="Taxa de XP — valores menores tornam o up mais lento (ex: 1 = normal, 2 = 2x mais difícil, 4 = 4x mais difícil)")
+@app_commands.describe(rate="Taxa de XP — valores menores tornam o up mais lento")
 async def set_xp_rate(interaction: discord.Interaction, rate: int):
     if not is_admin_check(interaction):
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
@@ -2626,41 +2855,30 @@ async def criar_embed(
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
-    # Converter a cor de string para objeto Color
     try:
         color = discord.Color(int(cor.replace("#", ""), 16))
     except:
         color = discord.Color.blurple()
 
-    # 🔹 Formatar o texto da descrição
     formatted_text = corpo.replace("\\n", "\n").strip()
-
-    # Substitui marcadores por ● (grande e sólido)
     formatted_text = formatted_text.replace("- ", "● ").replace("• ", "● ")
-
-    # Adiciona espaçamento entre linhas
     lines = formatted_text.split("\n")
     formatted_text = "\n\n".join(line.strip() for line in lines if line.strip())
 
-    # Cria a embed
     embed = discord.Embed(
-        title=f"**{titulo}**",  # sem emoji
+        title=f"**{titulo}**",
         description=formatted_text,
         color=color
     )
 
-    # Imagem (se fornecida)
     if imagem:
         embed.set_image(url=imagem)
 
-    # Envia a embed
     mention_text = mencionar if mencionar in ["@everyone", "@here"] else ""
     await canal.send(content=mention_text, embed=embed)
     await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
 
-# -------------------------
-# /setwelcomeimage - Define ou remove a imagem de fundo da mensagem de boas-vindas
-# -------------------------
+#/selecionar_imagem_boas-vindas
 @tree.command(name="selecionar_imagem_boas-vindas", description="Define ou remove a imagem de fundo da mensagem de boas-vindas (admin)")
 @app_commands.describe(url="URL da imagem que será usada no fundo (deixe vazio para remover)")
 async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = None):
@@ -2670,7 +2888,6 @@ async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = Non
 
     config = data.setdefault("config", {})
 
-    # --- Remover imagem personalizada ---
     if not url:
         if "welcome_background" in config:
             del config["welcome_background"]
@@ -2680,12 +2897,10 @@ async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = Non
             await interaction.response.send_message("ℹ️ Nenhuma imagem personalizada estava configurada.", ephemeral=True)
         return
 
-    # --- Validar URL ---
     if not (url.startswith("http://") or url.startswith("https://")):
         await interaction.response.send_message("❌ Forneça uma URL válida começando com http:// ou https://", ephemeral=True)
         return
 
-    # --- Salvar nova imagem ---
     config["welcome_background"] = url
     save_data_to_github("Set welcome background")
     await interaction.response.send_message(f"✅ Imagem de fundo definida com sucesso!\n{url}", ephemeral=False)
@@ -2714,9 +2929,7 @@ async def slash_setcommandchannel(interaction: discord.Interaction, command: str
     save_data_to_github(f"Set command channel for {command}")
     await interaction.response.send_message(msg, ephemeral=False)
 
-# -------------------------
-# Comando para criar mensagem com botões
-# -------------------------
+#/criar_reação_com_botao
 @tree.command(name="criar_reação_com_botao", description="Cria uma mensagem com botões de cargos")
 @app_commands.describe(
     channel="Canal para enviar a mensagem",
@@ -2728,7 +2941,6 @@ async def create_role_buttons(interaction: Interaction, channel: discord.TextCha
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
 
-    # Criar dicionário de botões
     buttons_dict = {}
     for pair in [r.strip() for r in roles.split(",")]:
         try:
@@ -2744,23 +2956,20 @@ async def create_role_buttons(interaction: Interaction, channel: discord.TextCha
         
         buttons_dict[button_name.strip()] = role.id
 
-    # Envia mensagem
-    view = PersistentRoleButtonView(0, buttons_dict)  # temporário, substituiremos depois pelo ID
+    view = PersistentRoleButtonView(0, buttons_dict)
     sent = await channel.send(content=content, view=view)
 
-    # Atualiza view com ID real da mensagem
     view.message_id = sent.id
     for item in view.children:
         if isinstance(item, PersistentRoleButton):
             item.message_id = sent.id
 
-    # Salva no data.json
     data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
     save_data_to_github("Create role buttons")
 
     await interaction.response.send_message(f"Mensagem criada em {channel.mention} com {len(buttons_dict)} botões.", ephemeral=True)
 
-# Comando para bloquear/desbloquear links em um canal
+#/bloquear_links
 @tree.command(name="bloquear_links", description="Bloqueia ou desbloqueia links em um canal (admin)")
 @app_commands.describe(channel="Canal para bloquear/desbloqueiar links")
 async def block_links(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -2771,17 +2980,15 @@ async def block_links(interaction: discord.Interaction, channel: discord.TextCha
     data.setdefault("blocked_links_channels", [])
     
     if channel.id in data["blocked_links_channels"]:
-        # Remove o bloqueio
         data["blocked_links_channels"].remove(channel.id)
         save_data_to_github("Unblock links channel")
         await interaction.response.send_message(f"✅ Links desbloqueados no canal {channel.mention}.")
     else:
-        # Adiciona o bloqueio
         data["blocked_links_channels"].append(channel.id)
         save_data_to_github("Block links channel")
         await interaction.response.send_message(f"✅ Links bloqueados no canal {channel.mention}.")
 
-# /perfil
+#/perfil
 @tree.command(name="perfil", description="mostra o seu perfil")
 @app_commands.describe(member="Membro a ver o rank (opcional)")
 async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
@@ -2799,12 +3006,10 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)
     pos = next((i+1 for i, (u, _) in enumerate(ranking) if u == uid), len(ranking))
 
-    # Imagem base
     width, height = 900, 200
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 255))  # fundo preto
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(img)
 
-    # Fontes
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
@@ -2812,7 +3017,7 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    # Avatar circular
+    # Avatar
     try:
         avatar_bytes = await target.avatar.read()
         avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
@@ -2824,33 +3029,26 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     except Exception as e:
         print("Erro avatar:", e)
 
-    # Nome do usuário
     draw.text((160, 50), target.display_name, font=font_b, fill=(0, 255, 255))
-
-    # Classificação e nível no canto direito
     draw.text((width - 220, 40), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(0, 255, 255))
     draw.text((width - 220, 80), f"NÍVEL {lvl}", font=font_s, fill=(255, 0, 255))
 
-    # Barra XP arredondada
+    # Barra XP
     next_xp = 100 + lvl*50
     cur = xp % next_xp
     bar_total_w, bar_h = 560, 36
     x0, y0 = 160, 140
     radius = bar_h // 2
 
-    # Fundo da barra
     draw.rounded_rectangle([x0, y0, x0+bar_total_w, y0+bar_h], radius=radius, fill=(50, 50, 50))
     
-    # Barra preenchida (gradiente azul neon) arredondada
     fill_w = int(bar_total_w * min(1.0, cur / next_xp))
     if fill_w > 0:
-        # Cria a barra preenchida com mesmo raio que o fundo
         filled_bar = Image.new("RGBA", (fill_w, bar_h), (0,0,0,0))
         fill_draw = ImageDraw.Draw(filled_bar)
         fill_draw.rounded_rectangle([0, 0, fill_w, bar_h], radius=radius, fill=(0, 200, 255))
         img.paste(filled_bar, (x0, y0), filled_bar)
 
-    # Texto XP dentro da barra, centralizado verticalmente
     xp_text = f"{cur} / {next_xp} XP"
     bbox = draw.textbbox((0, 0), xp_text, font=font_s)
     text_w = bbox[2] - bbox[0]
@@ -2859,14 +3057,13 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     text_y = y0 + (bar_h - text_h) // 2
     draw.text((text_x, text_y), xp_text, font=font_s, fill=(255, 255, 255))
 
-    # Enviar imagem
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
 
-# /definir_boas-vindas
+#/definir_boas-vindas
 @tree.command(name="definir_boas-vindas", description="Define a mensagem de boas-vindas (admin)")
 @app_commands.describe(message="Mensagem (use {member} para mencionar)")
 async def slash_setwelcome(interaction: discord.Interaction, message: str):
@@ -2878,7 +3075,7 @@ async def slash_setwelcome(interaction: discord.Interaction, message: str):
     save_data_to_github("Set welcome message")
     await interaction.response.send_message(f"Mensagem de boas-vindas definida!\n{message}")
 
-# /rank
+#/rank
 @tree.command(name="rank", description="Mostra top 10 de XP")
 async def slash_top(interaction: discord.Interaction):
     if not is_command_allowed(interaction, "top"):
@@ -2894,7 +3091,7 @@ async def slash_top(interaction: discord.Interaction):
     text = "\n".join(lines) if lines else "Sem dados ainda."
     await interaction.followup.send(f"🏆 **Top 10 XP**\n{text}")
 
-# /advertir
+#/advertir
 @tree.command(name="advertir", description="Advertir um membro (admin)")
 @app_commands.describe(member="Membro a ser advertido", reason="Motivo da advertência")
 async def slash_warn(interaction: discord.Interaction, member: discord.Member, reason: str = "Sem motivo informado"):
@@ -2905,14 +3102,14 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
     entry = {
         "by": interaction.user.id,
         "reason": reason,
-        "ts": datetime.utcnow().strftime("%d/%m/%Y %H:%M")  # formato dia/mês/ano hora:minuto
+        "ts": datetime.utcnow().strftime("%d/%m/%Y %H:%M")
     }
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("New warn")
     add_log(f"warn: user={uid} by={interaction.user.id} reason={reason}")
     await interaction.response.send_message(f"⚠️ {member.mention} advertido.\nMotivo: {reason}")
 
-# /lista_de_advertência
+#/lista_de_advertência
 @tree.command(name="lista_de_advertência", description="Mostra advertências de um membro")
 @app_commands.describe(member="Membro (opcional)")
 async def slash_warns(interaction: discord.Interaction, member: discord.Member = None):
@@ -2927,7 +3124,7 @@ async def slash_warns(interaction: discord.Interaction, member: discord.Member =
     text = "\n".join([f"- {w['reason']} (por <@{w['by']}>) em {w['ts']}" for w in arr])
     await interaction.response.send_message(f"⚠️ Advertências de {target.mention}:\n{text}")
 
-# /savedata (admin)
+#/savedata
 @tree.command(name="savedata", description="Força salvar dados no GitHub (admin)")
 async def slash_savedata(interaction: discord.Interaction):
     if not is_admin_check(interaction):
@@ -2936,7 +3133,7 @@ async def slash_savedata(interaction: discord.Interaction):
     ok = save_data_to_github("Manual save via /savedata")
     await interaction.response.send_message("Dados salvos no GitHub." if ok else "Falha ao salvar (veja logs).")
 
-# /definir_canal_boas-vindas (admin)
+#/definir_canal_boas-vindas
 @tree.command(name="definir_canal_boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
 @app_commands.describe(channel="Canal de texto")
 async def slash_setwelcome(interaction: discord.Interaction, channel: discord.TextChannel = None):
@@ -2951,8 +3148,8 @@ async def slash_setwelcome(interaction: discord.Interaction, channel: discord.Te
         data.setdefault("config", {})["welcome_channel"] = str(channel.id)
         save_data_to_github("Set welcome channel")
         await interaction.response.send_message(f"Canal de boas-vindas definido: {channel.mention}")
-        
-#/Canal_xp
+
+#/canal_xp
 @tree.command(name="canal_xp", description="Define o canal onde serão enviadas as mensagens de level up (admin)")
 @app_commands.describe(channel="Canal onde o bot vai enviar as mensagens de level up")
 async def set_levelup_channel(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -2965,7 +3162,7 @@ async def set_levelup_channel(interaction: discord.Interaction, channel: discord
 
     await interaction.response.send_message(f"✅ Canal de level up definido para {channel.mention}.", ephemeral=False)
 
-# reajir_com_emoji
+# REACTION ROLES GROUP
 reactionrole_group = app_commands.Group(name="reajir_com_emoji", description="Gerenciar reaction roles (admin)")
 
 @reactionrole_group.command(name="criar", description="Cria mensagem com reação e mapeia para um cargo (admin)")
@@ -2975,29 +3172,26 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=False)
-    # Parse emoji (custom or unicode)
+    
     parsed = parse_emoji_str(emoji, guild=interaction.guild)
-    # Send message
+    
     try:
         sent = await channel.send(content)
     except Exception as e:
         await interaction.followup.send(f"Falha ao enviar mensagem: {e}")
         return
-    # Add reaction
+    
     try:
         if isinstance(parsed, discord.Emoji) or isinstance(parsed, discord.PartialEmoji):
             await sent.add_reaction(parsed)
-            # store mapping by emoji id string
             key = str(parsed.id)
         else:
-            # unicode char
             await sent.add_reaction(parsed)
             key = str(parsed)
     except Exception as e:
-        # cleanup: delete message if reaction failed?
         await interaction.followup.send(f"Falha ao reagir com o emoji: {e}")
         return
-    # store mapping
+    
     data.setdefault("reaction_roles", {}).setdefault(str(sent.id), {})[key] = str(role.id)
     save_data_to_github("reactionrole create")
     add_log(f"reactionrole created msg={sent.id} emoji={key} role={role.id}")
@@ -3010,7 +3204,7 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
 )
 async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
     if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -3020,7 +3214,6 @@ async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_carg
         await interaction.response.send_message("❌ Mensagem não encontrada. Verifique o ID.", ephemeral=True)
         return
 
-    # Processa os pares emoji:cargo
     pairs = [x.strip() for x in emoji_cargo.split(",") if ":" in x]
     if not pairs:
         await interaction.response.send_message("❌ Formato inválido. Use emoji:cargo separados por vírgula.", ephemeral=True)
@@ -3043,7 +3236,6 @@ async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_carg
             await interaction.followup.send(f"⚠️ Emoji `{emoji_str}` inválido.")
             continue
 
-        # Adiciona reação e salva
         try:
             await msg.add_reaction(parsed)
             key = str(parsed.id) if isinstance(parsed, (discord.Emoji, discord.PartialEmoji)) else str(parsed)
@@ -3068,25 +3260,28 @@ async def rr_remove(interaction: discord.Interaction, message_id: str, emoji: st
     if not mapping:
         await interaction.response.send_message("Nenhum mapeamento encontrado para essa mensagem.", ephemeral=True)
         return
-    # normalize emoji keys: try id and raw string
+    
     parsed = parse_emoji_str(emoji, guild=interaction.guild)
     key_candidates = [str(parsed)]
     if isinstance(parsed, (discord.Emoji, discord.PartialEmoji)):
         key_candidates.append(str(parsed.id))
         if parsed.name:
             key_candidates.append(parsed.name)
+    
     found = None
     for k in key_candidates:
         if k in mapping:
             found = k
             break
+    
     if not found:
         await interaction.response.send_message("Emoji não encontrado no mapeamento da mensagem.", ephemeral=True)
         return
+    
     del mapping[found]
-    # if message mapping empty, remove message key
     if not mapping:
         data["reaction_roles"].pop(str(message_id), None)
+    
     save_data_to_github("reactionrole remove")
     add_log(f"reactionrole removed msg={message_id} emoji={found}")
     await interaction.response.send_message("Removido com sucesso.", ephemeral=False)
@@ -3100,26 +3295,26 @@ async def rr_list(interaction: discord.Interaction):
     if not rr:
         await interaction.response.send_message("Nenhuma reação com emoji configurada.", ephemeral=True)
         return
+    
     lines = []
     for msgid, mapping in rr.items():
         parts = []
         for ekey, rid in mapping.items():
             parts.append(f"{ekey}→<@&{rid}>")
         lines.append(f"Msg `{msgid}`: " + ", ".join(parts))
+    
     content = "\n".join(lines)
-    # if too long, send as file
     if len(content) > 1900:
         await interaction.response.send_message("Resultado muito grande, enviando arquivo...", ephemeral=True)
         await interaction.followup.send(file=discord.File(BytesIO(content.encode()), filename="reactionroles.txt"))
     else:
         await interaction.response.send_message(f"Reaction roles:\n{content}", ephemeral=False)
 
-# add the group to the tree
 tree.add_command(reactionrole_group)
 
-# -------------------------
-# Start bot and Flask
-# -------------------------
+# ========================
+# START BOT AND FLASK
+# ========================
 def run_flask():
     """Inicia o servidor Flask"""
     port = int(os.environ.get("PORT", 8080))
