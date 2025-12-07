@@ -79,7 +79,170 @@ def now_br():
     return datetime.now(ZoneInfo("America/Sao_Paulo"))
 
 # -------------------------
-# Site Routes
+# Sistema de execução de ações do site (DEVE VIR ANTES DAS ROTAS QUE O USAM)
+# -------------------------
+def execute_bot_action(action_type, **kwargs):
+    """Adiciona uma ação à fila para ser executada pelo bot"""
+    bot_actions_queue.append({
+        "type": action_type,
+        "data": kwargs,
+        "timestamp": datetime.now().isoformat()
+    })
+    print(f"[BOT ACTION] Adicionada ação: {action_type} - Dados: {kwargs}")
+    return True
+
+async def execute_bot_action_internal(action):
+    """Executa uma ação do bot internamente"""
+    action_type = action["type"]
+    action_data = action["data"]
+    
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
+    if not guild:
+        print("Erro: Guild não encontrada")
+        return
+    
+    try:
+        if action_type == "create_embed":
+            # Cria uma mensagem embed
+            channel = guild.get_channel(int(action_data["channel_id"]))
+            if channel:
+                embed = discord.Embed(
+                    title=action_data["title"],
+                    description=action_data["body"],
+                    color=discord.Color.blue()
+                )
+                embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
+                await channel.send(embed=embed)
+                print(f"[BOT] Embed criada em #{channel.name}")
+                return True
+        
+        elif action_type == "create_reaction_role":
+            # Cria reaction role
+            channel = guild.get_channel(int(action_data["channel_id"]))
+            if channel:
+                # Envia mensagem
+                message = await channel.send(action_data["content"])
+                message_id = str(message.id)
+                
+                # Processa pares emoji:cargo
+                pairs = action_data.get("emoji_cargo", "").split(",")
+                reaction_roles_data = {}
+                
+                for pair in pairs:
+                    if ":" in pair:
+                        try:
+                            emoji_str, role_name = pair.split(":", 1)
+                            emoji_str = emoji_str.strip()
+                            role_name = role_name.strip()
+                            
+                            # Encontra o cargo
+                            role = discord.utils.get(guild.roles, name=role_name)
+                            if role:
+                                # Adiciona reação
+                                try:
+                                    await message.add_reaction(emoji_str)
+                                except Exception as e:
+                                    print(f"Erro ao adicionar reação {emoji_str}: {e}")
+                                    continue
+                                
+                                # Prepara dados para salvar
+                                reaction_roles_data[emoji_str] = str(role.id)
+                                print(f"[BOT] Reaction role: {emoji_str} -> {role.name}")
+                        except Exception as e:
+                            print(f"Erro ao processar par {pair}: {e}")
+                
+                # Salva no data.json se houver dados
+                if reaction_roles_data:
+                    data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
+                    save_data_to_github("Reaction role via site")
+                    print(f"[BOT] Reaction role salva: {message_id}")
+                    return True
+        
+        elif action_type == "create_role_buttons":
+            # Cria botões de cargos
+            channel = guild.get_channel(int(action_data["channel_id"]))
+            if channel:
+                # Processa pares botão:cargo
+                pairs = action_data.get("roles", "").split(",")
+                buttons_dict = {}
+                
+                for pair in pairs:
+                    if ":" in pair:
+                        try:
+                            button_name, role_name = pair.split(":", 1)
+                            button_name = button_name.strip()
+                            role_name = role_name.strip()
+                            
+                            # Encontra o cargo
+                            role = discord.utils.get(guild.roles, name=role_name)
+                            if role:
+                                buttons_dict[button_name] = role.id
+                                print(f"[BOT] Botão: {button_name} -> {role.name}")
+                        except Exception as e:
+                            print(f"Erro ao processar par {pair}: {e}")
+                
+                if buttons_dict:
+                    # Cria view com botões
+                    view = PersistentRoleButtonView(0, buttons_dict)
+                    sent = await channel.send(action_data["content"], view=view)
+                    
+                    # Atualiza IDs
+                    view.message_id = sent.id
+                    for item in view.children:
+                        if isinstance(item, PersistentRoleButton):
+                            item.message_id = sent.id
+                    
+                    # Salva no data.json
+                    data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
+                    save_data_to_github("Role buttons via site")
+                    
+                    print(f"[BOT] Botões de cargo criados em #{channel.name}")
+                    return True
+        
+        elif action_type == "warn_member":
+            # Adverte um membro
+            member = guild.get_member(int(action_data["member_id"]))
+            if member:
+                # Adiciona advertência
+                entry = {
+                    "by": "site_admin",
+                    "reason": action_data["reason"],
+                    "ts": now_br().strftime("%d/%m/%Y %H:%M"),
+                    "admin": action_data.get('admin', 'Site Admin')
+                }
+                data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
+                save_data_to_github(f"Warn via site: {member.display_name}")
+                
+                print(f"[BOT] Membro advertido: {member.display_name}")
+                return True
+    
+    except Exception as e:
+        print(f"Erro ao executar ação {action_type}: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return False
+
+async def process_bot_actions_continuous():
+    """Processa ações do site continuamente"""
+    await bot.wait_until_ready()
+    
+    while not bot.is_closed():
+        if bot_actions_queue:
+            try:
+                action = bot_actions_queue.pop(0)
+                success = await execute_bot_action_internal(action)
+                if success:
+                    print(f"[BOT ACTION] Ação {action['type']} executada com sucesso")
+                else:
+                    print(f"[BOT ACTION] Falha ao executar ação {action['type']}")
+            except Exception as e:
+                print(f"Erro ao processar ação do site: {e}")
+        
+        await asyncio.sleep(1)  # Verifica a cada segundo
+
+# -------------------------
+# Site Routes (continuação)
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
@@ -307,7 +470,8 @@ def dashboard():
     channels_json = json.dumps(channels, ensure_ascii=False)
     roles_json = json.dumps(roles, ensure_ascii=False)
     
-    # Dashboard HTML
+    # Dashboard HTML (o HTML continua igual, vou pular para economizar espaço)
+    # ... [TODO: O HTML completo do dashboard aqui] ...
     return f'''
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -1402,7 +1566,7 @@ def api_command_warn():
             return jsonify({"success": False, "message": "ID do membro é obrigatório"})
         
         # Adiciona à fila de ações do bot
-        execute_bot_action(
+        success = execute_bot_action(
             "warn_member",
             member_id=member_id,
             reason=reason,
@@ -1410,7 +1574,7 @@ def api_command_warn():
         )
         
         return jsonify({
-            "success": True, 
+            "success": success, 
             "message": f"✅ Membro será advertido em instantes!\nMotivo: {reason}"
         })
         
@@ -1456,7 +1620,7 @@ def api_command_embed():
             return jsonify({"success": False, "message": "Preencha todos os campos"})
         
         # Adiciona à fila de ações do bot
-        execute_bot_action(
+        success = execute_bot_action(
             "create_embed",
             channel_id=channel_id,
             title=title,
@@ -1465,7 +1629,7 @@ def api_command_embed():
         )
         
         return jsonify({
-            "success": True, 
+            "success": success, 
             "message": f"✅ Embed '{title}' será criada em instantes!"
         })
         
@@ -1496,9 +1660,6 @@ def api_command_blocklinks():
         
         save_data_to_github("Toggle block links via site")
         
-        # Opcional: Envia mensagem no canal
-        # execute_bot_action("send_message", ...)
-        
         return jsonify({"success": True, "message": message})
         
     except Exception as e:
@@ -1520,7 +1681,7 @@ def api_reactionrole_create():
             return jsonify({"success": False, "message": "Preencha todos os campos"})
         
         # Adiciona à fila de ações do bot
-        execute_bot_action(
+        success = execute_bot_action(
             "create_reaction_role",
             channel_id=channel_id,
             content=content,
@@ -1529,7 +1690,7 @@ def api_reactionrole_create():
         )
         
         return jsonify({
-            "success": True,
+            "success": success,
             "message": "✅ Reaction role será criada em instantes!"
         })
         
@@ -1552,7 +1713,7 @@ def api_rolebuttons_create():
             return jsonify({"success": False, "message": "Preencha todos os campos"})
         
         # Adiciona à fila de ações do bot
-        execute_bot_action(
+        success = execute_bot_action(
             "create_role_buttons",
             channel_id=channel_id,
             content=content,
@@ -1561,7 +1722,7 @@ def api_rolebuttons_create():
         )
         
         return jsonify({
-            "success": True,
+            "success": success,
             "message": "✅ Botões de cargo serão criados em instantes!"
         })
         
@@ -1651,151 +1812,6 @@ def add_log(entry):
         pass
 
 # -------------------------
-# Sistema de execução de ações do site
-# -------------------------
-def execute_bot_action(action_type, **kwargs):
-    """Adiciona uma ação à fila para ser executada pelo bot"""
-    bot_actions_queue.append({
-        "type": action_type,
-        "data": kwargs,
-        "timestamp": datetime.now().isoformat()
-    })
-    print(f"[BOT ACTION] Adicionada ação: {action_type}")
-
-async def execute_bot_action_internal(action):
-    """Executa uma ação do bot internamente"""
-    action_type = action["type"]
-    action_data = action["data"]
-    
-    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
-    if not guild:
-        print("Erro: Guild não encontrada")
-        return
-    
-    if action_type == "create_embed":
-        # Cria uma mensagem embed
-        channel = guild.get_channel(int(action_data["channel_id"]))
-        if channel:
-            embed = discord.Embed(
-                title=action_data["title"],
-                description=action_data["body"],
-                color=discord.Color.blue()
-            )
-            await channel.send(embed=embed)
-            print(f"[BOT] Embed criada em #{channel.name}")
-    
-    elif action_type == "create_reaction_role":
-        # Cria reaction role
-        channel = guild.get_channel(int(action_data["channel_id"]))
-        if channel:
-            # Envia mensagem
-            message = await channel.send(action_data["content"])
-            
-            # Processa pares emoji:cargo
-            pairs = action_data.get("emoji_cargo", "").split(",")
-            for pair in pairs:
-                if ":" in pair:
-                    try:
-                        emoji_str, role_name = pair.split(":", 1)
-                        emoji_str = emoji_str.strip()
-                        role_name = role_name.strip()
-                        
-                        # Encontra o cargo
-                        role = discord.utils.get(guild.roles, name=role_name)
-                        if role:
-                            # Adiciona reação
-                            await message.add_reaction(emoji_str)
-                            
-                            # Salva no data.json
-                            msg_id = str(message.id)
-                            emoji_key = emoji_str
-                            
-                            data.setdefault("reaction_roles", {}).setdefault(msg_id, {})[emoji_key] = str(role.id)
-                            save_data_to_github("Reaction role via site")
-                            
-                            print(f"[BOT] Reaction role criada: {emoji_str} -> {role.name}")
-                    except Exception as e:
-                        print(f"Erro ao processar par {pair}: {e}")
-    
-    elif action_type == "create_role_buttons":
-        # Cria botões de cargos
-        channel = guild.get_channel(int(action_data["channel_id"]))
-        if channel:
-            # Processa pares botão:cargo
-            pairs = action_data.get("roles", "").split(",")
-            buttons_dict = {}
-            
-            for pair in pairs:
-                if ":" in pair:
-                    try:
-                        button_name, role_name = pair.split(":", 1)
-                        button_name = button_name.strip()
-                        role_name = role_name.strip()
-                        
-                        # Encontra o cargo
-                        role = discord.utils.get(guild.roles, name=role_name)
-                        if role:
-                            buttons_dict[button_name] = role.id
-                    except Exception as e:
-                        print(f"Erro ao processar par {pair}: {e}")
-            
-            if buttons_dict:
-                # Cria view com botões
-                view = PersistentRoleButtonView(0, buttons_dict)
-                sent = await channel.send(action_data["content"], view=view)
-                
-                # Atualiza IDs
-                view.message_id = sent.id
-                for item in view.children:
-                    if isinstance(item, PersistentRoleButton):
-                        item.message_id = sent.id
-                
-                # Salva no data.json
-                data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
-                save_data_to_github("Role buttons via site")
-                
-                print(f"[BOT] Botões de cargo criados em #{channel.name}")
-    
-    elif action_type == "warn_member":
-        # Adverte um membro
-        member = guild.get_member(int(action_data["member_id"]))
-        if member:
-            # Adiciona advertência
-            entry = {
-                "by": "site_admin",
-                "reason": action_data["reason"],
-                "ts": now_br().strftime("%d/%m/%Y %H:%M")
-            }
-            data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
-            save_data_to_github(f"Warn via site: {member.display_name}")
-            
-            # Envia mensagem no canal de logs, se configurado
-            logs_channel_id = data.get("config", {}).get("logs_channel")
-            if logs_channel_id:
-                logs_channel = guild.get_channel(int(logs_channel_id))
-                if logs_channel:
-                    await logs_channel.send(
-                        f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
-                        f"Motivo: {action_data['reason']}"
-                    )
-            
-            print(f"[BOT] Membro advertido: {member.display_name}")
-
-async def process_bot_actions_continuous():
-    """Processa ações do site continuamente"""
-    await bot.wait_until_ready()
-    
-    while not bot.is_closed():
-        if bot_actions_queue:
-            try:
-                action = bot_actions_queue.pop(0)
-                await execute_bot_action_internal(action)
-            except Exception as e:
-                print(f"Erro ao processar ação do site: {e}")
-        
-        await asyncio.sleep(1)  # Verifica a cada segundo
-
-# -------------------------
 # XP / level
 # -------------------------
 def xp_for_message():
@@ -1875,6 +1891,9 @@ class PersistentRoleButton(ui.Button):
 async def on_ready():
     bot.start_time = datetime.now()
     print(f"Logado como {bot.user} (id: {bot.user.id})")
+    print(f"Bot está pronto? {bot.is_ready()}")
+    print(f"Guilds conectadas: {[g.name for g in bot.guilds]}")
+    
     load_data_from_github()
 
     # Sincronizar comandos slash
@@ -1913,7 +1932,8 @@ async def on_ready():
     
     # ---------- Iniciar processamento de ações do site ----------
     bot.loop.create_task(process_bot_actions_continuous())
-
+    
+    print("[BOT] Sistema de ações do site iniciado!")
 
 @bot.event
 async def on_member_join(member: discord.Member):
