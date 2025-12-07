@@ -4,12 +4,14 @@ import base64
 import re
 import requests
 import time
+import secrets
 from io import BytesIO
 from threading import Thread
 from zoneinfo import ZoneInfo
 from datetime import datetime
+from functools import wraps
 
-from flask import Flask
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -28,25 +30,1069 @@ BRANCH = os.getenv("GITHUB_BRANCH", "main")
 PORT = int(os.getenv("PORT", 8080))
 GUILD_ID = os.getenv("GUILD_ID")
 
+# Configurações do site
+CLIENT_ID = os.getenv("CLIENT_ID")  # ID do aplicativo Discord
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")  # Segredo do aplicativo Discord
+REDIRECT_URI = os.getenv("REDIRECT_URI", "https://seu-site.onrender.com/callback")
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(32))
+
 if not BOT_TOKEN or not GITHUB_TOKEN:
     raise SystemExit("Defina BOT_TOKEN e GITHUB_TOKEN nas variáveis de ambiente.")
 
 GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
 
 # -------------------------
-# Flask keepalive
+# Flask App
 # -------------------------
-app = Flask("imunebot")
+app = Flask(__name__)
+app.secret_key = SECRET_KEY
 
+# -------------------------
+# Funções auxiliares do site
+# -------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Bot rodando!"
+    """Página inicial do site"""
+    bot_online = bot.is_ready() if hasattr(bot, 'is_ready') else False
+    return render_template_string(INDEX_TEMPLATE, 
+                                  bot_online=bot_online,
+                                  user=session.get('user'))
 
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+@app.route("/login")
+def login():
+    """Redireciona para o OAuth do Discord"""
+    discord_auth_url = f"https://discord.com/api/oauth2/authorize?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=identify%20guilds"
+    return redirect(discord_auth_url)
 
-Thread(target=run_flask, daemon=True).start()
+@app.route("/callback")
+def callback():
+    """Callback do OAuth do Discord"""
+    code = request.args.get('code')
+    if not code:
+        return "Erro: código não recebido", 400
+    
+    # Troca o código por um token de acesso
+    data = {
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': REDIRECT_URI,
+        'scope': 'identify guilds'
+    }
+    
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    
+    r = requests.post('https://discord.com/api/oauth2/token', data=data, headers=headers)
+    if r.status_code != 200:
+        return f"Erro ao obter token: {r.text}", 400
+    
+    access_token = r.json()['access_token']
+    
+    # Obtém informações do usuário
+    user_r = requests.get('https://discord.com/api/users/@me', headers={
+        'Authorization': f'Bearer {access_token}'
+    })
+    
+    if user_r.status_code != 200:
+        return "Erro ao obter informações do usuário", 400
+    
+    user_data = user_r.json()
+    
+    # Verifica se o usuário é administrador do servidor
+    guilds_r = requests.get('https://discord.com/api/users/@me/guilds', headers={
+        'Authorization': f'Bearer {access_token}'
+    })
+    
+    guilds = guilds_r.json() if guilds_r.status_code == 200 else []
+    is_admin = False
+    
+    for guild in guilds:
+        if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):  # 0x8 = Administrador
+            is_admin = True
+            break
+    
+    if not is_admin:
+        return "Apenas administradores do servidor podem acessar este painel.", 403
+    
+    # Salva na sessão
+    session['user'] = {
+        'id': user_data['id'],
+        'username': user_data['username'],
+        'discriminator': user_data.get('discriminator', '0'),
+        'avatar': user_data.get('avatar'),
+        'is_admin': True
+    }
+    
+    return redirect(url_for('dashboard'))
+
+@app.route("/logout")
+def logout():
+    """Logout do usuário"""
+    session.clear()
+    return redirect(url_for('home'))
+
+@app.route("/dashboard")
+def dashboard():
+    """Painel de controle principal"""
+    if 'user' not in session or not session['user'].get('is_admin'):
+        return redirect(url_for('login'))
+    
+    # Carrega dados atuais
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    channels = guild.text_channels if guild else []
+    roles = guild.roles if guild else []
+    
+    welcome_channel_id = data.get("config", {}).get("welcome_channel")
+    welcome_channel = guild.get_channel(int(welcome_channel_id)) if welcome_channel_id and guild else None
+    
+    levelup_channel_id = data.get("config", {}).get("levelup_channel")
+    levelup_channel = guild.get_channel(int(levelup_channel_id)) if levelup_channel_id and guild else None
+    
+    welcome_message = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
+    welcome_background = data.get("config", {}).get("welcome_background", "")
+    xp_rate = data.get("config", {}).get("xp_rate", 3)
+    
+    return render_template_string(DASHBOARD_TEMPLATE,
+                                  user=session['user'],
+                                  guild=guild,
+                                  channels=channels,
+                                  roles=roles,
+                                  welcome_channel=welcome_channel,
+                                  levelup_channel=levelup_channel,
+                                  welcome_message=welcome_message,
+                                  welcome_background=welcome_background,
+                                  xp_rate=xp_rate,
+                                  data=data)
+
+@app.route("/api/config", methods=["POST"])
+def api_config():
+    """API para atualizar configurações"""
+    if 'user' not in session or not session['user'].get('is_admin'):
+        return jsonify({"error": "Não autorizado"}), 403
+    
+    config_data = request.json
+    config_type = config_data.get('type')
+    
+    if config_type == 'welcome':
+        # Atualizar mensagem de boas-vindas
+        data.setdefault("config", {})["welcome_message"] = config_data.get('message', '')
+        data.setdefault("config", {})["welcome_channel"] = config_data.get('channel_id', '')
+        save_data_to_github("Configuração de boas-vindas atualizada via site")
+        
+    elif config_type == 'welcome_image':
+        # Atualizar imagem de fundo
+        data.setdefault("config", {})["welcome_background"] = config_data.get('url', '')
+        save_data_to_github("Imagem de boas-vindas atualizada via site")
+        
+    elif config_type == 'xp':
+        # Atualizar configurações de XP
+        data.setdefault("config", {})["xp_rate"] = int(config_data.get('rate', 3))
+        data.setdefault("config", {})["levelup_channel"] = config_data.get('channel_id', '')
+        save_data_to_github("Configuração de XP atualizada via site")
+        
+    elif config_type == 'level_role':
+        # Adicionar/remover cargo por nível
+        level = str(config_data.get('level'))
+        role_id = config_data.get('role_id', '')
+        
+        if role_id:
+            data.setdefault("level_roles", {})[level] = role_id
+        elif level in data.get("level_roles", {}):
+            del data["level_roles"][level]
+        
+        save_data_to_github("Cargos por nível atualizados via site")
+        
+    elif config_type == 'command_channel':
+        # Configurar canais para comandos
+        command = config_data.get('command', '').lower()
+        channel_id = config_data.get('channel_id', '')
+        action = config_data.get('action', 'add')  # 'add' ou 'remove'
+        
+        cmd_channels = data.setdefault("command_channels", {})
+        channels = cmd_channels.setdefault(command, [])
+        
+        if action == 'add' and channel_id not in channels:
+            channels.append(channel_id)
+        elif action == 'remove' and channel_id in channels:
+            channels.remove(channel_id)
+            
+        save_data_to_github("Canais de comandos atualizados via site")
+    
+    return jsonify({"success": True})
+
+@app.route("/api/stats")
+def api_stats():
+    """API para obter estatísticas do bot"""
+    if 'user' not in session or not session['user'].get('is_admin'):
+        return jsonify({"error": "Não autorizado"}), 403
+    
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    
+    stats = {
+        "guild_name": guild.name if guild else "N/A",
+        "member_count": len(guild.members) if guild else 0,
+        "online_members": sum(1 for m in guild.members if m.status != discord.Status.offline) if guild else 0,
+        "total_xp_users": len(data.get("xp", {})),
+        "total_warns": sum(len(warns) for warns in data.get("warns", {}).values()),
+        "reaction_roles": len(data.get("reaction_roles", {})),
+        "role_buttons": len(data.get("role_buttons", {})),
+        "bot_uptime": str(datetime.now() - bot.start_time) if hasattr(bot, 'start_time') else "N/A"
+    }
+    
+    # Top 5 XP
+    ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)[:5]
+    top_users = []
+    
+    for uid, xp in ranking:
+        if guild:
+            member = guild.get_member(int(uid))
+            name = member.display_name if member else f"Usuário {uid}"
+        else:
+            name = f"Usuário {uid}"
+        top_users.append({"name": name, "xp": xp, "level": xp_to_level(xp)})
+    
+    stats["top_users"] = top_users
+    
+    return jsonify(stats)
+
+# -------------------------
+# Templates HTML (inline)
+# -------------------------
+INDEX_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Imune Bot - Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .online {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .offline {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .btn {
+            display: inline-block;
+            background: #5865F2;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 10px;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .btn:hover {
+            background: #4752C4;
+            transform: translateY(-2px);
+        }
+        .btn-logout {
+            background: #dc3545;
+        }
+        .btn-logout:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Imune Bot Dashboard</h1>
+        <div class="status {{ 'online' if bot_online else 'offline' }}">
+            {{ '✅ Bot Online' if bot_online else '❌ Bot Offline' }}
+        </div>
+        {% if user %}
+            <p>Olá, <strong>{{ user.username }}</strong>!</p>
+            <a href="/dashboard" class="btn">Painel de Controle</a>
+            <a href="/logout" class="btn btn-logout">Sair</a>
+        {% else %}
+            <p>Faça login para configurar o bot</p>
+            <a href="/login" class="btn">Login com Discord</a>
+        {% endif %}
+    </div>
+</body>
+</html>
+'''
+
+DASHBOARD_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle - Imune Bot</title>
+    <style>
+        :root {
+            --primary: #5865F2;
+            --primary-dark: #4752C4;
+            --success: #28a745;
+            --danger: #dc3545;
+            --warning: #ffc107;
+            --dark: #343a40;
+            --light: #f8f9fa;
+            --gray: #6c757d;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        header {
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left h1 {
+            color: var(--primary);
+            font-size: 1.5rem;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 2rem;
+        }
+        .sidebar {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            height: fit-content;
+        }
+        .nav-item {
+            padding: 0.75rem 1rem;
+            margin: 0.25rem 0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .nav-item:hover, .nav-item.active {
+            background: var(--primary);
+            color: white;
+        }
+        .content {
+            background: white;
+            border-radius: 10px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .section {
+            display: none;
+        }
+        .section.active {
+            display: block;
+        }
+        .section h2 {
+            margin-bottom: 1.5rem;
+            color: var(--dark);
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 0.5rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: var(--dark);
+        }
+        .form-control {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-card h3 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .hidden {
+            display: none;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        .table th, .table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+        .table th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        .table tr:hover {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>🤖 Imune Bot Dashboard</h1>
+        </div>
+        <div class="header-right">
+            <div class="user-info">
+                <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png" alt="Avatar" class="avatar">
+                <span>{{ user.username }}</span>
+            </div>
+            <a href="/" class="btn btn-primary">Início</a>
+            <a href="/logout" class="btn btn-danger">Sair</a>
+        </div>
+    </header>
+    
+    <div class="container">
+        <div class="sidebar">
+            <div class="nav-item active" onclick="showSection('overview')">📊 Visão Geral</div>
+            <div class="nav-item" onclick="showSection('welcome')">👋 Boas-vindas</div>
+            <div class="nav-item" onclick="showSection('xp')">⭐ Sistema XP</div>
+            <div class="nav-item" onclick="showSection('commands')">⚙️ Comandos</div>
+            <div class="nav-item" onclick="showSection('roles')">🎭 Cargos</div>
+            <div class="nav-item" onclick="showSection('moderation')">🛡️ Moderação</div>
+        </div>
+        
+        <div class="content">
+            <!-- Seção: Visão Geral -->
+            <div id="overview" class="section active">
+                <h2>📊 Visão Geral do Bot</h2>
+                <div id="stats-container">
+                    <p>Carregando estatísticas...</p>
+                </div>
+                <div id="top-users">
+                    <h3>🏆 Top 5 XP</h3>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Posição</th>
+                                <th>Usuário</th>
+                                <th>XP</th>
+                                <th>Nível</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-users-body">
+                            <!-- Preenchido por JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Seção: Boas-vindas -->
+            <div id="welcome" class="section">
+                <h2>👋 Configurações de Boas-vindas</h2>
+                <form id="welcome-form">
+                    <div class="form-group">
+                        <label>Canal de Boas-vindas</label>
+                        <select id="welcome-channel" class="form-control">
+                            <option value="">Selecione um canal</option>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}" {% if welcome_channel and channel.id == welcome_channel.id %}selected{% endif %}>
+                                    #{{ channel.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Mensagem de Boas-vindas</label>
+                        <textarea id="welcome-message" class="form-control" rows="4">{{ welcome_message }}</textarea>
+                        <small>Use {member} para mencionar o novo membro</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Imagem de Fundo (URL)</label>
+                        <input type="url" id="welcome-image" class="form-control" value="{{ welcome_background }}">
+                        <small>Deixe em branco para usar imagem padrão</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar Configurações</button>
+                </form>
+                <div id="welcome-alert" class="alert hidden"></div>
+            </div>
+            
+            <!-- Seção: Sistema XP -->
+            <div id="xp" class="section">
+                <h2>⭐ Sistema de XP e Níveis</h2>
+                <form id="xp-form">
+                    <div class="form-group">
+                        <label>Taxa de XP (dificuldade)</label>
+                        <input type="number" id="xp-rate" class="form-control" value="{{ xp_rate }}" min="1" max="10">
+                        <small>Valores mais altos = mais difícil subir de nível</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Canal de Level Up</label>
+                        <select id="levelup-channel" class="form-control">
+                            <option value="">Selecione um canal</option>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}" {% if levelup_channel and channel.id == levelup_channel.id %}selected{% endif %}>
+                                    #{{ channel.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <h3>Cargos por Nível</h3>
+                    <div id="level-roles-container">
+                        <!-- Cargos por nível serão adicionados aqui -->
+                    </div>
+                    <div class="form-group">
+                        <label>Adicionar Novo Cargo por Nível</label>
+                        <div style="display: flex; gap: 1rem;">
+                            <input type="number" id="new-level" class="form-control" placeholder="Nível" min="1">
+                            <select id="new-role" class="form-control">
+                                <option value="">Selecione um cargo</option>
+                                {% for role in roles|reverse %}
+                                    {% if role.name != "@everyone" %}
+                                        <option value="{{ role.id }}">{{ role.name }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                            <button type="button" onclick="addLevelRole()" class="btn btn-primary">Adicionar</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar Configurações</button>
+                </form>
+                <div id="xp-alert" class="alert hidden"></div>
+            </div>
+            
+            <!-- Seção: Comandos -->
+            <div id="commands" class="section">
+                <h2>⚙️ Configuração de Comandos</h2>
+                <p>Configure em quais canais cada comando pode ser usado</p>
+                <div id="commands-list">
+                    <!-- Lista de comandos será preenchida por JavaScript -->
+                </div>
+                <div id="commands-alert" class="alert hidden"></div>
+            </div>
+            
+            <!-- Seção: Cargos -->
+            <div id="roles" class="section">
+                <h2>🎭 Gerenciamento de Cargos</h2>
+                <p>Esta seção permite configurar reaction roles e botões de cargos</p>
+                <p><em>Use os comandos do bot para configurar reaction roles e botões de cargos:</em></p>
+                <ul>
+                    <li><code>/reajir_com_emoji criar</code> - Cria uma mensagem com reaction role</li>
+                    <li><code>/criar_reação_com_botao</code> - Cria mensagem com botões de cargos</li>
+                    <li><code>/cargo_xp</code> - Define cargo para ser atribuído por nível</li>
+                </ul>
+            </div>
+            
+            <!-- Seção: Moderação -->
+            <div id="moderation" class="section">
+                <h2>🛡️ Configurações de Moderação</h2>
+                <div class="form-group">
+                    <label>Canais com Links Bloqueados</label>
+                    <div id="blocked-channels-list">
+                        <!-- Canais bloqueados serão listados aqui -->
+                    </div>
+                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                        <select id="block-channel-select" class="form-control">
+                            <option value="">Selecione um canal</option>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}">#{{ channel.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" onclick="toggleBlockChannel()" class="btn btn-primary">Bloquear/Desbloquear Links</button>
+                    </div>
+                </div>
+                <div id="moderation-alert" class="alert hidden"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Funções JavaScript para o dashboard
+        let currentSection = 'overview';
+        
+        function showSection(sectionId) {
+            // Atualiza navegação
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Esconde todas as seções
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Mostra a seção selecionada
+            document.getElementById(sectionId).classList.add('active');
+            currentSection = sectionId;
+            
+            // Carrega dados específicos da seção
+            if (sectionId === 'overview') {
+                loadStats();
+            } else if (sectionId === 'xp') {
+                loadLevelRoles();
+            } else if (sectionId === 'commands') {
+                loadCommands();
+            } else if (sectionId === 'moderation') {
+                loadBlockedChannels();
+            }
+        }
+        
+        function loadStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('stats-container').innerHTML = 
+                            `<div class="alert alert-error">${data.error}</div>`;
+                        return;
+                    }
+                    
+                    // Atualiza estatísticas
+                    document.getElementById('stats-container').innerHTML = `
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <h3>${data.member_count}</h3>
+                                <p>Membros</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>${data.online_members}</h3>
+                                <p>Online</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>${data.total_xp_users}</h3>
+                                <p>Usuários com XP</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>${data.reaction_roles}</h3>
+                                <p>Reaction Roles</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Atualiza top usuários
+                    let topUsersHTML = '';
+                    data.top_users.forEach((user, index) => {
+                        topUsersHTML += `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>${user.name}</td>
+                                <td>${user.xp}</td>
+                                <td>${user.level}</td>
+                            </tr>
+                        `;
+                    });
+                    document.getElementById('top-users-body').innerHTML = topUsersHTML;
+                })
+                .catch(error => {
+                    console.error('Erro ao carregar estatísticas:', error);
+                });
+        }
+        
+        function loadLevelRoles() {
+            // Carrega cargos por nível do data.json
+            const levelRoles = {{ data.get('level_roles', {})|tojson|safe }};
+            let html = '';
+            
+            for (const [level, roleId] of Object.entries(levelRoles)) {
+                const roleName = Array.from({{ roles|tojson|safe }}).find(r => r.id == roleId)?.name || 'Cargo não encontrado';
+                html += `
+                    <div class="form-group" style="display: flex; align-items: center; gap: 1rem;">
+                        <span><strong>Nível ${level}:</strong> ${roleName}</span>
+                        <button type="button" onclick="removeLevelRole(${level})" class="btn btn-danger">Remover</button>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('level-roles-container').innerHTML = html || 
+                '<p>Nenhum cargo por nível configurado.</p>';
+        }
+        
+        function loadCommands() {
+            const commands = {
+                'rank': 'Mostra o perfil de XP',
+                'top': 'Mostra o ranking de XP',
+                'perfil': 'Mostra o perfil de XP',
+                'advertir': 'Adverte um membro',
+                'lista_de_advertência': 'Lista advertências',
+                'savedata': 'Força salvamento de dados',
+                'xp_rate': 'Define taxa de XP',
+                'cargo_xp': 'Define cargo por nível',
+                'mensagem_personalizada': 'Cria mensagem personalizada'
+            };
+            
+            let html = '';
+            for (const [cmd, desc] of Object.entries(commands)) {
+                html += `
+                    <div class="form-group">
+                        <h4>/${cmd}</h4>
+                        <p><small>${desc}</small></p>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <select id="channel-${cmd}" class="form-control" style="flex: 1;">
+                                <option value="">Selecione um canal para adicionar</option>
+                                {% for channel in channels %}
+                                    <option value="{{ channel.id }}">#{{ channel.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" onclick="addCommandChannel('${cmd}')" class="btn btn-primary">Adicionar Canal</button>
+                        </div>
+                        <div id="channels-${cmd}" style="margin-top: 0.5rem;">
+                            <!-- Canais permitidos serão listados aqui -->
+                        </div>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('commands-list').innerHTML = html;
+            
+            // Carrega canais permitidos para cada comando
+            const commandChannels = {{ data.get('command_channels', {})|tojson|safe }};
+            for (const [cmd, channels] of Object.entries(commandChannels)) {
+                updateCommandChannelsList(cmd, channels);
+            }
+        }
+        
+        function loadBlockedChannels() {
+            const blockedChannels = {{ data.get('blocked_links_channels', [])|tojson|safe }};
+            const container = document.getElementById('blocked-channels-list');
+            
+            if (!blockedChannels || blockedChannels.length === 0) {
+                container.innerHTML = '<p>Nenhum canal com links bloqueados.</p>';
+                return;
+            }
+            
+            let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
+            blockedChannels.forEach(channelId => {
+                const channelName = Array.from({{ channels|tojson|safe }}).find(c => c.id == channelId)?.name || `ID: ${channelId}`;
+                html += `
+                    <span style="display: inline-block; background: #e9ecef; padding: 0.5rem 1rem; border-radius: 4px;">
+                        #${channelName}
+                    </span>
+                `;
+            });
+            html += '</div>';
+            
+            container.innerHTML = html;
+        }
+        
+        function updateCommandChannelsList(cmd, channelIds) {
+            const container = document.getElementById(`channels-${cmd}`);
+            if (!container) return;
+            
+            if (!channelIds || channelIds.length === 0) {
+                container.innerHTML = '<p><small>Todos os canais permitidos</small></p>';
+                return;
+            }
+            
+            let html = '<p><small>Canais permitidos:</small></p>';
+            channelIds.forEach(channelId => {
+                const channelName = Array.from({{ channels|tojson|safe }}).find(c => c.id == channelId)?.name || `ID: ${channelId}`;
+                html += `
+                    <span style="display: inline-block; background: #e9ecef; padding: 0.25rem 0.5rem; border-radius: 4px; margin: 0.25rem;">
+                        #${channelName}
+                        <button type="button" onclick="removeCommandChannel('${cmd}', ${channelId})" style="background: none; border: none; color: #dc3545; cursor: pointer; margin-left: 0.5rem;">×</button>
+                    </span>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        // Formulários
+        document.getElementById('welcome-form')?.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const data = {
+                type: 'welcome',
+                channel_id: document.getElementById('welcome-channel').value,
+                message: document.getElementById('welcome-message').value,
+                url: document.getElementById('welcome-image').value
+            };
+            
+            saveConfig(data, 'welcome-alert');
+        });
+        
+        document.getElementById('xp-form')?.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const data = {
+                type: 'xp',
+                rate: document.getElementById('xp-rate').value,
+                channel_id: document.getElementById('levelup-channel').value
+            };
+            
+            saveConfig(data, 'xp-alert');
+        });
+        
+        function saveConfig(data, alertId) {
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                const alertEl = document.getElementById(alertId);
+                if (result.success) {
+                    alertEl.className = 'alert alert-success';
+                    alertEl.textContent = '✅ Configuração salva com sucesso!';
+                } else {
+                    alertEl.className = 'alert alert-error';
+                    alertEl.textContent = '❌ Erro ao salvar configuração: ' + (result.error || 'Erro desconhecido');
+                }
+                alertEl.classList.remove('hidden');
+                
+                // Esconde a mensagem após 3 segundos
+                setTimeout(() => {
+                    alertEl.classList.add('hidden');
+                }, 3000);
+            })
+            .catch(error => {
+                const alertEl = document.getElementById(alertId);
+                alertEl.className = 'alert alert-error';
+                alertEl.textContent = '❌ Erro de conexão: ' + error;
+                alertEl.classList.remove('hidden');
+            });
+        }
+        
+        function addLevelRole() {
+            const level = document.getElementById('new-level').value;
+            const roleId = document.getElementById('new-role').value;
+            
+            if (!level || !roleId) {
+                alert('Preencha todos os campos');
+                return;
+            }
+            
+            const data = {
+                type: 'level_role',
+                level: level,
+                role_id: roleId
+            };
+            
+            saveConfig(data, 'xp-alert');
+            
+            // Limpa campos
+            document.getElementById('new-level').value = '';
+            document.getElementById('new-role').value = '';
+            
+            // Atualiza lista
+            setTimeout(loadLevelRoles, 500);
+        }
+        
+        function removeLevelRole(level) {
+            if (!confirm(`Remover cargo do nível ${level}?`)) return;
+            
+            const data = {
+                type: 'level_role',
+                level: level,
+                role_id: ''
+            };
+            
+            saveConfig(data, 'xp-alert');
+            setTimeout(loadLevelRoles, 500);
+        }
+        
+        function addCommandChannel(command) {
+            const channelId = document.getElementById(`channel-${command}`).value;
+            
+            if (!channelId) {
+                alert('Selecione um canal');
+                return;
+            }
+            
+            const data = {
+                type: 'command_channel',
+                command: command,
+                channel_id: channelId,
+                action: 'add'
+            };
+            
+            saveConfig(data, 'commands-alert');
+            
+            // Atualiza lista
+            setTimeout(() => {
+                document.getElementById(`channel-${command}`).value = '';
+                // Simula atualização
+                const currentChannels = Array.from({{ data.get('command_channels', {})|tojson|safe }}[command] || []);
+                if (!currentChannels.includes(channelId)) {
+                    currentChannels.push(channelId);
+                }
+                updateCommandChannelsList(command, currentChannels);
+            }, 500);
+        }
+        
+        function removeCommandChannel(command, channelId) {
+            if (!confirm(`Remover este canal do comando /${command}?`)) return;
+            
+            const data = {
+                type: 'command_channel',
+                command: command,
+                channel_id: channelId,
+                action: 'remove'
+            };
+            
+            saveConfig(data, 'commands-alert');
+            
+            // Atualiza lista
+            setTimeout(() => {
+                const currentChannels = Array.from({{ data.get('command_channels', {})|tojson|safe }}[command] || []);
+                const index = currentChannels.indexOf(channelId);
+                if (index > -1) {
+                    currentChannels.splice(index, 1);
+                }
+                updateCommandChannelsList(command, currentChannels);
+            }, 500);
+        }
+        
+        function toggleBlockChannel() {
+            const channelId = document.getElementById('block-channel-select').value;
+            
+            if (!channelId) {
+                alert('Selecione um canal');
+                return;
+            }
+            
+            // Como não temos API específica para isso, mostra mensagem
+            const alertEl = document.getElementById('moderation-alert');
+            alertEl.className = 'alert alert-success';
+            alertEl.textContent = '✅ Use o comando /bloquear_links no Discord para bloquear/desbloquear links neste canal.';
+            alertEl.classList.remove('hidden');
+            
+            setTimeout(() => {
+                alertEl.classList.add('hidden');
+            }, 5000);
+        }
+        
+        // Carrega dados na inicialização
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadLevelRoles();
+            loadCommands();
+            loadBlockedChannels();
+        });
+    </script>
+</body>
+</html>
+'''
+
+def render_template_string(template, **context):
+    """Renderiza uma string como template Jinja2"""
+    from jinja2 import Template
+    return Template(template).render(**context)
 
 # -------------------------
 # Auto ping (manter bot ativo)
@@ -228,6 +1274,7 @@ class PersistentRoleButton(ui.Button):
 # -------------------------
 @bot.event
 async def on_ready():
+    bot.start_time = datetime.now()
     print(f"Logado como {bot.user} (id: {bot.user.id})")
     load_data_from_github()
 
@@ -282,8 +1329,7 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Imagem de fundo personalizada -----
-    background_path = data.get("config", {}).get(
-    "welcome_background")
+    background_path = data.get("config", {}).get("welcome_background")
 
 
     width, height = 900, 300
@@ -548,18 +1594,6 @@ async def on_message(message: discord.Message):
     else:
         user_msgs.append(content)
     data["last_messages_content"][uid] = user_msgs
-
-    # -------- DETECÇÃO DE MAIÚSCULAS --------
-    #if len(content) > 5 and content.isupper():
-        #if not is_staff:
-            #delete_message = True
-           # try:
-            #    await message.delete()
-           # except discord.Forbidden:
-            #    pass
-           # await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
-          #  await add_warn(message.author, reason="Uso excessivo de maiúsculas")
-           # return
 
     # -------- SISTEMA DE XP --------
     if not delete_message:
@@ -1091,7 +2125,7 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
 )
 async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
     if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -1200,8 +2234,16 @@ async def rr_list(interaction: discord.Interaction):
 tree.add_command(reactionrole_group)
 
 # -------------------------
-# Start bot
+# Start bot and Flask
 # -------------------------
+def run_flask():
+    """Inicia o servidor Flask"""
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+# Inicia o Flask em uma thread separada
+Thread(target=run_flask, daemon=True).start()
+
 if __name__ == "__main__":
     try:
         bot.run(BOT_TOKEN)
