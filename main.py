@@ -1,4 +1,3 @@
-# main.py - Imune Bot Completo
 import os
 import json
 import base64
@@ -493,16 +492,15 @@ async def execute_bot_action_internal(action):
         print(f"{'='*50}\n")
 
 async def process_bot_actions_continuous():
-    """Processa ações do site continuamente"""
-    print("⏳ [ACTION PROCESSOR] Aguardando bot ficar pronto...")
-    await bot.wait_until_ready()
-    
-    # Aguarda mais um pouco para garantir tudo está carregado
-    await asyncio.sleep(3)
-    
-    print("\n" + "="*50)
+    """Processa ações do site continuamente - VERSÃO CORRIGIDA"""
+    print("\n" + "="*60)
     print("🚀 PROCESSADOR DE AÇÕES DO SITE INICIADO")
-    print("="*50)
+    print("="*60)
+    
+    # Verifica se o bot está realmente pronto
+    if not bot.is_ready():
+        print("⚠️ Aguardando bot ficar pronto...")
+        await bot.wait_until_ready()
     
     # Verifica o estado atual
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
@@ -514,58 +512,71 @@ async def process_bot_actions_continuous():
         print(f"⚠️ Guild alvo não encontrada! Verifique GUILD_ID: {GUILD_ID}")
     
     print(f"⏰ Iniciando loop de processamento...")
-    print("="*50 + "\n")
+    print("="*60 + "\n")
     
-    counter = 0
+    # Estado do processamento
+    processing_active = True
+    processed_count = 0
     last_log_time = time.time()
     
-    while not bot.is_closed():
-        counter += 1
-        
-        # Log a cada 30 segundos
-        current_time = time.time()
-        if current_time - last_log_time > 30:
-            print(f"[ACTION PROCESSOR] 👁️ Monitorando... Fila: {len(bot_actions_queue)} ações")
-            last_log_time = current_time
-        
-        # Processa ações na fila
-        if bot_actions_queue:
-            action_count = len(bot_actions_queue)
-            print(f"\n[ACTION PROCESSOR] 🔍 Encontradas {action_count} ação(ões) na fila")
+    while processing_active and not bot.is_closed():
+        try:
+            # Log de status a cada 60 segundos
+            current_time = time.time()
+            if current_time - last_log_time > 60:
+                print(f"[ACTION PROCESSOR] 👁️ Monitorando... Fila: {len(bot_actions_queue)} ações | Processadas: {processed_count}")
+                last_log_time = current_time
             
-            for i, action in enumerate(bot_actions_queue[:3]):
-                print(f"   {i+1}. {action['type']} - {action.get('timestamp', 'sem timestamp')}")
-            
-            # Processa a primeira ação
-            action = bot_actions_queue.pop(0)
-            print(f"[ACTION PROCESSOR] ⚙️ Processando: {action['type']}")
-            
-            try:
-                success = await execute_bot_action_internal(action)
+            # Processa ações na fila
+            if bot_actions_queue:
+                action_count = len(bot_actions_queue)
+                print(f"\n[ACTION PROCESSOR] 🔍 Encontradas {action_count} ação(ões) na fila")
                 
-                if success:
-                    print(f"[ACTION PROCESSOR] ✅ Ação '{action['type']}' concluída com sucesso!")
-                else:
-                    print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action['type']}'")
+                for i, action in enumerate(bot_actions_queue[:min(3, len(bot_actions_queue))]):
+                    print(f"   {i+1}. {action['type']} - {action.get('timestamp', 'sem timestamp')}")
+                
+                # Processa a primeira ação
+                action = bot_actions_queue.pop(0)
+                print(f"[ACTION PROCESSOR] ⚙️ Processando: {action['type']}")
+                
+                try:
+                    success = await execute_bot_action_internal(action)
                     
-                    # Tenta novamente (máximo 2 tentativas)
-                    attempts = action.get('attempts', 0)
-                    if attempts < 2:
-                        action['attempts'] = attempts + 1
-                        bot_actions_queue.insert(0, action)
-                        print(f"[ACTION PROCESSOR] 🔄 Recolocando na fila (tentativa {action['attempts']}/2)")
+                    if success:
+                        processed_count += 1
+                        print(f"[ACTION PROCESSOR] ✅ Ação '{action['type']}' concluída com sucesso! (Total: {processed_count})")
                     else:
-                        print(f"[ACTION PROCESSOR] 🗑️ Descarte após 2 tentativas falhas")
+                        print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action['type']}'")
                         
-            except Exception as e:
-                print(f"[ACTION PROCESSOR] 💥 ERRO CRÍTICO: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Aguarda antes de verificar novamente
-        await asyncio.sleep(2)
+                        # Tenta novamente (máximo 3 tentativas)
+                        attempts = action.get('attempts', 0)
+                        if attempts < 3:
+                            action['attempts'] = attempts + 1
+                            action['retry_time'] = datetime.now().isoformat()
+                            bot_actions_queue.insert(0, action)
+                            print(f"[ACTION PROCESSOR] 🔄 Recolocando na fila (tentativa {action['attempts']}/3)")
+                        else:
+                            print(f"[ACTION PROCESSOR] 🗑️ Descarte após 3 tentativas falhas")
+                            
+                except Exception as e:
+                    print(f"[ACTION PROCESSOR] 💥 ERRO CRÍTICO ao processar ação: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Aguarda antes de verificar novamente (reduzido para resposta mais rápida)
+            await asyncio.sleep(1)
+            
+        except asyncio.CancelledError:
+            print("[ACTION PROCESSOR] ⏹️ Processamento cancelado")
+            processing_active = False
+            break
+            
+        except Exception as e:
+            print(f"[ACTION PROCESSOR] ⚠️ Erro no loop principal: {e}")
+            await asyncio.sleep(5)  # Aguarda mais em caso de erro
     
     print("\n[ACTION PROCESSOR] ⏹️ Processador encerrado")
+    
 
 # ========================
 # CLASSES DE BOTÕES
@@ -2429,7 +2440,7 @@ async def on_ready():
     # Iniciar processamento de ações do site
     print("🚀 Iniciando sistema de ações do site...")
     try:
-        bot._processing_task = bot.loop.create_task(process_bot_actions_continuous())
+        bot.loop.create_task(start_action_processor())
         print("   ✅ Sistema de ações INICIADO!")
     except Exception as e:
         print(f"   ❌ Erro ao iniciar sistema de ações: {e}")
