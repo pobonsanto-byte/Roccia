@@ -1,3 +1,4 @@
+# main.py - Imune Bot Completo (Versão Corrigida)
 import os
 import json
 import base64
@@ -33,7 +34,7 @@ GUILD_ID = os.getenv("GUILD_ID")
 # Configurações do site
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI", "https://seu-site.onrender.com/callback")
+REDIRECT_URI = os.getenv("REDIRECT_URI", "https://roccia.onrender.com/callback")
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
 if not BOT_TOKEN or not GITHUB_TOKEN:
@@ -41,7 +42,12 @@ if not BOT_TOKEN or not GITHUB_TOKEN:
 
 GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
 
+# ========================
+# Sistema de ações
+# ========================
 bot_actions_queue = []
+action_processor_task = None
+action_processor_running = False
 
 # ========================
 # FLASK APP
@@ -180,7 +186,7 @@ async def check_bot_connection():
             
             # Lista canais disponíveis
             print(f"   📋 Canais disponíveis:")
-            for channel in guild.text_channels[:10]:  # Mostra até 10
+            for channel in guild.text_channels[:10]:
                 print(f"      #{channel.name} (ID: {channel.id})")
             
             if len(guild.text_channels) > 10:
@@ -349,14 +355,12 @@ async def execute_bot_action_internal(action):
                             
                             # Prepara dados para salvar
                             if emoji_str.startswith("<"):
-                                # Emoji custom
                                 parsed = parse_emoji_str(emoji_str, guild)
                                 if parsed and hasattr(parsed, 'id'):
                                     reaction_roles_data[str(parsed.id)] = str(role.id)
                                 else:
                                     reaction_roles_data[emoji_str] = str(role.id)
                             else:
-                                # Unicode emoji
                                 reaction_roles_data[emoji_str] = str(role.id)
                             
                             print(f"   ✅ Mapeamento: {emoji_str} -> {role.name}")
@@ -493,90 +497,143 @@ async def execute_bot_action_internal(action):
 
 async def process_bot_actions_continuous():
     """Processa ações do site continuamente - VERSÃO CORRIGIDA"""
+    global action_processor_running
+    
     print("\n" + "="*60)
-    print("🚀 PROCESSADOR DE AÇÕES DO SITE INICIADO")
+    print("🚀 PROCESSADOR DE AÇÕES DO SITE - INICIANDO")
     print("="*60)
     
-    # Verifica se o bot está realmente pronto
-    if not bot.is_ready():
-        print("⚠️ Aguardando bot ficar pronto...")
-        await bot.wait_until_ready()
+    # Marca como rodando
+    action_processor_running = True
     
-    # Verifica o estado atual
+    # Aguarda o bot ficar totalmente pronto
+    if not bot.is_ready():
+        print("⏳ Aguardando bot ficar pronto...")
+        await bot.wait_until_ready()
+        await asyncio.sleep(2)
+    
+    print(f"✅ Bot está pronto: {bot.user}")
+    
+    # Verifica a guild
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if guild:
         print(f"🎯 Guild alvo: {guild.name} (ID: {guild.id})")
-        print(f"   📍 Canais disponíveis: {len(guild.text_channels)}")
-        print(f"   📍 Cargos disponíveis: {len(guild.roles)}")
+        print(f"   📍 Canais: {len(guild.text_channels)}")
+        print(f"   👥 Membros: {len(guild.members)}")
     else:
-        print(f"⚠️ Guild alvo não encontrada! Verifique GUILD_ID: {GUILD_ID}")
+        print(f"⚠️ AVISO: Guild alvo não encontrada! ID: {GUILD_ID}")
+        print(f"   Guilds disponíveis: {[g.name for g in bot.guilds]}")
     
-    print(f"⏰ Iniciando loop de processamento...")
-    print("="*60 + "\n")
+    print("="*60)
+    print("🔄 Iniciando loop principal de processamento...")
+    print("="*60)
     
-    # Estado do processamento
-    processing_active = True
     processed_count = 0
-    last_log_time = time.time()
+    error_count = 0
+    last_status_time = time.time()
     
-    while processing_active and not bot.is_closed():
-        try:
-            # Log de status a cada 60 segundos
-            current_time = time.time()
-            if current_time - last_log_time > 60:
-                print(f"[ACTION PROCESSOR] 👁️ Monitorando... Fila: {len(bot_actions_queue)} ações | Processadas: {processed_count}")
-                last_log_time = current_time
-            
-            # Processa ações na fila
-            if bot_actions_queue:
-                action_count = len(bot_actions_queue)
-                print(f"\n[ACTION PROCESSOR] 🔍 Encontradas {action_count} ação(ões) na fila")
+    try:
+        while action_processor_running and not bot.is_closed():
+            try:
+                # Log de status a cada 30 segundos
+                current_time = time.time()
+                if current_time - last_status_time > 30:
+                    queue_len = len(bot_actions_queue)
+                    print(f"[ACTION PROCESSOR] Status: Fila={queue_len} | Processadas={processed_count} | Erros={error_count}")
+                    last_status_time = current_time
                 
-                for i, action in enumerate(bot_actions_queue[:min(3, len(bot_actions_queue))]):
-                    print(f"   {i+1}. {action['type']} - {action.get('timestamp', 'sem timestamp')}")
-                
-                # Processa a primeira ação
-                action = bot_actions_queue.pop(0)
-                print(f"[ACTION PROCESSOR] ⚙️ Processando: {action['type']}")
-                
-                try:
-                    success = await execute_bot_action_internal(action)
+                # Processa ações se houver
+                if bot_actions_queue:
+                    action = bot_actions_queue[0]
+                    action_type = action['type']
+                    print(f"\n[ACTION PROCESSOR] 🔄 Processando ação: {action_type}")
+                    print(f"   📅 Na fila desde: {action.get('timestamp')}")
                     
-                    if success:
-                        processed_count += 1
-                        print(f"[ACTION PROCESSOR] ✅ Ação '{action['type']}' concluída com sucesso! (Total: {processed_count})")
-                    else:
-                        print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action['type']}'")
+                    try:
+                        action = bot_actions_queue.pop(0)
+                        success = await execute_bot_action_internal(action)
                         
-                        # Tenta novamente (máximo 3 tentativas)
-                        attempts = action.get('attempts', 0)
-                        if attempts < 3:
-                            action['attempts'] = attempts + 1
-                            action['retry_time'] = datetime.now().isoformat()
-                            bot_actions_queue.insert(0, action)
-                            print(f"[ACTION PROCESSOR] 🔄 Recolocando na fila (tentativa {action['attempts']}/3)")
+                        if success:
+                            processed_count += 1
+                            print(f"[ACTION PROCESSOR] ✅ Ação '{action_type}' concluída! (Total: {processed_count})")
                         else:
-                            print(f"[ACTION PROCESSOR] 🗑️ Descarte após 3 tentativas falhas")
+                            error_count += 1
+                            print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action_type}'")
                             
-                except Exception as e:
-                    print(f"[ACTION PROCESSOR] 💥 ERRO CRÍTICO ao processar ação: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Aguarda antes de verificar novamente (reduzido para resposta mais rápida)
-            await asyncio.sleep(1)
-            
-        except asyncio.CancelledError:
-            print("[ACTION PROCESSOR] ⏹️ Processamento cancelado")
-            processing_active = False
-            break
-            
-        except Exception as e:
-            print(f"[ACTION PROCESSOR] ⚠️ Erro no loop principal: {e}")
-            await asyncio.sleep(5)  # Aguarda mais em caso de erro
+                            # Tenta novamente (máximo 3 tentativas)
+                            attempts = action.get('attempts', 0)
+                            if attempts < 3:
+                                action['attempts'] = attempts + 1
+                                action['retry_time'] = datetime.now().isoformat()
+                                bot_actions_queue.insert(0, action)
+                                print(f"[ACTION PROCESSOR] 🔄 Tentando novamente ({action['attempts']}/3)")
+                            else:
+                                print(f"[ACTION PROCESSOR] 🗑️ Descarte após 3 tentativas falhas")
+                    
+                    except Exception as e:
+                        error_count += 1
+                        print(f"[ACTION PROCESSOR] 💥 ERRO CRÍTICO: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                # Aguarda antes de verificar novamente
+                await asyncio.sleep(1)
+                
+            except asyncio.CancelledError:
+                print("[ACTION PROCESSOR] ⏹️ Recebido sinal de cancelamento")
+                break
+                
+            except Exception as e:
+                print(f"[ACTION PROCESSOR] ⚠️ Erro no loop: {e}")
+                await asyncio.sleep(5)
     
-    print("\n[ACTION PROCESSOR] ⏹️ Processador encerrado")
+    except Exception as e:
+        print(f"[ACTION PROCESSOR] 💥 ERRO FATAL: {e}")
+        import traceback
+        traceback.print_exc()
     
+    finally:
+        action_processor_running = False
+        print("\n" + "="*60)
+        print("⏹️ PROCESSADOR DE AÇÕES ENCERRADO")
+        print(f"   📊 Estatísticas finais:")
+        print(f"   ✅ Ações processadas: {processed_count}")
+        print(f"   ❌ Erros: {error_count}")
+        print(f"   📝 Ações restantes na fila: {len(bot_actions_queue)}")
+        print("="*60)
+
+def start_action_processor():
+    """Inicia o processador de ações"""
+    global action_processor_task, action_processor_running
+    
+    if action_processor_running:
+        print("⚠️ Processador já está rodando")
+        return False
+    
+    try:
+        action_processor_task = bot.loop.create_task(process_bot_actions_continuous())
+        print("✅ Processador de ações iniciado!")
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao iniciar processador: {e}")
+        return False
+
+def stop_action_processor():
+    """Para o processador de ações"""
+    global action_processor_task, action_processor_running
+    
+    if not action_processor_running or action_processor_task is None:
+        return False
+    
+    try:
+        action_processor_running = False
+        if not action_processor_task.done():
+            action_processor_task.cancel()
+        print("✅ Processador de ações parado")
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao parar processador: {e}")
+        return False
 
 # ========================
 # CLASSES DE BOTÕES
@@ -743,7 +800,6 @@ def callback():
         return "Erro: código não recebido", 400
     
     try:
-        # Troca código por token
         data_req = {
             'client_id': CLIENT_ID,
             'client_secret': CLIENT_SECRET,
@@ -759,7 +815,6 @@ def callback():
         
         access_token = r.json()['access_token']
         
-        # Obtém info do usuário
         user_r = requests.get('https://discord.com/api/users/@me', 
                             headers={'Authorization': f'Bearer {access_token}'})
         if user_r.status_code != 200:
@@ -767,7 +822,6 @@ def callback():
         
         user_data = user_r.json()
         
-        # Verifica se é admin
         guilds_r = requests.get('https://discord.com/api/users/@me/guilds',
                               headers={'Authorization': f'Bearer {access_token}'})
         guilds = guilds_r.json() if guilds_r.status_code == 200 else []
@@ -792,7 +846,6 @@ def callback():
             </html>
             ''', 403
         
-        # Salva sessão
         session['user'] = {
             'id': user_data['id'],
             'username': user_data['username'],
@@ -819,7 +872,6 @@ def dashboard():
     
     user = session['user']
     
-    # Carrega dados atuais
     config = data.get("config", {})
     welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
     xp_rate = config.get("xp_rate", 3)
@@ -827,7 +879,6 @@ def dashboard():
     welcome_chan = config.get("welcome_channel", "")
     levelup_chan = config.get("levelup_channel", "")
     
-    # Obtém guild info
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
     channels = []
     roles = []
@@ -836,7 +887,6 @@ def dashboard():
         channels = [{"id": c.id, "name": c.name} for c in guild.text_channels]
         roles = [{"id": r.id, "name": r.name} for r in guild.roles if r.name != "@everyone"]
     
-    # Converte para JSON
     channels_json = json.dumps(channels, ensure_ascii=False)
     roles_json = json.dumps(roles, ensure_ascii=False)
     
@@ -1092,6 +1142,7 @@ def dashboard():
                     <p><strong>Membros:</strong> {len(guild.members) if guild else 0}</p>
                     <p><strong>Taxa de XP atual:</strong> {xp_rate}x</p>
                     <p><strong>Ações na fila:</strong> {len(bot_actions_queue)}</p>
+                    <p><strong>Processador rodando:</strong> {'✅ Sim' if action_processor_running else '❌ Não'}</p>
                 </div>
             </div>
             
@@ -1322,6 +1373,17 @@ def dashboard():
             <div id="diagnostic" class="tab">
                 <div class="card">
                     <h2>🔧 Diagnóstico do Sistema</h2>
+                    
+                    <div class="form-group">
+                        <h3>⚙️ Controles do Processador</h3>
+                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                            <button onclick="startProcessor()" class="btn btn-success">▶️ Iniciar Processador</button>
+                            <button onclick="stopProcessor()" class="btn btn-danger">⏹️ Parar Processador</button>
+                            <button onclick="processOneAction()" class="btn btn-primary">⚡ Processar 1 Ação</button>
+                            <button onclick="checkProcessorStatus()" class="btn btn-warning">🔍 Ver Status</button>
+                        </div>
+                        <div id="processor-controls-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                    </div>
                     
                     <div class="form-group">
                         <h3>🔄 Testar Conexão Bot</h3>
@@ -1813,7 +1875,107 @@ def dashboard():
                 }}
             }}
             
-            // Funções de diagnóstico
+            // Funções de diagnóstico - Controles do Processador
+            async function startProcessor() {{
+                const resultDiv = document.getElementById('processor-controls-result');
+                resultDiv.innerHTML = '<p>▶️ Iniciando processador...</p>';
+                
+                try {{
+                    const response = await fetch('/api/processor/start', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}}
+                    }});
+                    
+                    const data = await response.json();
+                    if (data.success) {{
+                        resultDiv.innerHTML = `<div class="alert-success">${data.message}</div>`;
+                    }} else {{
+                        resultDiv.innerHTML = `<div class="alert-error">${data.message}</div>`;
+                    }}
+                    
+                    setTimeout(checkProcessorStatus, 2000);
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
+                }}
+            }}
+            
+            async function stopProcessor() {{
+                const resultDiv = document.getElementById('processor-controls-result');
+                resultDiv.innerHTML = '<p>⏹️ Parando processador...</p>';
+                
+                try {{
+                    const response = await fetch('/api/processor/stop', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}}
+                    }});
+                    
+                    const data = await response.json();
+                    if (data.success) {{
+                        resultDiv.innerHTML = `<div class="alert-success">${data.message}</div>`;
+                    }} else {{
+                        resultDiv.innerHTML = `<div class="alert-error">${data.message}</div>`;
+                    }}
+                    
+                    setTimeout(checkProcessorStatus, 2000);
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
+                }}
+            }}
+            
+            async function processOneAction() {{
+                const resultDiv = document.getElementById('processor-controls-result');
+                resultDiv.innerHTML = '<p>⚡ Processando uma ação...</p>';
+                
+                try {{
+                    const response = await fetch('/api/processor/process-one', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}}
+                    }});
+                    
+                    const data = await response.json();
+                    if (data.success) {{
+                        resultDiv.innerHTML = `<div class="alert-success">${data.message}</div>`;
+                    }} else {{
+                        resultDiv.innerHTML = `<div class="alert-error">${data.message}</div>`;
+                    }}
+                    
+                    setTimeout(checkQueue, 2000);
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
+                }}
+            }}
+            
+            async function checkProcessorStatus() {{
+                const resultDiv = document.getElementById('processor-controls-result');
+                resultDiv.innerHTML = '<p>🔍 Verificando status...</p>';
+                
+                try {{
+                    const response = await fetch('/api/processor/status');
+                    const data = await response.json();
+                    
+                    let html = '<h4>Status do Processador:</h4>';
+                    html += `<p><strong>Processador rodando:</strong> ${data.processor_running ? '✅ Sim' : '❌ Não'}</p>`;
+                    html += `<p><strong>Ações na fila:</strong> ${data.queue_length}</p>`;
+                    html += `<p><strong>Bot pronto:</strong> ${data.bot_ready ? '✅ Sim' : '❌ Não'}</p>`;
+                    
+                    if (data.has_processor_task) {{
+                        html += `<p><strong>Task do processador:</strong></p>`;
+                        html += `<ul>`;
+                        html += `<li>Existe: ✅ Sim</li>`;
+                        html += `<li>Concluída: ${data.task_done ? '✅ Sim' : '❌ Não'}</li>`;
+                        html += `<li>Rodando: ${data.task_running ? '✅ Sim' : '❌ Não'}</li>`;
+                        html += `</ul>`;
+                    }} else {{
+                        html += `<p><strong>Task do processador:</strong> ❌ Não existe</p>`;
+                    }}
+                    
+                    resultDiv.innerHTML = html;
+                }} catch (error) {{
+                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
+                }}
+            }}
+            
+            // Funções de diagnóstico antigas (mantidas para compatibilidade)
             async function testBotConnection() {{
                 const resultDiv = document.getElementById('bot-test-result');
                 resultDiv.innerHTML = '<p>🔍 Testando conexão...</p>';
@@ -1871,6 +2033,7 @@ def dashboard():
                         html += `<p><strong>Ações na fila:</strong> ${{data.queue_length}}</p>`;
                         html += `<p><strong>Bot pronto:</strong> ${{data.bot_ready ? '✅ Sim' : '❌ Não'}}</p>`;
                         html += `<p><strong>Processamento ativo:</strong> ${{data.processing_active ? '✅ Sim' : '❌ Não'}}</p>`;
+                        html += `<p><strong>Processador rodando:</strong> ${{data.processor_running ? '✅ Sim' : '❌ Não'}}</p>`;
                         
                         if (data.queue && data.queue.length > 0) {{
                             html += '<h5>Próximas ações:</h5><ul>';
@@ -2083,7 +2246,6 @@ def api_command_warn():
         if not member_id:
             return jsonify({"success": False, "message": "ID do membro é obrigatório"})
         
-        # Adiciona à fila de ações do bot
         success = execute_bot_action(
             "warn_member",
             member_id=member_id,
@@ -2137,7 +2299,6 @@ def api_command_embed():
         if not channel_id or not title or not body:
             return jsonify({"success": False, "message": "Preencha todos os campos"})
         
-        # Adiciona à fila de ações do bot
         success = execute_bot_action(
             "create_embed",
             channel_id=channel_id,
@@ -2198,7 +2359,6 @@ def api_reactionrole_create():
         if not channel_id or not content or not emoji_cargo:
             return jsonify({"success": False, "message": "Preencha todos os campos"})
         
-        # Adiciona à fila de ações do bot
         success = execute_bot_action(
             "create_reaction_role",
             channel_id=channel_id,
@@ -2230,7 +2390,6 @@ def api_rolebuttons_create():
         if not channel_id or not content or not roles:
             return jsonify({"success": False, "message": "Preencha todos os campos"})
         
-        # Adiciona à fila de ações do bot
         success = execute_bot_action(
             "create_role_buttons",
             channel_id=channel_id,
@@ -2272,7 +2431,6 @@ def api_test_bot():
     if bot.is_ready():
         bot_status["guilds"] = [{"id": g.id, "name": g.name, "member_count": len(g.members)} for g in bot.guilds]
         
-        # Verifica guild específica
         if GUILD_ID:
             guild = bot.get_guild(int(GUILD_ID))
             if guild:
@@ -2296,14 +2454,117 @@ def api_test_bot():
         "timestamp": datetime.now().isoformat()
     })
 
+# ========================
+# APIs DE CONTROLE DO PROCESSADOR
+# ========================
+@app.route("/api/processor/start", methods=["POST"])
+def api_processor_start():
+    """Inicia o processador manualmente"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        success = start_action_processor()
+        
+        return jsonify({
+            "success": success,
+            "message": "✅ Processador iniciado!" if success else "❌ Falha ao iniciar processador",
+            "queue_length": len(bot_actions_queue),
+            "processor_running": action_processor_running
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/processor/stop", methods=["POST"])
+def api_processor_stop():
+    """Para o processador manualmente"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        success = stop_action_processor()
+        
+        return jsonify({
+            "success": success,
+            "message": "✅ Processador parado!" if success else "❌ Falha ao parar processador",
+            "queue_length": len(bot_actions_queue),
+            "processor_running": action_processor_running
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/processor/status", methods=["GET"])
+def api_processor_status():
+    """Verifica status do processador"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    return jsonify({
+        "success": True,
+        "processor_running": action_processor_running,
+        "queue_length": len(bot_actions_queue),
+        "queue": bot_actions_queue[:5],
+        "bot_ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
+        "has_processor_task": action_processor_task is not None,
+        "task_done": action_processor_task.done() if action_processor_task else None,
+        "task_running": not action_processor_task.done() if action_processor_task else None
+    })
+
+@app.route("/api/processor/process-one", methods=["POST"])
+def api_processor_process_one():
+    """Processa uma ação manualmente"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        if not bot_actions_queue:
+            return jsonify({
+                "success": False,
+                "message": "❌ Nenhuma ação na fila para processar"
+            })
+        
+        action = bot_actions_queue[0]
+        action_type = action['type']
+        
+        async def process_action_directly():
+            return await execute_bot_action_internal(action)
+        
+        import asyncio
+        try:
+            future = asyncio.run_coroutine_threadsafe(process_action_directly(), bot.loop)
+            success = future.result(timeout=15)
+            
+            if success:
+                bot_actions_queue.pop(0)
+                
+            return jsonify({
+                "success": success,
+                "message": f"✅ Ação '{action_type}' processada com sucesso!" if success else f"❌ Falha ao processar ação '{action_type}'",
+                "action_type": action_type,
+                "queue_remaining": len(bot_actions_queue)
+            })
+            
+        except asyncio.TimeoutError:
+            return jsonify({
+                "success": False,
+                "message": "⏰ Timeout ao processar ação (15 segundos)"
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "message": f"❌ Erro ao processar: {str(e)}"
+            })
+            
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
 @app.route("/api/debug/actions", methods=["GET"])
 def api_debug_actions():
     """API para debug das ações"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
-    # Verifica se o loop de processamento está ativo
-    processing_active = hasattr(bot, '_processing_task') and not bot._processing_task.done() if hasattr(bot, '_processing_task') else False
+    processing_active = action_processor_running
     
     return jsonify({
         "success": True,
@@ -2313,6 +2574,9 @@ def api_debug_actions():
         "bot_user": str(bot.user) if hasattr(bot, 'user') else "None",
         "guild_id": GUILD_ID,
         "processing_active": processing_active,
+        "processor_running": action_processor_running,
+        "has_processor_task": action_processor_task is not None,
+        "task_done": action_processor_task.done() if action_processor_task else None,
         "guilds": [g.name for g in bot.guilds] if hasattr(bot, 'guilds') else []
     })
 
@@ -2346,13 +2610,11 @@ async def on_ready():
     print(f"✅ Status: {'PRONTO' if bot.is_ready() else 'NÃO PRONTO'}")
     print(f"{'='*50}")
     
-    # Mostra todas as guilds conectadas
     print(f"🏠 GUILDS CONECTADAS ({len(bot.guilds)}):")
     for i, guild in enumerate(bot.guilds, 1):
         print(f"  {i}. {guild.name} (ID: {guild.id}) - Membros: {len(guild.members)}")
     print(f"{'='*50}")
     
-    # Verifica se está na guild alvo
     target_guild = None
     if GUILD_ID:
         target_guild = bot.get_guild(int(GUILD_ID))
@@ -2372,12 +2634,10 @@ async def on_ready():
     
     print(f"{'='*50}")
     
-    # Carrega dados do GitHub
     print("📂 Carregando dados do GitHub...")
     load_success = load_data_from_github()
     print(f"   {'✅ Dados carregados' if load_success else '⚠️ Usando dados locais'}")
 
-    # Sincronizar comandos slash
     print("⚙️ Sincronizando comandos slash...")
     try:
         if GUILD_ID:
@@ -2391,7 +2651,6 @@ async def on_ready():
     except Exception as e:
         print(f"   ❌ Erro ao sincronizar comandos: {e}")
 
-    # Reconstruir botões persistentes
     print("🔄 Restaurando botões persistentes...")
     role_buttons = data.get("role_buttons", {})
     if role_buttons:
@@ -2402,7 +2661,6 @@ async def on_ready():
                 msg_id = int(msg_id_str)
                 message = None
                 
-                # Procura a mensagem em todas as guilds e canais
                 for guild in bot.guilds:
                     for channel in guild.text_channels:
                         try:
@@ -2433,19 +2691,35 @@ async def on_ready():
     else:
         print("   ℹ️ Nenhum botão persistente para restaurar")
 
-    # Iniciar sistema de diagnóstico
+    print("\n" + "="*50)
+    print("🚀 CONFIGURANDO SISTEMA DE AÇÕES DO SITE")
+    print("="*50)
+    
+    await asyncio.sleep(3)
+    
+    try:
+        def start_processor():
+            return start_action_processor()
+        
+        import threading
+        threading.Thread(target=start_processor, daemon=True).start()
+        
+        bot.loop.call_soon_threadsafe(
+            lambda: bot.loop.create_task(process_bot_actions_continuous())
+        )
+        
+        print("✅ Sistema de ações INICIADO com sucesso!")
+        
+    except Exception as e:
+        print(f"❌ Erro ao iniciar sistema de ações: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print("="*50)
+    
     print("🔍 Executando diagnóstico de conexão...")
     await check_bot_connection()
-
-    # Iniciar processamento de ações do site
-    print("🚀 Iniciando sistema de ações do site...")
-    try:
-        bot.loop.create_task(start_action_processor())
-        print("   ✅ Sistema de ações INICIADO!")
-    except Exception as e:
-        print(f"   ❌ Erro ao iniciar sistema de ações: {e}")
     
-    # Mostra estatísticas finais
     print(f"{'='*50}")
     print(f"📊 ESTATÍSTICAS CARREGADAS:")
     print(f"   📈 Usuários com XP: {len(data.get('xp', {}))}")
@@ -2457,7 +2731,6 @@ async def on_ready():
     print(f"✨ BOT PRONTO PARA USO!")
     print(f"{'='*50}\n")
     
-    # Adiciona um log de inicialização
     add_log(f"Bot iniciado: {bot.user.name} ({bot.user.id}) em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
 @bot.event
@@ -2471,17 +2744,14 @@ async def on_member_join(member: discord.Member):
     if not channel:
         return
 
-    # Mensagem de boas-vindas customizada
     welcome_msg = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
-    # Imagem de fundo personalizada
     background_path = data.get("config", {}).get("welcome_background", "")
 
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
 
-    # Fundo (baixa via URL)
     if background_path:
         try:
             response = requests.get(background_path)
@@ -2491,13 +2761,11 @@ async def on_member_join(member: discord.Member):
         except Exception as e:
             print(f"Erro ao carregar imagem de fundo: {e}")
 
-    # Overlay cinza translúcido para melhorar contraste do texto
     overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
     img = Image.alpha_composite(img, overlay)
 
     draw = ImageDraw.Draw(img)
 
-    # Avatar do usuário
     try:
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
@@ -2526,7 +2794,6 @@ async def on_member_join(member: discord.Member):
     except Exception as e:
         print(f"Erro ao carregar avatar do usuário: {e}")
 
-    # Texto
     try:
         font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
@@ -2537,7 +2804,6 @@ async def on_member_join(member: discord.Member):
     text_color = (200, 150, 255)
     shadow_color = (0, 0, 0, 180)
 
-    # Nome do usuário
     text_name = member.display_name
     bbox_name = draw.textbbox((0, 0), text_name, font=font_b)
     text_w = bbox_name[2] - bbox_name[0]
@@ -2547,7 +2813,6 @@ async def on_member_join(member: discord.Member):
     draw.text((text_x + 2, text_y + 2), text_name, font=font_b, fill=shadow_color)
     draw.text((text_x, text_y), text_name, font=font_b, fill=text_color)
 
-    # Contagem de membros
     text_count = f"Membro #{len(member.guild.members)}"
     bbox_count = draw.textbbox((0, 0), text_count, font=font_s)
     text_w2 = bbox_count[2] - bbox_count[0]
@@ -2557,7 +2822,6 @@ async def on_member_join(member: discord.Member):
     draw.text((text_x2 + 1, text_y2 + 1), text_count, font=font_s, fill=shadow_color)
     draw.text((text_x2, text_y2), text_count, font=font_s, fill=text_color)
 
-    # Enviar mensagem
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -2576,22 +2840,17 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         if not msgmap:
             return
 
-        # Resolver o emoji
         role_id = None
-        # Checa pelo ID (custom emoji)
         if payload.emoji.id and str(payload.emoji.id) in msgmap:
             role_id = msgmap[str(payload.emoji.id)]
-        # Checa pelo nome (custom emoji)
         elif payload.emoji.id is not None and payload.emoji.name in msgmap:
             role_id = msgmap[payload.emoji.name]
-        # Checa unicode
         elif str(payload.emoji) in msgmap:
             role_id = msgmap[str(payload.emoji)]
 
         if not role_id:
             return
 
-        # Busca guild e member
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             return
@@ -2664,7 +2923,6 @@ async def on_message(message: discord.Message):
     content = message.content.strip()
     delete_message = False
 
-    # IGNORAR COMANDOS DO MUDAE
     mudae_commands = [
         "$w", "$wa", "$wg", "$h", "$ha", "$hg",
         "$W", "$WA", "$WG", "$H", "$HA", "$HG",
@@ -2674,12 +2932,10 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # IGNORAR ADVERTÊNCIAS PARA ADM E MOD
     ignored_roles = {"Administrador", "Moderador"}
     member_roles = {r.name for r in message.author.roles}
     is_staff = any(role in ignored_roles for role in member_roles)
 
-    # IGNORAR MÍDIA
     has_media = False
     if message.attachments:
         has_media = True
@@ -2693,7 +2949,6 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # BLOQUEIO DE LINKS
     blocked_channels = data.get("blocked_links_channels", [])
     if message.channel.id in blocked_channels:
         import re
@@ -2708,7 +2963,6 @@ async def on_message(message: discord.Message):
                 await add_warn(message.author, reason="Enviou link em canal bloqueado")
                 return
 
-    # ANTI-SPAM
     user_msgs = data.setdefault("last_messages_content", {}).setdefault(uid, [])
     if len(user_msgs) >= 5:
         user_msgs.pop(0)
@@ -2727,7 +2981,6 @@ async def on_message(message: discord.Message):
         user_msgs.append(content)
     data["last_messages_content"][uid] = user_msgs
 
-    # DETECÇÃO DE MAIÚSCULAS
     if len(content) > 5 and content.isupper():
         if not is_staff:
             delete_message = True
@@ -2739,7 +2992,6 @@ async def on_message(message: discord.Message):
             await add_warn(message.author, reason="Uso excessivo de maiúsculas")
             return
 
-    # SISTEMA DE XP
     if not delete_message:
         data.setdefault("xp", {})
         data.setdefault("level", {})
@@ -2782,7 +3034,6 @@ async def on_message(message: discord.Message):
 
             add_log(f"level_up: user={uid} level={lvl_now}")
 
-    # SALVAR DADOS
     try:
         save_data_to_github("XP update")
     except Exception as e:
@@ -3028,7 +3279,6 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    # Avatar
     try:
         avatar_bytes = await target.avatar.read()
         avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
@@ -3044,7 +3294,6 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     draw.text((width - 220, 40), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(0, 255, 255))
     draw.text((width - 220, 80), f"NÍVEL {lvl}", font=font_s, fill=(255, 0, 255))
 
-    # Barra XP
     next_xp = 100 + lvl*50
     cur = xp % next_xp
     bar_total_w, bar_h = 560, 36
