@@ -136,36 +136,267 @@ def logout():
 
 @app.route("/dashboard")
 def dashboard():
-    """Painel de controle principal"""
-    if 'user' not in session or not session['user'].get('is_admin'):
+    """Dashboard simplificado e robusto"""
+    if 'user' not in session:
         return redirect(url_for('login'))
     
-    # Carrega dados atuais
-    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
-    channels = guild.text_channels if guild else []
-    roles = guild.roles if guild else []
-    
-    welcome_channel_id = data.get("config", {}).get("welcome_channel")
-    welcome_channel = guild.get_channel(int(welcome_channel_id)) if welcome_channel_id and guild else None
-    
-    levelup_channel_id = data.get("config", {}).get("levelup_channel")
-    levelup_channel = guild.get_channel(int(levelup_channel_id)) if levelup_channel_id and guild else None
-    
-    welcome_message = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
-    welcome_background = data.get("config", {}).get("welcome_background", "")
-    xp_rate = data.get("config", {}).get("xp_rate", 3)
-    
-    return render_template_string(DASHBOARD_TEMPLATE,
-                                  user=session['user'],
-                                  guild=guild,
-                                  channels=channels,
-                                  roles=roles,
-                                  welcome_channel=welcome_channel,
-                                  levelup_channel=levelup_channel,
-                                  welcome_message=welcome_message,
-                                  welcome_background=welcome_background,
-                                  xp_rate=xp_rate,
-                                  data=data)
+    try:
+        user = session['user']
+        
+        # Carrega dados de forma segura
+        welcome_message = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
+        xp_rate = data.get("config", {}).get("xp_rate", 3)
+        
+        # Tenta obter informações da guild de forma segura
+        guild_info = {
+            "name": "Carregando...",
+            "member_count": 0,
+            "channels": [],
+            "roles": []
+        }
+        
+        if GUILD_ID and bot.is_ready():
+            try:
+                guild = bot.get_guild(int(GUILD_ID))
+                if guild:
+                    guild_info["name"] = guild.name
+                    guild_info["member_count"] = len(guild.members)
+                    # Limita o número de canais/roles para evitar problemas
+                    guild_info["channels"] = [{"id": c.id, "name": c.name} for c in guild.text_channels[:20]]
+                    guild_info["roles"] = [{"id": r.id, "name": r.name} for r in guild.roles[-20:]]
+            except Exception as e:
+                print(f"Erro ao carregar guild: {e}")
+        
+        # Dashboard HTML simples
+        return f'''
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Dashboard - Imune Bot</title>
+            <style>
+                :root {{
+                    --primary: #5865F2;
+                    --primary-dark: #4752C4;
+                }}
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background: #f5f5f5;
+                    color: #333;
+                }}
+                header {{
+                    background: white;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    padding: 1rem 2rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }}
+                .header-left h1 {{
+                    color: var(--primary);
+                }}
+                .user-info {{
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }}
+                .avatar {{
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                }}
+                .btn {{
+                    padding: 0.5rem 1rem;
+                    background: var(--primary);
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    text-decoration: none;
+                    display: inline-block;
+                }}
+                .container {{
+                    max-width: 1200px;
+                    margin: 2rem auto;
+                    padding: 0 1rem;
+                }}
+                .stats-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 1rem;
+                    margin-bottom: 2rem;
+                }}
+                .stat-card {{
+                    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+                    color: white;
+                    padding: 1.5rem;
+                    border-radius: 10px;
+                    text-align: center;
+                }}
+                .stat-card h3 {{
+                    font-size: 2rem;
+                    margin-bottom: 0.5rem;
+                }}
+                .config-section {{
+                    background: white;
+                    border-radius: 10px;
+                    padding: 1.5rem;
+                    margin: 1rem 0;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                }}
+            </style>
+        </head>
+        <body>
+            <header>
+                <div class="header-left">
+                    <h1>🤖 Imune Bot Dashboard</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{user.get('id', '0')}/{user.get('avatar', '')}.png" 
+                             alt="Avatar" class="avatar" 
+                             onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span>{user.get('username', 'Usuário')}</span>
+                    </div>
+                    <a href="/" class="btn">Início</a>
+                    <a href="/logout" class="btn">Sair</a>
+                </div>
+            </header>
+            
+            <div class="container">
+                <h2>📊 Visão Geral</h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>{guild_info["member_count"]}</h3>
+                        <p>Membros</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>{len(data.get("xp", {}))}</h3>
+                        <p>Usuários com XP</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>{len(data.get("warns", {}))}</h3>
+                        <p>Advertências</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>{len(data.get("reaction_roles", {}))}</h3>
+                        <p>Reaction Roles</p>
+                    </div>
+                </div>
+                
+                <div class="config-section">
+                    <h3>⚙️ Configurações Atuais</h3>
+                    <p><strong>Servidor:</strong> {guild_info["name"]}</p>
+                    <p><strong>Mensagem de boas-vindas:</strong> {welcome_message[:50]}...</p>
+                    <p><strong>Taxa de XP:</strong> {xp_rate}x</p>
+                </div>
+                
+                <div class="config-section">
+                    <h3>🔧 Comandos Rápidos</h3>
+                    <p>Use estes comandos no Discord para configurar:</p>
+                    <ul>
+                        <li><code>/definir_boas-vindas</code> - Configurar mensagem de boas-vindas</li>
+                        <li><code>/xp_rate</code> - Ajustar taxa de XP</li>
+                        <li><code>/cargo_xp</code> - Definir cargo por nível</li>
+                        <li><code>/bloquear_links</code> - Bloquear links em canais</li>
+                    </ul>
+                </div>
+                
+                <div class="config-section">
+                    <h3>📈 Estatísticas</h3>
+                    <p><strong>Bot Status:</strong> {"✅ Online" if bot.is_ready() else "❌ Offline"}</p>
+                    <p><strong>Dados carregados:</strong> {"✅ Sim" if data else "❌ Não"}</p>
+                    <p><strong>Total de logs:</strong> {len(data.get("logs", []))}</p>
+                </div>
+                
+                <div class="config-section">
+                    <h3>🔗 Links Úteis</h3>
+                    <a href="/debug" class="btn">Informações de Debug</a>
+                    <a href="/api/stats" class="btn">API de Estatísticas</a>
+                </div>
+            </div>
+            
+            <script>
+                // JavaScript simples para funcionalidades básicas
+                console.log('Dashboard carregado');
+            </script>
+        </body>
+        </html>
+        '''
+        
+    except Exception as e:
+        # Retorna erro detalhado para debug
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERRO no dashboard: {e}")
+        print(error_details)
+        
+        return f'''
+        <!DOCTYPE html>
+        <html>
+        <head><title>Erro</title></head>
+        <body>
+            <h1>Erro no Dashboard</h1>
+            <p><strong>Erro:</strong> {str(e)}</p>
+            <pre style="background: #f0f0f0; padding: 10px; overflow: auto;">{error_details}</pre>
+            <a href="/">Voltar</a>
+        </body>
+        </html>
+        ''', 500
+
+@app.route("/debug/detailed")
+def debug_detailed():
+    """Debug detalhado com todas as informações"""
+    try:
+        info = {
+            "flask_session": dict(session) if session else {},
+            "environment": {
+                "CLIENT_ID": "DEFINIDO" if CLIENT_ID else "NÃO DEFINIDO",
+                "CLIENT_SECRET": "DEFINIDO" if CLIENT_SECRET else "NÃO DEFINIDO",
+                "GUILD_ID": GUILD_ID,
+                "REDIRECT_URI": REDIRECT_URI,
+                "RENDER_URL": os.environ.get("RENDER_EXTERNAL_URL"),
+                "PORT": os.environ.get("PORT"),
+            },
+            "bot": {
+                "ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
+                "user": str(bot.user) if bot.user else "Não conectado",
+                "guilds": len(bot.guilds) if hasattr(bot, 'guilds') else 0,
+            },
+            "data": {
+                "has_data": bool(data),
+                "xp_users": len(data.get("xp", {})),
+                "warns": len(data.get("warns", {})),
+                "config_keys": list(data.get("config", {}).keys()),
+            }
+        }
+        
+        # Tenta obter informações da guild
+        if GUILD_ID and bot.is_ready():
+            try:
+                guild = bot.get_guild(int(GUILD_ID))
+                if guild:
+                    info["guild"] = {
+                        "name": guild.name,
+                        "id": guild.id,
+                        "member_count": len(guild.members),
+                        "channel_count": len(guild.channels),
+                        "role_count": len(guild.roles),
+                    }
+            except Exception as e:
+                info["guild_error"] = str(e)
+        
+        return jsonify(info)
+        
+    except Exception as e:
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 @app.route("/api/config", methods=["POST"])
 def api_config():
