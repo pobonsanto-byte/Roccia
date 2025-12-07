@@ -50,12 +50,44 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 # -------------------------
+# Bot setup (precisa ser definido antes das rotas que o referenciam)
+# -------------------------
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.reactions = True
+
+bot = commands.Bot(command_prefix="/", intents=intents)
+tree = bot.tree
+
+# -------------------------
+# Estrutura de dados em memória (deve vir antes das rotas)
+# -------------------------
+data = {
+    "xp": {},
+    "level": {},
+    "warns": {},
+    "reaction_roles": {},
+    "config": {"welcome_channel": None},
+    "logs": []
+}
+
+# -------------------------
+# Função de horário BR
+# -------------------------
+def now_br():
+    return datetime.now(ZoneInfo("America/Sao_Paulo"))
+
+# -------------------------
 # Site Routes
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
     """Página inicial"""
-    return '''
+    bot_status = "✅ Bot Online e Funcionando" if bot.is_ready() else "❌ Bot Offline"
+    bot_class = "online" if bot.is_ready() else "offline"
+    
+    return f'''
     <!DOCTYPE html>
     <html>
     <head>
@@ -63,7 +95,7 @@ def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Imune Bot - Painel de Controle</title>
         <style>
-            body {
+            body {{
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 margin: 0;
@@ -72,8 +104,8 @@ def home():
                 display: flex;
                 align-items: center;
                 justify-content: center;
-            }
-            .container {
+            }}
+            .container {{
                 background: white;
                 border-radius: 20px;
                 padding: 40px;
@@ -81,20 +113,20 @@ def home():
                 text-align: center;
                 max-width: 500px;
                 width: 90%;
-            }
-            h1 {
+            }}
+            h1 {{
                 color: #333;
                 margin-bottom: 10px;
-            }
-            .status {
+            }}
+            .status {{
                 padding: 10px;
                 border-radius: 10px;
                 margin: 20px 0;
                 font-weight: bold;
-            }
-            .online { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-            .offline { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-            .btn {
+            }}
+            .online {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
+            .offline {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
+            .btn {{
                 display: inline-block;
                 background: #5865F2;
                 color: white;
@@ -104,30 +136,30 @@ def home():
                 font-weight: bold;
                 margin: 10px;
                 transition: all 0.3s;
-            }
-            .btn:hover {
+            }}
+            .btn:hover {{
                 background: #4752C4;
                 transform: translateY(-2px);
                 box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            }
-            .features {
+            }}
+            .features {{
                 text-align: left;
                 margin: 20px 0;
                 padding: 15px;
                 background: #f8f9fa;
                 border-radius: 10px;
-            }
-            .features li {
+            }}
+            .features li {{
                 margin: 8px 0;
                 padding-left: 10px;
-            }
+            }}
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🤖 Imune Bot Dashboard</h1>
-            <div class="status ''' + ("online" if bot.is_ready() else "offline") + '''">
-                ''' + ("✅ Bot Online e Funcionando" if bot.is_ready() else "❌ Bot Offline") + '''
+            <div class="status {bot_class}">
+                {bot_status}
             </div>
             
             <div class="features">
@@ -142,14 +174,7 @@ def home():
                 </ul>
             </div>
             
-            ''' + ('''
-            <p>Faça login para configurar o bot pelo navegador</p>
-            <a href="/login" class="btn">🔐 Login com Discord</a>
-            ''' if 'user' not in session else '''
-            <p>Olá, ''' + session['user'].get('username', 'Administrador') + '''!</p>
-            <a href="/dashboard" class="btn">🚀 Ir para Dashboard</a>
-            <a href="/logout" class="btn">🚪 Sair</a>
-            ''') + '''
+            {"<p>Faça login para configurar o bot pelo navegador</p><a href=\"/login\" class=\"btn\">🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para Dashboard</a><a href="/logout" class="btn">🚪 Sair</a>'}
             
             <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
                 Use <code>/comando</code> no Discord ou configure pelo site!
@@ -186,7 +211,7 @@ def callback():
     
     try:
         # Troca código por token
-        data = {
+        data_req = {
             'client_id': CLIENT_ID,
             'client_secret': CLIENT_SECRET,
             'grant_type': 'authorization_code',
@@ -195,7 +220,7 @@ def callback():
             'scope': 'identify guilds'
         }
         
-        r = requests.post('https://discord.com/api/oauth2/token', data=data)
+        r = requests.post('https://discord.com/api/oauth2/token', data=data_req)
         if r.status_code != 200:
             return f"Erro ao obter token: {r.text[:100]}", 400
         
@@ -221,14 +246,14 @@ def callback():
                 break
         
         if not is_admin:
-            return '''
+            return f'''
             <!DOCTYPE html>
             <html>
             <head><title>Acesso Negado</title></head>
             <body style="font-family: Arial; text-align: center; padding: 50px;">
                 <h2>⚠️ Acesso Restrito</h2>
                 <p>Apenas administradores do servidor podem acessar este painel.</p>
-                <p>Servidor ID: ''' + str(GUILD_ID) + '''</p>
+                <p>Servidor ID: {str(GUILD_ID)}</p>
                 <a href="/">Voltar</a>
             </body>
             </html>
@@ -279,7 +304,6 @@ def dashboard():
         roles = [{"id": r.id, "name": r.name} for r in guild.roles if r.name != "@everyone"]
     
     # Converte para JSON
-    import json
     channels_json = json.dumps(channels, ensure_ascii=False)
     roles_json = json.dumps(roles, ensure_ascii=False)
     
@@ -1198,7 +1222,7 @@ def dashboard():
                         return;
                     }}
                     
-                                        let html = '';
+                    let html = '';
                     for (const [cmd, channels] of Object.entries(result.command_channels)) {{
                         html += `
                             <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
@@ -1569,35 +1593,6 @@ def auto_ping():
 Thread(target=auto_ping, daemon=True).start()
 
 # -------------------------
-# Bot setup
-# -------------------------
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.reactions = True
-
-bot = commands.Bot(command_prefix="/", intents=intents)
-tree = bot.tree
-
-# -------------------------
-# Função de horário BR
-# -------------------------
-def now_br():
-    return datetime.now(ZoneInfo("America/Sao_Paulo"))
-
-# -------------------------
-# Estrutura de dados em memória
-# -------------------------
-data = {
-    "xp": {},
-    "level": {},
-    "warns": {},
-    "reaction_roles": {},
-    "config": {"welcome_channel": None},
-    "logs": []
-}
-
-# -------------------------
 # GitHub persistence
 # -------------------------
 def _gh_headers():
@@ -1670,7 +1665,7 @@ def execute_bot_action(action_type, **kwargs):
 async def execute_bot_action_internal(action):
     """Executa uma ação do bot internamente"""
     action_type = action["type"]
-    data = action["data"]
+    action_data = action["data"]
     
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if not guild:
@@ -1679,11 +1674,11 @@ async def execute_bot_action_internal(action):
     
     if action_type == "create_embed":
         # Cria uma mensagem embed
-        channel = guild.get_channel(int(data["channel_id"]))
+        channel = guild.get_channel(int(action_data["channel_id"]))
         if channel:
             embed = discord.Embed(
-                title=data["title"],
-                description=data["body"],
+                title=action_data["title"],
+                description=action_data["body"],
                 color=discord.Color.blue()
             )
             await channel.send(embed=embed)
@@ -1691,13 +1686,13 @@ async def execute_bot_action_internal(action):
     
     elif action_type == "create_reaction_role":
         # Cria reaction role
-        channel = guild.get_channel(int(data["channel_id"]))
+        channel = guild.get_channel(int(action_data["channel_id"]))
         if channel:
             # Envia mensagem
-            message = await channel.send(data["content"])
+            message = await channel.send(action_data["content"])
             
             # Processa pares emoji:cargo
-            pairs = data.get("emoji_cargo", "").split(",")
+            pairs = action_data.get("emoji_cargo", "").split(",")
             for pair in pairs:
                 if ":" in pair:
                     try:
@@ -1724,10 +1719,10 @@ async def execute_bot_action_internal(action):
     
     elif action_type == "create_role_buttons":
         # Cria botões de cargos
-        channel = guild.get_channel(int(data["channel_id"]))
+        channel = guild.get_channel(int(action_data["channel_id"]))
         if channel:
             # Processa pares botão:cargo
-            pairs = data.get("roles", "").split(",")
+            pairs = action_data.get("roles", "").split(",")
             buttons_dict = {}
             
             for pair in pairs:
@@ -1747,7 +1742,7 @@ async def execute_bot_action_internal(action):
             if buttons_dict:
                 # Cria view com botões
                 view = PersistentRoleButtonView(0, buttons_dict)
-                sent = await channel.send(data["content"], view=view)
+                sent = await channel.send(action_data["content"], view=view)
                 
                 # Atualiza IDs
                 view.message_id = sent.id
@@ -1763,12 +1758,12 @@ async def execute_bot_action_internal(action):
     
     elif action_type == "warn_member":
         # Adverte um membro
-        member = guild.get_member(int(data["member_id"]))
+        member = guild.get_member(int(action_data["member_id"]))
         if member:
             # Adiciona advertência
             entry = {
                 "by": "site_admin",
-                "reason": data["reason"],
+                "reason": action_data["reason"],
                 "ts": now_br().strftime("%d/%m/%Y %H:%M")
             }
             data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
@@ -1780,8 +1775,8 @@ async def execute_bot_action_internal(action):
                 logs_channel = guild.get_channel(int(logs_channel_id))
                 if logs_channel:
                     await logs_channel.send(
-                        f"⚠️ {member.mention} foi advertido por {data.get('admin', 'Site Admin')}.\n"
-                        f"Motivo: {data['reason']}"
+                        f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
+                        f"Motivo: {action_data['reason']}"
                     )
             
             print(f"[BOT] Membro advertido: {member.display_name}")
@@ -1936,22 +1931,20 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Imagem de fundo personalizada -----
-    background_path = data.get("config", {}).get(
-    "welcome_background")
-
+    background_path = data.get("config", {}).get("welcome_background", "")
 
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
 
     # Fundo (baixa via URL)
-    try:
-        import requests
-        response = requests.get(background_path)
-        bg = Image.open(BytesIO(response.content)).convert("RGBA")
-        bg = bg.resize((width, height))
-        img.paste(bg, (0, 0))
-    except Exception as e:
-        print(f"Erro ao carregar imagem de fundo: {e}")
+    if background_path:
+        try:
+            response = requests.get(background_path)
+            bg = Image.open(BytesIO(response.content)).convert("RGBA")
+            bg = bg.resize((width, height))
+            img.paste(bg, (0, 0))
+        except Exception as e:
+            print(f"Erro ao carregar imagem de fundo: {e}")
 
     # Overlay cinza translúcido para melhorar contraste do texto
     overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
@@ -2028,12 +2021,6 @@ async def on_member_join(member: discord.Member):
     await channel.send(content=welcome_msg, file=file)
     add_log(f"member_join: {member.id} - {member}")
 
-
-
-
-
-
-
 # -------------------------
 # Reaction roles
 # -------------------------
@@ -2106,7 +2093,6 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     except Exception as e:
         print("on_raw_reaction_remove error:", e)
 
-
 # -------------------------
 # Warn helper
 # -------------------------
@@ -2120,7 +2106,6 @@ async def add_warn(member: discord.Member, reason=""):
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("Auto-warn")
     add_log(f"warn: user={uid} by=bot reason={reason}")
-
 
 # -------------------------
 # on_message
@@ -2204,16 +2189,16 @@ async def on_message(message: discord.Message):
     data["last_messages_content"][uid] = user_msgs
 
     # -------- DETECÇÃO DE MAIÚSCULAS --------
-    #if len(content) > 5 and content.isupper():
-        #if not is_staff:
-            #delete_message = True
-           # try:
-            #    await message.delete()
-           # except discord.Forbidden:
-            #    pass
-           # await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
-          #  await add_warn(message.author, reason="Uso excessivo de maiúsculas")
-           # return
+    if len(content) > 5 and content.isupper():
+        if not is_staff:
+            delete_message = True
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+            await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
+            await add_warn(message.author, reason="Uso excessivo de maiúsculas")
+            return
 
     # -------- SISTEMA DE XP --------
     if not delete_message:
@@ -2266,7 +2251,6 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
-
 # -------------------------
 # Slash commands
 # -------------------------
@@ -2284,9 +2268,7 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
         return True
     return interaction.channel_id in allowed
 
-
 #/cargo_xp
-
 @tree.command(name="cargo_xp", description="Define um cargo para ser atribuído ao atingir certo nível (admin)")
 @app_commands.describe(level="Nível em que o cargo será dado", role="Cargo a ser atribuído")
 async def set_level_role(interaction: discord.Interaction, level: int, role: discord.Role):
@@ -2306,7 +2288,6 @@ async def set_level_role(interaction: discord.Interaction, level: int, role: dis
         ephemeral=False
     )
 
-
 # -------------------------
 # /setxprate — ajusta a taxa de ganho de XP
 # -------------------------
@@ -2325,7 +2306,6 @@ async def set_xp_rate(interaction: discord.Interaction, rate: int):
     save_data_to_github("Set XP rate")
 
     await interaction.response.send_message(f"✅ Taxa de XP ajustada para **x{rate}**. Agora é **{rate}x mais difícil** subir de nível.", ephemeral=False)
-
 
 #/mensagem_personalizada
 @tree.command(name="mensagem_personalizada", description="Cria uma mensagem personalizada (admin)")
@@ -2382,7 +2362,6 @@ async def criar_embed(
     await canal.send(content=mention_text, embed=embed)
     await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
 
-
 # -------------------------
 # /setwelcomeimage - Define ou remove a imagem de fundo da mensagem de boas-vindas
 # -------------------------
@@ -2414,7 +2393,6 @@ async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = Non
     config["welcome_background"] = url
     save_data_to_github("Set welcome background")
     await interaction.response.send_message(f"✅ Imagem de fundo definida com sucesso!\n{url}", ephemeral=False)
-
 
 #/definir_canal_comando
 @tree.command(name="definir_canal_comando", description="Define canais onde um comando pode ser usado (admin)")
@@ -2486,10 +2464,9 @@ async def create_role_buttons(interaction: Interaction, channel: discord.TextCha
 
     await interaction.response.send_message(f"Mensagem criada em {channel.mention} com {len(buttons_dict)} botões.", ephemeral=True)
 
-
 # Comando para bloquear/desbloquear links em um canal
 @tree.command(name="bloquear_links", description="Bloqueia ou desbloqueia links em um canal (admin)")
-@app_commands.describe(channel="Canal para bloquear/desbloquear links")
+@app_commands.describe(channel="Canal para bloquear/desbloqueiar links")
 async def block_links(interaction: discord.Interaction, channel: discord.TextChannel):
     if not is_admin_check(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
@@ -2507,7 +2484,6 @@ async def block_links(interaction: discord.Interaction, channel: discord.TextCha
         data["blocked_links_channels"].append(channel.id)
         save_data_to_github("Block links channel")
         await interaction.response.send_message(f"✅ Links bloqueados no canal {channel.mention}.")
-
 
 # /perfil
 @tree.command(name="perfil", description="mostra o seu perfil")
@@ -2568,20 +2544,15 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
 
     # Fundo da barra
     draw.rounded_rectangle([x0, y0, x0+bar_total_w, y0+bar_h], radius=radius, fill=(50, 50, 50))
-
     
     # Barra preenchida (gradiente azul neon) arredondada
     fill_w = int(bar_total_w * min(1.0, cur / next_xp))
     if fill_w > 0:
-    # Cria a barra preenchida com mesmo raio que o fundo
+        # Cria a barra preenchida com mesmo raio que o fundo
         filled_bar = Image.new("RGBA", (fill_w, bar_h), (0,0,0,0))
         fill_draw = ImageDraw.Draw(filled_bar)
         fill_draw.rounded_rectangle([0, 0, fill_w, bar_h], radius=radius, fill=(0, 200, 255))
-    
-    # Se quiser gradiente, pode substituir fill por um gradiente similar ao que já fazia
         img.paste(filled_bar, (x0, y0), filled_bar)
-        
-
 
     # Texto XP dentro da barra, centralizado verticalmente
     xp_text = f"{cur} / {next_xp} XP"
@@ -2610,7 +2581,6 @@ async def slash_setwelcome(interaction: discord.Interaction, message: str):
     data.setdefault("config", {})["welcome_message"] = message
     save_data_to_github("Set welcome message")
     await interaction.response.send_message(f"Mensagem de boas-vindas definida!\n{message}")
-
 
 # /rank
 @tree.command(name="rank", description="Mostra top 10 de XP")
@@ -2698,7 +2668,6 @@ async def set_levelup_channel(interaction: discord.Interaction, channel: discord
     save_data_to_github("Set level up channel")
 
     await interaction.response.send_message(f"✅ Canal de level up definido para {channel.mention}.", ephemeral=False)
-
 
 # reajir_com_emoji
 reactionrole_group = app_commands.Group(name="reajir_com_emoji", description="Gerenciar reaction roles (admin)")
@@ -2792,7 +2761,6 @@ async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_carg
         await interaction.response.send_message(f"✅ Adicionados:\n" + "\n".join(added))
     else:
         await interaction.response.send_message("Nenhum emoji/cargo válido foi adicionado.")
-
 
 @reactionrole_group.command(name="remover", description="Remove uma emoji com reação de uma mensagem (admin)")
 @app_commands.describe(message_id="ID da mensagem", emoji="Emoji usado quando criado")
