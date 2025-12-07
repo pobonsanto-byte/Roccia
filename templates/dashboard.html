@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="mb-4">Dashboard</h1>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <h3 data-stat="total_users">{{ stats.total_users }}</h3>
+            <p>Usuários Ativos</p>
+            <i class="bi bi-people-fill"></i>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card red">
+            <h3 data-stat="total_warns">{{ stats.total_warns }}</h3>
+            <p>Advertências</p>
+            <i class="bi bi-exclamation-triangle"></i>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card green">
+            <h3 data-stat="role_buttons">{{ stats.role_buttons }}</h3>
+            <p>Botões de Cargo</p>
+            <i class="bi bi-toggle-on"></i>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card yellow">
+            <h3 data-stat="reaction_roles">{{ stats.reaction_roles }}</h3>
+            <p>Reaction Roles</p>
+            <i class="bi bi-emoji-smile"></i>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-trophy"></i> Top 5 XP</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-dark">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>ID do Usuário</th>
+                                <th>XP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user_id, xp in ranking %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ user_id }}</td>
+                                <td>{{ xp }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-info-circle"></i> Status do Sistema</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        Bot Online
+                    </li>
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        GitHub Sync Ativo
+                    </li>
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        Painel Web Rodando
+                    </li>
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-info-circle-fill text-info"></i>
+                        Último Backup: {{ data.get('_last_save', 'Nunca') if data else 'Nunca' }}
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="bi bi-lightning-charge"></i> Ações Rápidas</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('system_config') }}" class="btn btn-primary">
+                        <i class="bi bi-gear"></i> Configurações do Sistema
+                    </a>
+                    <a href="{{ url_for('backup_data') }}" class="btn btn-success">
+                        <i class="bi bi-download"></i> Fazer Backup
+                    </a>
+                    <a href="{{ url_for('view_logs') }}" class="btn btn-info">
+                        <i class="bi bi-list-check"></i> Ver Logs
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-graph-up"></i> Estatísticas em Tempo Real</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-people-fill fs-3 text-primary me-3"></i>
+                            <div>
+                                <h6>Usuários Ativos</h6>
+                                <h4 data-stat="total_users">{{ stats.total_users }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-cash-coin fs-3 text-success me-3"></i>
+                            <div>
+                                <h6>XP Total</h6>
+                                <h4>{{ data.get('xp', {})|sum(attribute=1) if data else 0 }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-shield-exclamation fs-3 text-danger me-3"></i>
+                            <div>
+                                <h6>Canais Bloqueados</h6>
+                                <h4 data-stat="blocked_channels">{{ stats.blocked_channels }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
