@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle - Imune Bot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-color: #5865F2;
+            --secondary-color: #57F287;
+            --dark-color: #2C2F33;
+            --darker-color: #23272A;
+        }
+        body {
+            background-color: var(--dark-color);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .sidebar {
+            background-color: var(--darker-color);
+            min-height: 100vh;
+            padding-top: 20px;
+        }
+        .sidebar a {
+            color: #b9bbbe;
+            text-decoration: none;
+            padding: 10px 20px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover {
+            color: white;
+            background-color: rgba(255,255,255,0.1);
+        }
+        .sidebar a.active {
+            color: white;
+            background-color: var(--primary-color);
+            border-left: 4px solid var(--secondary-color);
+        }
+        .content {
+            padding: 20px;
+        }
+        .card {
+            background-color: var(--darker-color);
+            border: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary-color), #9146FF);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .btn-discord {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+        }
+        .btn-discord:hover {
+            background-color: #4752C4;
+            color: white;
+        }
+        .alert-success {
+            background-color: rgba(87, 242, 135, 0.2);
+            border-color: var(--secondary-color);
+            color: var(--secondary-color);
+        }
+        .table-dark {
+            background-color: var(--darker-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="text-center mb-4">
+                    <h3>🤖 Imune Bot</h3>
+                    <small>Painel de Controle</small>
+                </div>
+                <nav>
+                    <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' else '' }}">
+                        <i class="bi bi-speedometer2"></i> Dashboard
+                    </a>
+                    <a href="{{ url_for('system_config') }}" class="{{ 'active' if request.endpoint == 'system_config' else '' }}">
+                        <i class="bi bi-gear"></i> Configurações
+                    </a>
+                    <a href="{{ url_for('level_roles') }}" class="{{ 'active' if request.endpoint == 'level_roles' else '' }}">
+                        <i class="bi bi-trophy"></i> Cargos por Nível
+                    </a>
+                    <a href="{{ url_for('role_buttons') }}" class="{{ 'active' if request.endpoint == 'role_buttons' else '' }}">
+                        <i class="bi bi-toggle-on"></i> Botões de Cargo
+                    </a>
+                    <a href="{{ url_for('reaction_roles') }}" class="{{ 'active' if request.endpoint == 'reaction_roles' else '' }}">
+                        <i class="bi bi-emoji-smile"></i> Reaction Roles
+                    </a>
+                    <a href="{{ url_for('blocked_channels') }}" class="{{ 'active' if request.endpoint == 'blocked_channels' else '' }}">
+                        <i class="bi bi-shield-slash"></i> Canais Bloqueados
+                    </a>
+                    <a href="{{ url_for('command_channels') }}" class="{{ 'active' if request.endpoint == 'command_channels' else '' }}">
+                        <i class="bi bi-terminal"></i> Comandos
+                    </a>
+                    <a href="{{ url_for('view_warns') }}">
+                        <i class="bi bi-exclamation-triangle"></i> Advertências
+                    </a>
+                    <a href="{{ url_for('view_logs') }}">
+                        <i class="bi bi-list-check"></i> Logs
+                    </a>
+                    <a href="{{ url_for('backup_data') }}">
+                        <i class="bi bi-download"></i> Backup
+                    </a>
+                    <div class="mt-4">
+                        <a href="{{ url_for('logout') }}" class="text-danger">
+                            <i class="bi bi-box-arrow-right"></i> Sair
+                        </a>
+                    </div>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10 content">
+                <!-- Flash Messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Auto-dismiss alerts after 5 seconds
+        setTimeout(() => {
+            document.querySelectorAll('.alert').forEach(alert => {
+                alert.classList.remove('show');
+                alert.classList.add('fade');
+            });
+        }, 5000);
+    </script>
+</body>
+</html>
