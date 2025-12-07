@@ -1,4 +1,5 @@
-discord.py
-Flask
-requests
-Pillow
+discord.py==2.3.2
+Flask==3.0.0
+requests==2.31.0
+Pillow==10.1.0
+python-dotenv==1.0.0
