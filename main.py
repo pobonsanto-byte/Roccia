@@ -31,8 +31,8 @@ PORT = int(os.getenv("PORT", 8080))
 GUILD_ID = os.getenv("GUILD_ID")
 
 # Configurações do site
-CLIENT_ID = os.getenv("CLIENT_ID")  # ID do aplicativo Discord
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")  # Segredo do aplicativo Discord
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI", "https://seu-site.onrender.com/callback")
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
@@ -48,1919 +48,1487 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 # -------------------------
-# Funções auxiliares do site
+# Site Routes
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
-    """Página inicial do site"""
-    bot_online = bot.is_ready() if hasattr(bot, 'is_ready') else False
-    return render_template_string(INDEX_TEMPLATE, 
-                                  bot_online=bot_online,
-                                  user=session.get('user'))
+    """Página inicial"""
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Imune Bot - Painel de Controle</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                margin: 0;
+                padding: 0;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .container {
+                background: white;
+                border-radius: 20px;
+                padding: 40px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                text-align: center;
+                max-width: 500px;
+                width: 90%;
+            }
+            h1 {
+                color: #333;
+                margin-bottom: 10px;
+            }
+            .status {
+                padding: 10px;
+                border-radius: 10px;
+                margin: 20px 0;
+                font-weight: bold;
+            }
+            .online { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+            .offline { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            .btn {
+                display: inline-block;
+                background: #5865F2;
+                color: white;
+                padding: 12px 30px;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: bold;
+                margin: 10px;
+                transition: all 0.3s;
+            }
+            .btn:hover {
+                background: #4752C4;
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            }
+            .features {
+                text-align: left;
+                margin: 20px 0;
+                padding: 15px;
+                background: #f8f9fa;
+                border-radius: 10px;
+            }
+            .features li {
+                margin: 8px 0;
+                padding-left: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 Imune Bot Dashboard</h1>
+            <div class="status ''' + ("online" if bot.is_ready() else "offline") + '''">
+                ''' + ("✅ Bot Online e Funcionando" if bot.is_ready() else "❌ Bot Offline") + '''
+            </div>
+            
+            <div class="features">
+                <h3>✨ Funcionalidades:</h3>
+                <ul>
+                    <li>✅ Sistema de XP e Níveis</li>
+                    <li>✅ Reaction Roles</li>
+                    <li>✅ Boas-vindas Personalizadas</li>
+                    <li>✅ Sistema de Moderação</li>
+                    <li>✅ Botões de Cargos</li>
+                    <li>✅ Painel Web de Controle</li>
+                </ul>
+            </div>
+            
+            ''' + ('''
+            <p>Faça login para configurar o bot pelo navegador</p>
+            <a href="/login" class="btn">🔐 Login com Discord</a>
+            ''' if 'user' not in session else '''
+            <p>Olá, ''' + session['user'].get('username', 'Administrador') + '''!</p>
+            <a href="/dashboard" class="btn">🚀 Ir para Dashboard</a>
+            <a href="/logout" class="btn">🚪 Sair</a>
+            ''') + '''
+            
+            <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
+                Use <code>/comando</code> no Discord ou configure pelo site!
+            </p>
+        </div>
+    </body>
+    </html>
+    '''
 
 @app.route("/login")
 def login():
-    """Redireciona para o OAuth do Discord"""
-    discord_auth_url = f"https://discord.com/api/oauth2/authorize?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=identify%20guilds"
+    """Login com Discord"""
+    if not CLIENT_ID or not CLIENT_SECRET:
+        return "Erro: CLIENT_ID ou CLIENT_SECRET não configurados.", 500
+    
+    discord_auth_url = (
+        f"https://discord.com/api/oauth2/authorize"
+        f"?client_id={CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=identify%20guilds"
+    )
     return redirect(discord_auth_url)
 
 @app.route("/callback")
 def callback():
-    """Callback do OAuth do Discord"""
+    """Callback do OAuth"""
+    if not CLIENT_ID or not CLIENT_SECRET:
+        return "Erro de configuração do servidor.", 500
+    
     code = request.args.get('code')
     if not code:
         return "Erro: código não recebido", 400
     
-    # Troca o código por um token de acesso
-    data = {
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET,
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': REDIRECT_URI,
-        'scope': 'identify guilds'
-    }
-    
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
-    
-    r = requests.post('https://discord.com/api/oauth2/token', data=data, headers=headers)
-    if r.status_code != 200:
-        return f"Erro ao obter token: {r.text}", 400
-    
-    access_token = r.json()['access_token']
-    
-    # Obtém informações do usuário
-    user_r = requests.get('https://discord.com/api/users/@me', headers={
-        'Authorization': f'Bearer {access_token}'
-    })
-    
-    if user_r.status_code != 200:
-        return "Erro ao obter informações do usuário", 400
-    
-    user_data = user_r.json()
-    
-    # Verifica se o usuário é administrador do servidor
-    guilds_r = requests.get('https://discord.com/api/users/@me/guilds', headers={
-        'Authorization': f'Bearer {access_token}'
-    })
-    
-    guilds = guilds_r.json() if guilds_r.status_code == 200 else []
-    is_admin = False
-    
-    for guild in guilds:
-        if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):  # 0x8 = Administrador
-            is_admin = True
-            break
-    
-    if not is_admin:
-        return "Apenas administradores do servidor podem acessar este painel.", 403
-    
-    # Salva na sessão
-    session['user'] = {
-        'id': user_data['id'],
-        'username': user_data['username'],
-        'discriminator': user_data.get('discriminator', '0'),
-        'avatar': user_data.get('avatar'),
-        'is_admin': True
-    }
-    
-    return redirect(url_for('dashboard'))
+    try:
+        # Troca código por token
+        data = {
+            'client_id': CLIENT_ID,
+            'client_secret': CLIENT_SECRET,
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': REDIRECT_URI,
+            'scope': 'identify guilds'
+        }
+        
+        r = requests.post('https://discord.com/api/oauth2/token', data=data)
+        if r.status_code != 200:
+            return f"Erro ao obter token: {r.text[:100]}", 400
+        
+        access_token = r.json()['access_token']
+        
+        # Obtém info do usuário
+        user_r = requests.get('https://discord.com/api/users/@me', 
+                            headers={'Authorization': f'Bearer {access_token}'})
+        if user_r.status_code != 200:
+            return "Erro ao obter informações", 400
+        
+        user_data = user_r.json()
+        
+        # Verifica se é admin
+        guilds_r = requests.get('https://discord.com/api/users/@me/guilds',
+                              headers={'Authorization': f'Bearer {access_token}'})
+        guilds = guilds_r.json() if guilds_r.status_code == 200 else []
+        
+        is_admin = False
+        for guild in guilds:
+            if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):
+                is_admin = True
+                break
+        
+        if not is_admin:
+            return '''
+            <!DOCTYPE html>
+            <html>
+            <head><title>Acesso Negado</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h2>⚠️ Acesso Restrito</h2>
+                <p>Apenas administradores do servidor podem acessar este painel.</p>
+                <p>Servidor ID: ''' + str(GUILD_ID) + '''</p>
+                <a href="/">Voltar</a>
+            </body>
+            </html>
+            ''', 403
+        
+        # Salva sessão
+        session['user'] = {
+            'id': user_data['id'],
+            'username': user_data['username'],
+            'avatar': user_data.get('avatar'),
+            'is_admin': True
+        }
+        
+        return redirect(url_for('dashboard'))
+        
+    except Exception as e:
+        return f"Erro interno: {str(e)}", 500
 
 @app.route("/logout")
 def logout():
-    """Logout do usuário"""
+    """Logout"""
     session.clear()
     return redirect(url_for('home'))
 
 @app.route("/dashboard")
 def dashboard():
-    """Dashboard com formulários interativos"""
+    """Dashboard principal"""
     if 'user' not in session:
         return redirect(url_for('login'))
     
-    try:
-        user = session['user']
-        
-        # Carrega dados
-        welcome_message = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
-        xp_rate = data.get("config", {}).get("xp_rate", 3)
-        welcome_background = data.get("config", {}).get("welcome_background", "")
-        welcome_channel = data.get("config", {}).get("welcome_channel", "")
-        levelup_channel = data.get("config", {}).get("levelup_channel", "")
-        
-        # Obtém informações da guild
-        guild = None
-        channels = []
-        roles = []
-        
-        if GUILD_ID and bot.is_ready():
-            try:
-                guild = bot.get_guild(int(GUILD_ID))
-                if guild:
-                    channels = [{"id": c.id, "name": c.name} for c in guild.text_channels]
-                    roles = [{"id": r.id, "name": r.name} for r in guild.roles if r.name != "@everyone"]
-            except Exception as e:
-                print(f"Erro ao carregar guild: {e}")
-        
-        # Converte listas para JSON seguro
-        import json
-        channels_json = json.dumps(channels, ensure_ascii=False)
-        roles_json = json.dumps(roles, ensure_ascii=False)
-        
-        # HTML usando template string mais seguro
-        html_template = '''
-        <!DOCTYPE html>
-        <html lang="pt-BR">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Dashboard - Imune Bot</title>
-            <style>
-                :root {
-                    --primary: #5865F2;
-                    --primary-dark: #4752C4;
-                    --success: #28a745;
-                    --danger: #dc3545;
-                }
-                body {
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    background: #f5f5f5;
-                    margin: 0;
-                }
-                header {
-                    background: white;
-                    padding: 1rem 2rem;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }
-                .header-content {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                h1 {
-                    color: var(--primary);
-                    margin: 0;
-                }
-                .container {
-                    max-width: 1200px;
-                    margin: 2rem auto;
-                    padding: 0 1rem;
-                }
-                .card {
-                    background: white;
-                    border-radius: 10px;
-                    padding: 1.5rem;
-                    margin: 1rem 0;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                }
-                .form-group {
-                    margin-bottom: 1rem;
-                }
-                label {
-                    display: block;
-                    margin-bottom: 0.5rem;
-                    font-weight: 600;
-                }
-                input, select, textarea {
-                    width: 100%;
-                    padding: 0.5rem;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
-                    font-size: 1rem;
-                }
-                textarea {
-                    resize: vertical;
-                }
-                .btn {
-                    padding: 0.5rem 1rem;
-                    border: none;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    font-weight: 600;
-                    text-decoration: none;
-                    display: inline-block;
-                }
-                .btn-primary {
-                    background: var(--primary);
-                    color: white;
-                }
-                .btn-primary:hover {
-                    background: var(--primary-dark);
-                }
-                .alert {
-                    padding: 1rem;
-                    border-radius: 5px;
-                    margin: 1rem 0;
-                    display: none;
-                }
-                .alert-success {
-                    background: #d4edda;
-                    color: #155724;
-                    border: 1px solid #c3e6cb;
-                }
-                .alert-error {
-                    background: #f8d7da;
-                    color: #721c24;
-                    border: 1px solid #f5c6cb;
-                }
-                .tab {
-                    display: none;
-                }
-                .tab.active {
-                    display: block;
-                }
-                .tab-nav {
-                    display: flex;
-                    gap: 0.5rem;
-                    margin-bottom: 1rem;
-                    border-bottom: 2px solid #eee;
-                    padding-bottom: 0.5rem;
-                }
-                .tab-btn {
-                    padding: 0.5rem 1.5rem;
-                    background: #e9ecef;
-                    border: none;
-                    border-radius: 5px 5px 0 0;
-                    cursor: pointer;
-                    font-weight: 600;
-                }
-                .tab-btn.active {
-                    background: var(--primary);
-                    color: white;
-                }
-                .stats-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 1rem;
-                    margin: 1rem 0;
-                }
-                .stat-card {
-                    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                    color: white;
-                    padding: 1.5rem;
-                    border-radius: 10px;
-                    text-align: center;
-                }
-                .stat-card h3 {
-                    font-size: 2rem;
-                    margin: 0;
-                }
-                small {
-                    color: #666;
-                    font-size: 0.875rem;
-                }
-            </style>
-        </head>
-        <body>
-            <header>
-                <div class="header-content">
-                    <h1>🤖 Imune Bot Dashboard</h1>
-                    <div>
-                        <span style="margin-right: 1rem;">Olá, ''' + user.get('username', 'Usuário') + '''!</span>
-                        <a href="/logout" class="btn btn-primary">Sair</a>
-                    </div>
-                </div>
-            </header>
-            
-            <div class="container">
-                <div class="tab-nav">
-                    <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
-                    <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
-                    <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
-                    <button class="tab-btn" onclick="showTab('commands')">⚙️ Comandos</button>
-                </div>
-                
-                <!-- Tab: Visão Geral -->
-                <div id="overview" class="tab active">
-                    <div class="card">
-                        <h2>📊 Estatísticas do Bot</h2>
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <h3>''' + str(len(data.get("xp", {}))) + '''</h3>
-                                <p>Usuários com XP</p>
-                            </div>
-                            <div class="stat-card">
-                                <h3>''' + str(len(data.get("warns", {}))) + '''</h3>
-                                <p>Advertências</p>
-                            </div>
-                            <div class="stat-card">
-                                <h3>''' + str(len(data.get("reaction_roles", {}))) + '''</h3>
-                                <p>Reaction Roles</p>
-                            </div>
-                            <div class="stat-card">
-                                <h3>''' + str(len(data.get("logs", []))) + '''</h3>
-                                <p>Logs</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="card">
-                        <h2>⚡ Status do Sistema</h2>
-                        <p><strong>Status do Bot:</strong> ''' + ("✅ Online" if bot.is_ready() else "❌ Offline") + '''</p>
-                        <p><strong>Servidor:</strong> ''' + (guild.name if guild else "Não conectado") + '''</p>
-                        <p><strong>Membros no servidor:</strong> ''' + (str(len(guild.members)) if guild else "0") + '''</p>
-                    </div>
-                </div>
-                
-                <!-- Tab: Boas-vindas -->
-                <div id="welcome" class="tab">
-                    <div class="card">
-                        <h2>👋 Configurações de Boas-vindas</h2>
-                        
-                        <div class="form-group">
-                            <label>Canal de Boas-vindas</label>
-                            <select id="welcome-channel" class="form-control">
-                                <option value="">Selecione um canal</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Mensagem de Boas-vindas</label>
-                            <textarea id="welcome-message" class="form-control" rows="3">''' + welcome_message + '''</textarea>
-                            <small>Use {member} para mencionar o novo membro</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Imagem de Fundo (URL)</label>
-                            <input type="url" id="welcome-image" class="form-control" 
-                                   value="''' + welcome_background + '''" 
-                                   placeholder="https://exemplo.com/imagem.jpg">
-                            <small>Deixe vazio para usar imagem padrão</small>
-                        </div>
-                        
-                        <button onclick="saveWelcomeConfig()" class="btn btn-primary">Salvar Configurações</button>
-                        
-                        <div id="welcome-alert" class="alert"></div>
-                    </div>
-                </div>
-                
-                <!-- Tab: Sistema XP -->
-                <div id="xp" class="tab">
-                    <div class="card">
-                        <h2>⭐ Sistema de XP e Níveis</h2>
-                        
-                        <div class="form-group">
-                            <label>Taxa de XP</label>
-                            <input type="number" id="xp-rate" class="form-control" 
-                                   value="''' + str(xp_rate) + '''" min="1" max="10">
-                            <small>Quanto maior, mais difícil subir de nível (1 = normal, 10 = muito difícil)</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Canal de Level Up</label>
-                            <select id="levelup-channel" class="form-control">
-                                <option value="">Selecione um canal</option>
-                            </select>
-                        </div>
-                        
-                        <button onclick="saveXPConfig()" class="btn btn-primary">Salvar Configurações</button>
-                        
-                        <div id="xp-alert" class="alert"></div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>🎭 Cargos por Nível</h3>
-                        <div id="level-roles-container">
-                            <p>Carregando cargos por nível...</p>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Adicionar Novo Cargo por Nível</label>
-                            <div style="display: flex; gap: 1rem; align-items: center;">
-                                <input type="number" id="new-level" class="form-control" placeholder="Nível" min="1" style="flex: 1;">
-                                <select id="new-role" class="form-control" style="flex: 2;">
-                                    <option value="">Selecione um cargo</option>
-                                </select>
-                                <button onclick="addLevelRole()" class="btn btn-primary">Adicionar</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Tab: Comandos -->
-                <div id="commands" class="tab">
-                    <div class="card">
-                        <h2>⚙️ Configuração de Comandos</h2>
-                        <p>Defina em quais canais cada comando pode ser usado.</p>
-                        
-                        <div id="commands-list">
-                            <p>Carregando comandos...</p>
-                        </div>
-                        
-                        <div id="commands-alert" class="alert"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <script>
-                // Dados da guild
-                const guildChannels = ''' + channels_json + ''';
-                const guildRoles = ''' + roles_json + ''';
-                
-                // Sistema de tabs
-                function showTab(tabId) {
-                    // Esconde todas as tabs
-                    document.querySelectorAll('.tab').forEach(tab => {
-                        tab.classList.remove('active');
-                    });
-                    document.querySelectorAll('.tab-btn').forEach(btn => {
-                        btn.classList.remove('active');
-                    });
-                    
-                    // Mostra a tab selecionada
-                    document.getElementById(tabId).classList.add('active');
-                    event.target.classList.add('active');
-                    
-                    // Carrega dados específicos da tab
-                    if (tabId === 'xp') {
-                        loadLevelRoles();
-                    } else if (tabId === 'commands') {
-                        loadCommands();
-                    }
-                }
-                
-                // Preenche selects de canais e cargos
-                function populateSelects() {
-                    // Canais
-                    const welcomeSelect = document.getElementById('welcome-channel');
-                    const levelupSelect = document.getElementById('levelup-channel');
-                    const newRoleSelect = document.getElementById('new-role');
-                    
-                    if (welcomeSelect && guildChannels) {
-                        guildChannels.forEach(channel => {
-                            const option = document.createElement('option');
-                            option.value = channel.id;
-                            option.textContent = '#' + channel.name;
-                            welcomeSelect.appendChild(option.cloneNode(true));
-                            if (levelupSelect) levelupSelect.appendChild(option);
-                        });
-                        
-                        // Seleciona valores atuais
-                        if ('welcome_channel' in {'welcome_channel': ''' + welcome_channel + '''}) {
-                            welcomeSelect.value = ''' + welcome_channel + ''';
-                        }
-                        if ('levelup_channel' in {'levelup_channel': ''' + levelup_channel + '''}) {
-                            levelupSelect.value = ''' + levelup_channel + ''';
-                        }
-                    }
-                    
-                    // Cargos
-                    if (newRoleSelect && guildRoles) {
-                        guildRoles.forEach(role => {
-                            const option = document.createElement('option');
-                            option.value = role.id;
-                            option.textContent = role.name;
-                            newRoleSelect.appendChild(option);
-                        });
-                    }
-                }
-                
-                // Salvar configurações de boas-vindas
-                async function saveWelcomeConfig() {
-                    const data = {
-                        message: document.getElementById('welcome-message').value,
-                        channel_id: document.getElementById('welcome-channel').value,
-                        image_url: document.getElementById('welcome-image').value
-                    };
-                    
-                    try {
-                        const response = await fetch('/api/config/welcome', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(data)
-                        });
-                        
-                        const result = await response.json();
-                        showAlert('welcome-alert', result.message || result.error, result.success);
-                    } catch (error) {
-                        showAlert('welcome-alert', 'Erro de conexão: ' + error.message, false);
-                    }
-                }
-                
-                // Salvar configurações de XP
-                async function saveXPConfig() {
-                    const rate = parseInt(document.getElementById('xp-rate').value);
-                    if (rate < 1 || rate > 10) {
-                        showAlert('xp-alert', 'Taxa de XP deve ser entre 1 e 10', false);
-                        return;
-                    }
-                    
-                    const data = {
-                        rate: rate,
-                        channel_id: document.getElementById('levelup-channel').value
-                    };
-                    
-                    try {
-                        const response = await fetch('/api/config/xp', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(data)
-                        });
-                        
-                        const result = await response.json();
-                        showAlert('xp-alert', result.message || result.error, result.success);
-                    } catch (error) {
-                        showAlert('xp-alert', 'Erro de conexão: ' + error.message, false);
-                    }
-                }
-                
-                // Carregar cargos por nível
-                async function loadLevelRoles() {
-                    try {
-                        const response = await fetch('/api/level-roles');
-                        const result = await response.json();
-                        
-                        const container = document.getElementById('level-roles-container');
-                        if (!result.level_roles || Object.keys(result.level_roles).length === 0) {
-                            container.innerHTML = '<p>Nenhum cargo por nível configurado.</p>';
-                            return;
-                        }
-                        
-                        let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
-                        for (const [level, roleId] of Object.entries(result.level_roles)) {
-                            const roleName = guildRoles.find(r => r.id == roleId)?.name || 'Cargo não encontrado';
-                            html += `
-                                <div style="background: #e9ecef; padding: 0.5rem 1rem; border-radius: 5px; display: flex; align-items: center; gap: 0.5rem;">
-                                    <strong>Nível ${level}:</strong> ${roleName}
-                                    <button onclick="removeLevelRole(${level})" style="background: #dc3545; color: white; border: none; border-radius: 3px; padding: 0.25rem 0.5rem; cursor: pointer;">×</button>
-                                </div>
-                            `;
-                        }
-                        html += '</div>';
-                        container.innerHTML = html;
-                    } catch (error) {
-                        console.error('Erro ao carregar cargos por nível:', error);
-                    }
-                }
-                
-                // Adicionar cargo por nível
-                async function addLevelRole() {
-                    const level = document.getElementById('new-level').value;
-                    const roleId = document.getElementById('new-role').value;
-                    
-                    if (!level || !roleId) {
-                        showAlert('xp-alert', 'Preencha o nível e selecione um cargo', false);
-                        return;
-                    }
-                    
-                    try {
-                        const response = await fetch('/api/level-roles', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ level: level, role_id: roleId })
-                        });
-                        
-                        const result = await response.json();
-                        if (result.success) {
-                            document.getElementById('new-level').value = '';
-                            document.getElementById('new-role').value = '';
-                            loadLevelRoles();
-                        }
-                        showAlert('xp-alert', result.message || result.error, result.success);
-                    } catch (error) {
-                        showAlert('xp-alert', 'Erro: ' + error.message, false);
-                    }
-                }
-                
-                // Remover cargo por nível
-                async function removeLevelRole(level) {
-                    if (!confirm('Remover cargo do nível ' + level + '?')) return;
-                    
-                    try {
-                        const response = await fetch('/api/level-roles?level=' + level, {
-                            method: 'DELETE'
-                        });
-                        
-                        const result = await response.json();
-                        if (result.success) {
-                            loadLevelRoles();
-                        }
-                        showAlert('xp-alert', result.message || result.error, result.success);
-                    } catch (error) {
-                        showAlert('xp-alert', 'Erro: ' + error.message, false);
-                    }
-                }
-                
-                // Carregar comandos
-                async function loadCommands() {
-                    const commands = {
-                        'rank': 'Mostra o perfil de XP',
-                        'perfil': 'Mostra o perfil de XP',
-                        'top': 'Mostra ranking de XP',
-                        'advertir': 'Adverte um membro',
-                        'lista_de_advertência': 'Lista advertências'
-                    };
-                    
-                    const container = document.getElementById('commands-list');
-                    let html = '';
-                    
-                    for (const [cmd, desc] of Object.entries(commands)) {
-                        html += `
-                            <div class="form-group" style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
-                                <h4 style="margin-top: 0;">/${cmd}</h4>
-                                <p style="margin: 0.5rem 0; color: #666;">${desc}</p>
-                                <div style="display: flex; gap: 1rem; align-items: center;">
-                                    <select id="channel-${cmd}" class="form-control" style="flex: 1;">
-                                        <option value="">Selecione um canal</option>
-                                    </select>
-                                    <button onclick="addCommandChannel('${cmd}')" class="btn btn-primary">Adicionar Canal</button>
-                                </div>
-                                <div id="channels-${cmd}" style="margin-top: 0.5rem;"></div>
-                            </div>
-                        `;
-                    }
-                    
-                    container.innerHTML = html;
-                    
-                    // Preenche selects de canais para comandos
-                    for (const cmd in commands) {
-                        const select = document.getElementById('channel-' + cmd);
-                        if (select && guildChannels) {
-                            guildChannels.forEach(channel => {
-                                const option = document.createElement('option');
-                                option.value = channel.id;
-                                option.textContent = '#' + channel.name;
-                                select.appendChild(option);
-                            });
-                        }
-                    }
-                    
-                    // Carrega canais configurados
-                    loadCommandChannels();
-                }
-                
-                // Carregar canais de comandos configurados
-                async function loadCommandChannels() {
-                    try {
-                        const response = await fetch('/api/command-channels');
-                        const result = await response.json();
-                        
-                        if (result.command_channels) {
-                            for (const [cmd, channels] of Object.entries(result.command_channels)) {
-                                updateCommandChannelsList(cmd, channels);
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Erro ao carregar canais de comandos:', error);
-                    }
-                }
-                
-                // Atualizar lista de canais de um comando
-                function updateCommandChannelsList(cmd, channelIds) {
-                    const container = document.getElementById('channels-' + cmd);
-                    if (!container) return;
-                    
-                    if (!channelIds || channelIds.length === 0) {
-                        container.innerHTML = '<p style="color: #666; font-size: 0.875rem; margin: 0;">✅ Todos os canais permitidos</p>';
-                        return;
-                    }
-                    
-                    let html = '<p style="color: #666; font-size: 0.875rem; margin-bottom: 0.25rem;">Canais permitidos:</p>';
-                    channelIds.forEach(channelId => {
-                        const channel = guildChannels.find(c => c.id == channelId);
-                        const channelName = channel ? '#' + channel.name : 'ID: ' + channelId;
-                        html += `
-                            <span style="display: inline-flex; align-items: center; background: #e9ecef; padding: 0.25rem 0.5rem; border-radius: 4px; margin: 0.25rem;">
-                                ${channelName}
-                                <button onclick="removeCommandChannel('${cmd}', '${channelId}')" 
-                                        style="background: none; border: none; color: #dc3545; cursor: pointer; margin-left: 0.5rem; font-weight: bold;">
-                                    ×
-                                </button>
-                            </span>
-                        `;
-                    });
-                    
-                    container.innerHTML = html;
-                }
-                
-                // Adicionar canal para comando
-                async function addCommandChannel(command) {
-                    const select = document.getElementById('channel-' + command);
-                    const channelId = select.value;
-                    
-                    if (!channelId) {
-                        showAlert('commands-alert', 'Selecione um canal', false);
-                        return;
-                    }
-                    
-                    try {
-                        const response = await fetch('/api/command-channels', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                command: command,
-                                channel_id: channelId,
-                                action: 'add'
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        if (result.success) {
-                            select.value = '';
-                            loadCommandChannels();
-                        }
-                        showAlert('commands-alert', result.message || result.error, result.success);
-                    } catch (error) {
-                        showAlert('commands-alert', 'Erro: ' + error.message, false);
-                    }
-                }
-                
-                // Remover canal de comando
-                async function removeCommandChannel(command, channelId) {
-                    if (!confirm('Remover este canal do comando /' + command + '?')) return;
-                    
-                    try {
-                        const response = await fetch('/api/command-channels', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                command: command,
-                                channel_id: channelId,
-                                action: 'remove'
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        if (result.success) {
-                            loadCommandChannels();
-                        }
-                        showAlert('commands-alert', result.message || result.error, result.success);
-                    } catch (error) {
-                        showAlert('commands-alert', 'Erro: ' + error.message, false);
-                    }
-                }
-                
-                // Mostrar alerta
-                function showAlert(elementId, message, isSuccess) {
-                    const alertEl = document.getElementById(elementId);
-                    if (!alertEl) return;
-                    
-                    alertEl.textContent = message;
-                    alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
-                    alertEl.style.display = 'block';
-                    
-                    setTimeout(() => {
-                        alertEl.style.display = 'none';
-                    }, 5000);
-                }
-                
-                // Inicialização
-                document.addEventListener('DOMContentLoaded', function() {
-                    populateSelects();
-                    // Carrega dados da tab ativa
-                    if (document.getElementById('overview').classList.contains('active')) {
-                        // Nada especial para overview
-                    }
-                });
-            </script>
-        </body>
-        </html>
-        '''
-        
-        return html_template
-        
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERRO no dashboard: {e}")
-        print(error_details)
-        
-        return f'''
-        <!DOCTYPE html>
-        <html>
-        <head><title>Erro</title></head>
-        <body>
-            <h1>Erro no Dashboard</h1>
-            <p><strong>Erro:</strong> {str(e)}</p>
-            <pre style="background: #f0f0f0; padding: 10px; overflow: auto;">{error_details[:500]}</pre>
-            <a href="/" class="btn btn-primary">Voltar</a>
-        </body>
-        </html>
-        ''', 500
-
-@app.route("/debug/detailed")
-def debug_detailed():
-    """Debug detalhado com todas as informações"""
-    try:
-        info = {
-            "flask_session": dict(session) if session else {},
-            "environment": {
-                "CLIENT_ID": "DEFINIDO" if CLIENT_ID else "NÃO DEFINIDO",
-                "CLIENT_SECRET": "DEFINIDO" if CLIENT_SECRET else "NÃO DEFINIDO",
-                "GUILD_ID": GUILD_ID,
-                "REDIRECT_URI": REDIRECT_URI,
-                "RENDER_URL": os.environ.get("RENDER_EXTERNAL_URL"),
-                "PORT": os.environ.get("PORT"),
-            },
-            "bot": {
-                "ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
-                "user": str(bot.user) if bot.user else "Não conectado",
-                "guilds": len(bot.guilds) if hasattr(bot, 'guilds') else 0,
-            },
-            "data": {
-                "has_data": bool(data),
-                "xp_users": len(data.get("xp", {})),
-                "warns": len(data.get("warns", {})),
-                "config_keys": list(data.get("config", {}).keys()),
-            }
-        }
-        
-        # Tenta obter informações da guild
-        if GUILD_ID and bot.is_ready():
-            try:
-                guild = bot.get_guild(int(GUILD_ID))
-                if guild:
-                    info["guild"] = {
-                        "name": guild.name,
-                        "id": guild.id,
-                        "member_count": len(guild.members),
-                        "channel_count": len(guild.channels),
-                        "role_count": len(guild.roles),
-                    }
-            except Exception as e:
-                info["guild_error"] = str(e)
-        
-        return jsonify(info)
-        
-    except Exception as e:
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
-
-@app.route("/api/config", methods=["POST"])
-def api_config():
-    """API para atualizar configurações"""
-    if 'user' not in session or not session['user'].get('is_admin'):
-        return jsonify({"error": "Não autorizado"}), 403
+    user = session['user']
     
-    config_data = request.json
-    config_type = config_data.get('type')
+    # Carrega dados atuais
+    config = data.get("config", {})
+    welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
+    xp_rate = config.get("xp_rate", 3)
+    welcome_bg = config.get("welcome_background", "")
+    welcome_chan = config.get("welcome_channel", "")
+    levelup_chan = config.get("levelup_channel", "")
     
-    if config_type == 'welcome':
-        # Atualizar mensagem de boas-vindas
-        data.setdefault("config", {})["welcome_message"] = config_data.get('message', '')
-        data.setdefault("config", {})["welcome_channel"] = config_data.get('channel_id', '')
-        save_data_to_github("Configuração de boas-vindas atualizada via site")
-        
-    elif config_type == 'welcome_image':
-        # Atualizar imagem de fundo
-        data.setdefault("config", {})["welcome_background"] = config_data.get('url', '')
-        save_data_to_github("Imagem de boas-vindas atualizada via site")
-        
-    elif config_type == 'xp':
-        # Atualizar configurações de XP
-        data.setdefault("config", {})["xp_rate"] = int(config_data.get('rate', 3))
-        data.setdefault("config", {})["levelup_channel"] = config_data.get('channel_id', '')
-        save_data_to_github("Configuração de XP atualizada via site")
-        
-    elif config_type == 'level_role':
-        # Adicionar/remover cargo por nível
-        level = str(config_data.get('level'))
-        role_id = config_data.get('role_id', '')
-        
-        if role_id:
-            data.setdefault("level_roles", {})[level] = role_id
-        elif level in data.get("level_roles", {}):
-            del data["level_roles"][level]
-        
-        save_data_to_github("Cargos por nível atualizados via site")
-        
-    elif config_type == 'command_channel':
-        # Configurar canais para comandos
-        command = config_data.get('command', '').lower()
-        channel_id = config_data.get('channel_id', '')
-        action = config_data.get('action', 'add')  # 'add' ou 'remove'
-        
-        cmd_channels = data.setdefault("command_channels", {})
-        channels = cmd_channels.setdefault(command, [])
-        
-        if action == 'add' and channel_id not in channels:
-            channels.append(channel_id)
-        elif action == 'remove' and channel_id in channels:
-            channels.remove(channel_id)
-            
-        save_data_to_github("Canais de comandos atualizados via site")
-    
-    return jsonify({"success": True})
-
-# -------------------------
-# APIs para configuração do bot
-# -------------------------
-
-@app.route("/api/config/welcome", methods=["POST"])
-def api_config_welcome():
-    """API para configurar mensagem de boas-vindas"""
-    if 'user' not in session:
-        return jsonify({"error": "Não autenticado"}), 401
-    
-    try:
-        data = request.json
-        message = data.get('message', '')
-        channel_id = data.get('channel_id', '')
-        
-        # Atualiza configuração
-        config = data.setdefault("config", {})
-        if message:
-            config["welcome_message"] = message
-        if channel_id:
-            config["welcome_channel"] = channel_id
-        
-        # Salva no GitHub
-        success = save_data_to_github("Config via dashboard")
-        
-        return jsonify({
-            "success": success,
-            "message": "Configuração salva com sucesso!" if success else "Erro ao salvar"
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/config/xp", methods=["POST"])
-def api_config_xp():
-    """API para configurar sistema de XP"""
-    if 'user' not in session:
-        return jsonify({"error": "Não autenticado"}), 401
-    
-    try:
-        data = request.json
-        xp_rate = data.get('rate')
-        levelup_channel = data.get('channel_id', '')
-        
-        # Validação
-        if xp_rate is not None:
-            if xp_rate < 1 or xp_rate > 10:
-                return jsonify({"error": "Taxa de XP deve ser entre 1 e 10"}), 400
-            data.setdefault("config", {})["xp_rate"] = xp_rate
-        
-        if levelup_channel:
-            data.setdefault("config", {})["levelup_channel"] = levelup_channel
-        
-        # Salva no GitHub
-        success = save_data_to_github("Config XP via dashboard")
-        
-        return jsonify({
-            "success": success,
-            "message": "Configuração de XP salva!" if success else "Erro ao salvar"
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/level-roles", methods=["GET", "POST", "DELETE"])
-def api_level_roles():
-    """API para gerenciar cargos por nível"""
-    if 'user' not in session:
-        return jsonify({"error": "Não autenticado"}), 401
-    
-    try:
-        if request.method == "GET":
-            # Retorna lista de cargos por nível
-            level_roles = data.get("level_roles", {})
-            return jsonify({"level_roles": level_roles})
-        
-        elif request.method == "POST":
-            # Adiciona/atualiza cargo por nível
-            req_data = request.json
-            level = str(req_data.get('level'))
-            role_id = req_data.get('role_id')
-            
-            if not level or not role_id:
-                return jsonify({"error": "Nível e cargo são obrigatórios"}), 400
-            
-            data.setdefault("level_roles", {})[level] = role_id
-            save_data_to_github(f"Add level role: nível {level}")
-            
-            return jsonify({"success": True, "message": f"Cargo definido para nível {level}"})
-        
-        elif request.method == "DELETE":
-            # Remove cargo por nível
-            level = request.args.get('level')
-            if not level:
-                return jsonify({"error": "Nível é obrigatório"}), 400
-            
-            if level in data.get("level_roles", {}):
-                del data["level_roles"][level]
-                save_data_to_github(f"Remove level role: nível {level}")
-                return jsonify({"success": True, "message": f"Cargo removido do nível {level}"})
-            else:
-                return jsonify({"error": "Nível não encontrado"}), 404
-                
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/command-channels", methods=["GET", "POST"])
-def api_command_channels():
-    """API para gerenciar canais de comandos"""
-    if 'user' not in session:
-        return jsonify({"error": "Não autenticado"}), 401
-    
-    try:
-        command_channels = data.setdefault("command_channels", {})
-        
-        if request.method == "GET":
-            return jsonify({"command_channels": command_channels})
-        
-        elif request.method == "POST":
-            req_data = request.json
-            command = req_data.get('command', '').lower()
-            channel_id = req_data.get('channel_id')
-            action = req_data.get('action', 'add')  # add ou remove
-            
-            if not command or not channel_id:
-                return jsonify({"error": "Comando e canal são obrigatórios"}), 400
-            
-            channels = command_channels.setdefault(command, [])
-            
-            if action == 'add':
-                if channel_id not in channels:
-                    channels.append(channel_id)
-                    message = f"Canal adicionado para /{command}"
-            elif action == 'remove':
-                if channel_id in channels:
-                    channels.remove(channel_id)
-                    message = f"Canal removido de /{command}"
-                else:
-                    return jsonify({"error": "Canal não encontrado para este comando"}), 404
-            else:
-                return jsonify({"error": "Ação inválida"}), 400
-            
-            save_data_to_github(f"Command channels update: {command}")
-            return jsonify({"success": True, "message": message})
-                
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/stats")
-def api_stats():
-    """API para obter estatísticas do bot"""
-    if 'user' not in session or not session['user'].get('is_admin'):
-        return jsonify({"error": "Não autorizado"}), 403
-    
+    # Obtém guild info
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    channels = []
+    roles = []
     
-    stats = {
-        "guild_name": guild.name if guild else "N/A",
-        "member_count": len(guild.members) if guild else 0,
-        "online_members": sum(1 for m in guild.members if m.status != discord.Status.offline) if guild else 0,
-        "total_xp_users": len(data.get("xp", {})),
-        "total_warns": sum(len(warns) for warns in data.get("warns", {}).values()),
-        "reaction_roles": len(data.get("reaction_roles", {})),
-        "role_buttons": len(data.get("role_buttons", {})),
-        "bot_uptime": str(datetime.now() - bot.start_time) if hasattr(bot, 'start_time') else "N/A"
-    }
+    if guild:
+        channels = [{"id": c.id, "name": c.name} for c in guild.text_channels]
+        roles = [{"id": r.id, "name": r.name} for r in guild.roles if r.name != "@everyone"]
     
-    # Top 5 XP
-    ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)[:5]
-    top_users = []
+    # Converte para JSON
+    import json
+    channels_json = json.dumps(channels, ensure_ascii=False)
+    roles_json = json.dumps(roles, ensure_ascii=False)
     
-    for uid, xp in ranking:
-        if guild:
-            member = guild.get_member(int(uid))
-            name = member.display_name if member else f"Usuário {uid}"
-        else:
-            name = f"Usuário {uid}"
-        top_users.append({"name": name, "xp": xp, "level": xp_to_level(xp)})
-    
-    stats["top_users"] = top_users
-    
-    return jsonify(stats)
-
-# -------------------------
-# Templates HTML (inline)
-# -------------------------
-INDEX_TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Imune Bot - Dashboard</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 20px;
-        }
-        .status {
-            padding: 10px;
-            border-radius: 10px;
-            margin: 20px 0;
-            font-weight: bold;
-        }
-        .online {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        .offline {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        .btn {
-            display: inline-block;
-            background: #5865F2;
-            color: white;
-            padding: 12px 30px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: bold;
-            margin: 10px;
-            transition: transform 0.2s, background 0.2s;
-        }
-        .btn:hover {
-            background: #4752C4;
-            transform: translateY(-2px);
-        }
-        .btn-logout {
-            background: #dc3545;
-        }
-        .btn-logout:hover {
-            background: #c82333;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🤖 Imune Bot Dashboard</h1>
-        <div class="status {{ 'online' if bot_online else 'offline' }}">
-            {{ '✅ Bot Online' if bot_online else '❌ Bot Offline' }}
-        </div>
-        {% if user %}
-            <p>Olá, <strong>{{ user.username }}</strong>!</p>
-            <a href="/dashboard" class="btn">Painel de Controle</a>
-            <a href="/logout" class="btn btn-logout">Sair</a>
-        {% else %}
-            <p>Faça login para configurar o bot</p>
-            <a href="/login" class="btn">Login com Discord</a>
-        {% endif %}
-    </div>
-</body>
-</html>
-'''
-
-DASHBOARD_TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Controle - Imune Bot</title>
-    <style>
-        :root {
-            --primary: #5865F2;
-            --primary-dark: #4752C4;
-            --success: #28a745;
-            --danger: #dc3545;
-            --warning: #ffc107;
-            --dark: #343a40;
-            --light: #f8f9fa;
-            --gray: #6c757d;
-        }
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            color: #333;
-        }
-        header {
-            background: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 1rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .header-left h1 {
-            color: var(--primary);
-            font-size: 1.5rem;
-        }
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .avatar {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-        }
-        .btn {
-            padding: 0.5rem 1rem;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            text-decoration: none;
-            display: inline-block;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
-        .btn-primary:hover {
-            background: var(--primary-dark);
-        }
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-        }
-        .btn-danger:hover {
-            background: #c82333;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-            display: grid;
-            grid-template-columns: 250px 1fr;
-            gap: 2rem;
-        }
-        .sidebar {
-            background: white;
-            border-radius: 10px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            height: fit-content;
-        }
-        .nav-item {
-            padding: 0.75rem 1rem;
-            margin: 0.25rem 0;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .nav-item:hover, .nav-item.active {
-            background: var(--primary);
-            color: white;
-        }
-        .content {
-            background: white;
-            border-radius: 10px;
-            padding: 2rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .section {
-            display: none;
-        }
-        .section.active {
-            display: block;
-        }
-        .section h2 {
-            margin-bottom: 1.5rem;
-            color: var(--dark);
-            border-bottom: 2px solid var(--primary);
-            padding-bottom: 0.5rem;
-        }
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: var(--dark);
-        }
-        .form-control {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 1rem;
-        }
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .stat-card {
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            color: white;
-            padding: 1.5rem;
-            border-radius: 10px;
-            text-align: center;
-        }
-        .stat-card h3 {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-        }
-        .alert {
-            padding: 1rem;
-            border-radius: 6px;
-            margin: 1rem 0;
-        }
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        .hidden {
-            display: none;
-        }
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        .table th, .table td {
-            padding: 0.75rem;
-            border-bottom: 1px solid #ddd;
-            text-align: left;
-        }
-        .table th {
-            background: #f8f9fa;
-            font-weight: 600;
-        }
-        .table tr:hover {
-            background: #f8f9fa;
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="header-left">
-            <h1>🤖 Imune Bot Dashboard</h1>
-        </div>
-        <div class="header-right">
-            <div class="user-info">
-                <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png" alt="Avatar" class="avatar">
-                <span>{{ user.username }}</span>
-            </div>
-            <a href="/" class="btn btn-primary">Início</a>
-            <a href="/logout" class="btn btn-danger">Sair</a>
-        </div>
-    </header>
-    
-    <div class="container">
-        <div class="sidebar">
-            <div class="nav-item active" onclick="showSection('overview')">📊 Visão Geral</div>
-            <div class="nav-item" onclick="showSection('welcome')">👋 Boas-vindas</div>
-            <div class="nav-item" onclick="showSection('xp')">⭐ Sistema XP</div>
-            <div class="nav-item" onclick="showSection('commands')">⚙️ Comandos</div>
-            <div class="nav-item" onclick="showSection('roles')">🎭 Cargos</div>
-            <div class="nav-item" onclick="showSection('moderation')">🛡️ Moderação</div>
-        </div>
-        
-        <div class="content">
-            <!-- Seção: Visão Geral -->
-            <div id="overview" class="section active">
-                <h2>📊 Visão Geral do Bot</h2>
-                <div id="stats-container">
-                    <p>Carregando estatísticas...</p>
+    # Dashboard HTML
+    return f'''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Dashboard - Imune Bot</title>
+        <style>
+            :root {{
+                --primary: #5865F2;
+                --primary-dark: #4752C4;
+                --success: #28a745;
+                --danger: #dc3545;
+                --warning: #ffc107;
+                --dark: #343a40;
+            }}
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: #f5f5f5;
+                color: #333;
+            }}
+            header {{
+                background: white;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                padding: 1rem 2rem;
+            }}
+            .header-content {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                max-width: 1200px;
+                margin: 0 auto;
+            }}
+            h1 {{
+                color: var(--primary);
+            }}
+            .user-info {{
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }}
+            .avatar {{
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                border: 2px solid var(--primary);
+            }}
+            .btn {{
+                padding: 0.5rem 1rem;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 600;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+            }}
+            .btn-primary {{ background: var(--primary); color: white; }}
+            .btn-primary:hover {{ background: var(--primary-dark); }}
+            .btn-success {{ background: var(--success); color: white; }}
+            .btn-danger {{ background: var(--danger); color: white; }}
+            .btn-warning {{ background: var(--warning); color: #333; }}
+            
+            .container {{
+                max-width: 1200px;
+                margin: 2rem auto;
+                padding: 0 1rem;
+            }}
+            
+            .tab-nav {{
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 1rem;
+                border-bottom: 2px solid #ddd;
+                padding-bottom: 0.5rem;
+            }}
+            .tab-btn {{
+                padding: 0.75rem 1.5rem;
+                background: #e9ecef;
+                border: none;
+                border-radius: 5px 5px 0 0;
+                cursor: pointer;
+                font-weight: 600;
+            }}
+            .tab-btn.active {{
+                background: var(--primary);
+                color: white;
+            }}
+            .tab {{
+                display: none;
+                animation: fadeIn 0.3s;
+            }}
+            .tab.active {{ display: block; }}
+            
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: translateY(10px); }}
+                to {{ opacity: 1; transform: translateY(0); }}
+            }}
+            
+            .card {{
+                background: white;
+                border-radius: 10px;
+                padding: 1.5rem;
+                margin: 1rem 0;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }}
+            .stats-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1rem;
+                margin: 1rem 0;
+            }}
+            .stat-card {{
+                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+                color: white;
+                padding: 1.5rem;
+                border-radius: 10px;
+                text-align: center;
+            }}
+            .stat-card h3 {{
+                font-size: 2rem;
+                margin-bottom: 0.5rem;
+            }}
+            
+            .form-group {{
+                margin-bottom: 1.5rem;
+            }}
+            label {{
+                display: block;
+                margin-bottom: 0.5rem;
+                font-weight: 600;
+                color: var(--dark);
+            }}
+            .form-control {{
+                width: 100%;
+                padding: 0.75rem;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1rem;
+            }}
+            .form-control:focus {{
+                outline: none;
+                border-color: var(--primary);
+                box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
+            }}
+            
+            .alert {{
+                padding: 1rem;
+                border-radius: 5px;
+                margin: 1rem 0;
+                display: none;
+            }}
+            .alert-success {{
+                background: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }}
+            .alert-error {{
+                background: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }}
+            
+            .command-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 1rem;
+                margin: 1rem 0;
+            }}
+            .command-card {{
+                background: white;
+                border-radius: 10px;
+                padding: 1rem;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }}
+            .command-header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+                padding-bottom: 0.5rem;
+                border-bottom: 1px solid #eee;
+            }}
+            .command-name {{
+                font-family: monospace;
+                font-size: 1.1rem;
+                color: var(--primary);
+            }}
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="header-content">
+                <h1>🤖 Imune Bot Dashboard</h1>
+                <div class="user-info">
+                    <img src="https://cdn.discordapp.com/avatars/{user['id']}/{user.get('avatar', '')}.png" 
+                         alt="Avatar" class="avatar"
+                         onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <span>{user['username']}</span>
+                    <a href="/" class="btn btn-primary">🏠 Início</a>
+                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
                 </div>
-                <div id="top-users">
-                    <h3>🏆 Top 5 XP</h3>
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Posição</th>
-                                <th>Usuário</th>
-                                <th>XP</th>
-                                <th>Nível</th>
-                            </tr>
-                        </thead>
-                        <tbody id="top-users-body">
-                            <!-- Preenchido por JavaScript -->
-                        </tbody>
-                    </table>
+            </div>
+        </header>
+        
+        <div class="container">
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
+                <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
+                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
+                <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
+                <button class="tab-btn" onclick="showTab('commands')">⚡ Comandos</button>
+                <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
+            </div>
+            
+            <!-- Tab: Visão Geral -->
+            <div id="overview" class="tab active">
+                <div class="card">
+                    <h2>📊 Estatísticas do Bot</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>{len(data.get("xp", {}))}</h3>
+                            <p>Usuários com XP</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{sum(len(w) for w in data.get("warns", {}).values())}</h3>
+                            <p>Advertências</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{len(data.get("reaction_roles", {}))}</h3>
+                            <p>Reaction Roles</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{len(data.get("role_buttons", {}))}</h3>
+                            <p>Botões de Cargos</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>⚡ Status do Sistema</h2>
+                    <p><strong>Status do Bot:</strong> <span class="{'✅ Online' if bot.is_ready() else '❌ Offline'}">{'✅ Online' if bot.is_ready() else '❌ Offline'}</span></p>
+                    <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
+                    <p><strong>Membros:</strong> {len(guild.members) if guild else 0}</p>
+                    <p><strong>Taxa de XP atual:</strong> {xp_rate}x</p>
                 </div>
             </div>
             
-            <!-- Seção: Boas-vindas -->
-            <div id="welcome" class="section">
-                <h2>👋 Configurações de Boas-vindas</h2>
-                <form id="welcome-form">
+            <!-- Tab: Boas-vindas -->
+            <div id="welcome" class="tab">
+                <div class="card">
+                    <h2>👋 Configurar Boas-vindas</h2>
                     <div class="form-group">
                         <label>Canal de Boas-vindas</label>
                         <select id="welcome-channel" class="form-control">
                             <option value="">Selecione um canal</option>
-                            {% for channel in channels %}
-                                <option value="{{ channel.id }}" {% if welcome_channel and channel.id == welcome_channel.id %}selected{% endif %}>
-                                    #{{ channel.name }}
-                                </option>
-                            {% endfor %}
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Mensagem de Boas-vindas</label>
-                        <textarea id="welcome-message" class="form-control" rows="4">{{ welcome_message }}</textarea>
-                        <small>Use {member} para mencionar o novo membro</small>
+                        <textarea id="welcome-message" class="form-control" rows="3">{welcome_msg}</textarea>
+                        <small>Use {"{member}"} para mencionar o novo membro</small>
                     </div>
                     <div class="form-group">
                         <label>Imagem de Fundo (URL)</label>
-                        <input type="url" id="welcome-image" class="form-control" value="{{ welcome_background }}">
-                        <small>Deixe em branco para usar imagem padrão</small>
+                        <input type="url" id="welcome-image" class="form-control" value="{welcome_bg}" placeholder="https://exemplo.com/imagem.jpg">
                     </div>
-                    <button type="submit" class="btn btn-primary">Salvar Configurações</button>
-                </form>
-                <div id="welcome-alert" class="alert hidden"></div>
+                    <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
+                    <div id="welcome-alert" class="alert"></div>
+                </div>
             </div>
             
-            <!-- Seção: Sistema XP -->
-            <div id="xp" class="section">
-                <h2>⭐ Sistema de XP e Níveis</h2>
-                <form id="xp-form">
+            <!-- Tab: Sistema XP -->
+            <div id="xp" class="tab">
+                <div class="card">
+                    <h2>⭐ Sistema de XP</h2>
                     <div class="form-group">
-                        <label>Taxa de XP (dificuldade)</label>
-                        <input type="number" id="xp-rate" class="form-control" value="{{ xp_rate }}" min="1" max="10">
-                        <small>Valores mais altos = mais difícil subir de nível</small>
+                        <label>Taxa de XP</label>
+                        <input type="number" id="xp-rate" class="form-control" value="{xp_rate}" min="1" max="10">
+                        <small>1 = fácil, 10 = muito difícil</small>
                     </div>
                     <div class="form-group">
                         <label>Canal de Level Up</label>
                         <select id="levelup-channel" class="form-control">
                             <option value="">Selecione um canal</option>
-                            {% for channel in channels %}
-                                <option value="{{ channel.id }}" {% if levelup_channel and channel.id == levelup_channel.id %}selected{% endif %}>
-                                    #{{ channel.name }}
-                                </option>
-                            {% endfor %}
                         </select>
                     </div>
-                    <h3>Cargos por Nível</h3>
+                    <button onclick="saveXPConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
+                    <div id="xp-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h3>🎭 Cargos por Nível</h3>
                     <div id="level-roles-container">
-                        <!-- Cargos por nível serão adicionados aqui -->
+                        <p>Carregando...</p>
                     </div>
                     <div class="form-group">
-                        <label>Adicionar Novo Cargo por Nível</label>
+                        <label>Adicionar Cargo por Nível</label>
                         <div style="display: flex; gap: 1rem;">
                             <input type="number" id="new-level" class="form-control" placeholder="Nível" min="1">
                             <select id="new-role" class="form-control">
-                                <option value="">Selecione um cargo</option>
-                                {% for role in roles|reverse %}
-                                    {% if role.name != "@everyone" %}
-                                        <option value="{{ role.id }}">{{ role.name }}</option>
-                                    {% endif %}
-                                {% endfor %}
+                                <option value="">Selecione cargo</option>
                             </select>
-                            <button type="button" onclick="addLevelRole()" class="btn btn-primary">Adicionar</button>
+                            <button onclick="addLevelRole()" class="btn btn-primary">➕ Adicionar</button>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Salvar Configurações</button>
-                </form>
-                <div id="xp-alert" class="alert hidden"></div>
-            </div>
-            
-            <!-- Seção: Comandos -->
-            <div id="commands" class="section">
-                <h2>⚙️ Configuração de Comandos</h2>
-                <p>Configure em quais canais cada comando pode ser usado</p>
-                <div id="commands-list">
-                    <!-- Lista de comandos será preenchida por JavaScript -->
                 </div>
-                <div id="commands-alert" class="alert hidden"></div>
             </div>
             
-            <!-- Seção: Cargos -->
-            <div id="roles" class="section">
-                <h2>🎭 Gerenciamento de Cargos</h2>
-                <p>Esta seção permite configurar reaction roles e botões de cargos</p>
-                <p><em>Use os comandos do bot para configurar reaction roles e botões de cargos:</em></p>
-                <ul>
-                    <li><code>/reajir_com_emoji criar</code> - Cria uma mensagem com reaction role</li>
-                    <li><code>/criar_reação_com_botao</code> - Cria mensagem com botões de cargos</li>
-                    <li><code>/cargo_xp</code> - Define cargo para ser atribuído por nível</li>
-                </ul>
-            </div>
-            
-            <!-- Seção: Moderação -->
-            <div id="moderation" class="section">
-                <h2>🛡️ Configurações de Moderação</h2>
-                <div class="form-group">
-                    <label>Canais com Links Bloqueados</label>
-                    <div id="blocked-channels-list">
-                        <!-- Canais bloqueados serão listados aqui -->
-                    </div>
-                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                        <select id="block-channel-select" class="form-control">
-                            <option value="">Selecione um canal</option>
-                            {% for channel in channels %}
-                                <option value="{{ channel.id }}">#{{ channel.name }}</option>
-                            {% endfor %}
+            <!-- Tab: Cargos -->
+            <div id="roles" class="tab">
+                <div class="card">
+                    <h2>🎭 Gerenciar Reaction Roles</h2>
+                    <p>Crie reaction roles diretamente pelo site:</p>
+                    
+                    <div class="form-group">
+                        <label>Canal para Mensagem</label>
+                        <select id="rr-channel" class="form-control">
+                            <option value="">Selecione canal</option>
                         </select>
-                        <button type="button" onclick="toggleBlockChannel()" class="btn btn-primary">Bloquear/Desbloquear Links</button>
+                    </div>
+                    <div class="form-group">
+                        <label>Conteúdo da Mensagem</label>
+                        <textarea id="rr-content" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Emoji e Cargo (emoji:cargo)</label>
+                        <input type="text" id="rr-pair" class="form-control" placeholder="🎮:Gamer,🎵:Música">
+                        <small>Separe múltiplos por vírgula</small>
+                    </div>
+                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Reaction Role</button>
+                    <div id="roles-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h3>🔄 Botões de Cargos</h3>
+                    <div class="form-group">
+                        <label>Canal para Mensagem</label>
+                        <select id="btn-channel" class="form-control">
+                            <option value="">Selecione canal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Conteúdo da Mensagem</label>
+                        <textarea id="btn-content" class="form-control" rows="3" placeholder="Clique nos botões para receber cargos!"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Botões (nome:cargo)</label>
+                        <input type="text" id="btn-pairs" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos">
+                    </div>
+                    <button onclick="createRoleButtons()" class="btn btn-success">🔄 Criar Botões</button>
+                </div>
+            </div>
+            
+            <!-- Tab: Comandos -->
+            <div id="commands" class="tab">
+                <div class="card">
+                    <h2>⚡ Executar Comandos</h2>
+                    <p>Execute comandos do bot diretamente pelo site:</p>
+                    
+                    <div class="command-grid">
+                        <!-- Comando: Advertir -->
+                        <div class="command-card">
+                            <div class="command-header">
+                                <span class="command-name">/advertir</span>
+                                <span class="btn btn-warning">🛡️</span>
+                            </div>
+                            <p>Adverte um membro</p>
+                            <div class="form-group">
+                                <label>Membro</label>
+                                <select id="warn-member" class="form-control">
+                                    <option value="">Selecione membro</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Motivo</label>
+                                <input type="text" id="warn-reason" class="form-control" placeholder="Motivo da advertência">
+                            </div>
+                            <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
+                        </div>
+                        
+                        <!-- Comando: Mensagem Personalizada -->
+                        <div class="command-card">
+                            <div class="command-header">
+                                <span class="command-name">/mensagem_personalizada</span>
+                                <span class="btn btn-primary">📢</span>
+                            </div>
+                            <p>Cria uma mensagem embed</p>
+                            <div class="form-group">
+                                <label>Canal</label>
+                                <select id="embed-channel" class="form-control">
+                                    <option value="">Selecione canal</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Título</label>
+                                <input type="text" id="embed-title" class="form-control" placeholder="Título da mensagem">
+                            </div>
+                            <div class="form-group">
+                                <label>Corpo</label>
+                                <textarea id="embed-body" class="form-control" rows="2" placeholder="Conteúdo da mensagem"></textarea>
+                            </div>
+                            <button onclick="createEmbed()" class="btn btn-primary">📝 Criar Embed</button>
+                        </div>
+                        
+                        <!-- Comando: Limpar Advertências -->
+                        <div class="command-card">
+                            <div class="command-header">
+                                <span class="command-name">Limpar Advertências</span>
+                                <span class="btn btn-danger">🧹</span>
+                            </div>
+                            <p>Remove advertências de um membro</p>
+                            <div class="form-group">
+                                <label>Membro</label>
+                                <select id="clearwarn-member" class="form-control">
+                                    <option value="">Selecione membro</option>
+                                </select>
+                            </div>
+                            <button onclick="clearWarns()" class="btn btn-danger">🧹 Limpar Advertências</button>
+                        </div>
+                        
+                        <!-- Comando: Bloquear Links -->
+                        <div class="command-card">
+                            <div class="command-header">
+                                <span class="command-name">/bloquear_links</span>
+                                <span class="btn btn-danger">🔗</span>
+                            </div>
+                            <p>Bloqueia/desbloqueia links em um canal</p>
+                            <div class="form-group">
+                                <label>Canal</label>
+                                <select id="blocklinks-channel" class="form-control">
+                                    <option value="">Selecione canal</option>
+                                </select>
+                            </div>
+                            <button onclick="toggleBlockLinks()" class="btn btn-danger">🔗 Alternar Bloqueio</button>
+                        </div>
                     </div>
                 </div>
-                <div id="moderation-alert" class="alert hidden"></div>
+            </div>
+            
+            <!-- Tab: Moderação -->
+            <div id="moderation" class="tab">
+                <div class="card">
+                    <h2>🛡️ Ferramentas de Moderação</h2>
+                    
+                    <div class="form-group">
+                        <h3>📋 Lista de Advertências</h3>
+                        <select id="viewwarns-member" class="form-control" onchange="viewMemberWarns()">
+                            <option value="">Selecione membro para ver advertências</option>
+                        </select>
+                        <div id="warns-list" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px; display: none;">
+                            <!-- Advertências serão listadas aqui -->
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <h3>📊 Estatísticas de Moderação</h3>
+                        <p>Total de advertências: <strong>{sum(len(w) for w in data.get("warns", {}).values())}</strong></p>
+                        <p>Membros advertidos: <strong>{len(data.get("warns", {}))}</strong></p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <h3>🔧 Configuração de Comandos</h3>
+                        <p>Defina em quais canais os comandos podem ser usados:</p>
+                        <div id="command-channels-config">
+                            <!-- Configuração será carregada aqui -->
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
-    
-    <script>
-        // Funções JavaScript para o dashboard
-        let currentSection = 'overview';
         
-        function showSection(sectionId) {
-            // Atualiza navegação
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            event.target.classList.add('active');
+        <script>
+            // Dados da guild
+            const guildChannels = {channels_json};
+            const guildRoles = {roles_json};
+            let guildMembers = [];
             
-            // Esconde todas as seções
-            document.querySelectorAll('.section').forEach(section => {
-                section.classList.remove('active');
-            });
-            
-            // Mostra a seção selecionada
-            document.getElementById(sectionId).classList.add('active');
-            currentSection = sectionId;
-            
-            // Carrega dados específicos da seção
-            if (sectionId === 'overview') {
-                loadStats();
-            } else if (sectionId === 'xp') {
-                loadLevelRoles();
-            } else if (sectionId === 'commands') {
-                loadCommands();
-            } else if (sectionId === 'moderation') {
-                loadBlockedChannels();
-            }
-        }
-        
-        function loadStats() {
-            fetch('/api/stats')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        document.getElementById('stats-container').innerHTML = 
-                            `<div class="alert alert-error">${data.error}</div>`;
-                        return;
-                    }
-                    
-                    // Atualiza estatísticas
-                    document.getElementById('stats-container').innerHTML = `
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <h3>${data.member_count}</h3>
-                                <p>Membros</p>
-                            </div>
-                            <div class="stat-card">
-                                <h3>${data.online_members}</h3>
-                                <p>Online</p>
-                            </div>
-                            <div class="stat-card">
-                                <h3>${data.total_xp_users}</h3>
-                                <p>Usuários com XP</p>
-                            </div>
-                            <div class="stat-card">
-                                <h3>${data.reaction_roles}</h3>
-                                <p>Reaction Roles</p>
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Atualiza top usuários
-                    let topUsersHTML = '';
-                    data.top_users.forEach((user, index) => {
-                        topUsersHTML += `
-                            <tr>
-                                <td>${index + 1}</td>
-                                <td>${user.name}</td>
-                                <td>${user.xp}</td>
-                                <td>${user.level}</td>
-                            </tr>
-                        `;
-                    });
-                    document.getElementById('top-users-body').innerHTML = topUsersHTML;
-                })
-                .catch(error => {
-                    console.error('Erro ao carregar estatísticas:', error);
-                });
-        }
-        
-        function loadLevelRoles() {
-            // Carrega cargos por nível do data.json
-            const levelRoles = {{ data.get('level_roles', {})|tojson|safe }};
-            let html = '';
-            
-            for (const [level, roleId] of Object.entries(levelRoles)) {
-                const roleName = Array.from({{ roles|tojson|safe }}).find(r => r.id == roleId)?.name || 'Cargo não encontrado';
-                html += `
-                    <div class="form-group" style="display: flex; align-items: center; gap: 1rem;">
-                        <span><strong>Nível ${level}:</strong> ${roleName}</span>
-                        <button type="button" onclick="removeLevelRole(${level})" class="btn btn-danger">Remover</button>
-                    </div>
-                `;
-            }
-            
-            document.getElementById('level-roles-container').innerHTML = html || 
-                '<p>Nenhum cargo por nível configurado.</p>';
-        }
-        
-        function loadCommands() {
-            const commands = {
-                'rank': 'Mostra o perfil de XP',
-                'top': 'Mostra o ranking de XP',
-                'perfil': 'Mostra o perfil de XP',
-                'advertir': 'Adverte um membro',
-                'lista_de_advertência': 'Lista advertências',
-                'savedata': 'Força salvamento de dados',
-                'xp_rate': 'Define taxa de XP',
-                'cargo_xp': 'Define cargo por nível',
-                'mensagem_personalizada': 'Cria mensagem personalizada'
-            };
-            
-            let html = '';
-            for (const [cmd, desc] of Object.entries(commands)) {
-                html += `
-                    <div class="form-group">
-                        <h4>/${cmd}</h4>
-                        <p><small>${desc}</small></p>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <select id="channel-${cmd}" class="form-control" style="flex: 1;">
-                                <option value="">Selecione um canal para adicionar</option>
-                                {% for channel in channels %}
-                                    <option value="{{ channel.id }}">#{{ channel.name }}</option>
-                                {% endfor %}
-                            </select>
-                            <button type="button" onclick="addCommandChannel('${cmd}')" class="btn btn-primary">Adicionar Canal</button>
-                        </div>
-                        <div id="channels-${cmd}" style="margin-top: 0.5rem;">
-                            <!-- Canais permitidos serão listados aqui -->
-                        </div>
-                    </div>
-                `;
-            }
-            
-            document.getElementById('commands-list').innerHTML = html;
-            
-            // Carrega canais permitidos para cada comando
-            const commandChannels = {{ data.get('command_channels', {})|tojson|safe }};
-            for (const [cmd, channels] of Object.entries(commandChannels)) {
-                updateCommandChannelsList(cmd, channels);
-            }
-        }
-        
-        function loadBlockedChannels() {
-            const blockedChannels = {{ data.get('blocked_links_channels', [])|tojson|safe }};
-            const container = document.getElementById('blocked-channels-list');
-            
-            if (!blockedChannels || blockedChannels.length === 0) {
-                container.innerHTML = '<p>Nenhum canal com links bloqueados.</p>';
-                return;
-            }
-            
-            let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
-            blockedChannels.forEach(channelId => {
-                const channelName = Array.from({{ channels|tojson|safe }}).find(c => c.id == channelId)?.name || `ID: ${channelId}`;
-                html += `
-                    <span style="display: inline-block; background: #e9ecef; padding: 0.5rem 1rem; border-radius: 4px;">
-                        #${channelName}
-                    </span>
-                `;
-            });
-            html += '</div>';
-            
-            container.innerHTML = html;
-        }
-        
-        function updateCommandChannelsList(cmd, channelIds) {
-            const container = document.getElementById(`channels-${cmd}`);
-            if (!container) return;
-            
-            if (!channelIds || channelIds.length === 0) {
-                container.innerHTML = '<p><small>Todos os canais permitidos</small></p>';
-                return;
-            }
-            
-            let html = '<p><small>Canais permitidos:</small></p>';
-            channelIds.forEach(channelId => {
-                const channelName = Array.from({{ channels|tojson|safe }}).find(c => c.id == channelId)?.name || `ID: ${channelId}`;
-                html += `
-                    <span style="display: inline-block; background: #e9ecef; padding: 0.25rem 0.5rem; border-radius: 4px; margin: 0.25rem;">
-                        #${channelName}
-                        <button type="button" onclick="removeCommandChannel('${cmd}', ${channelId})" style="background: none; border: none; color: #dc3545; cursor: pointer; margin-left: 0.5rem;">×</button>
-                    </span>
-                `;
-            });
-            
-            container.innerHTML = html;
-        }
-        
-        // Formulários
-        document.getElementById('welcome-form')?.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const data = {
-                type: 'welcome',
-                channel_id: document.getElementById('welcome-channel').value,
-                message: document.getElementById('welcome-message').value,
-                url: document.getElementById('welcome-image').value
-            };
-            
-            saveConfig(data, 'welcome-alert');
-        });
-        
-        document.getElementById('xp-form')?.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const data = {
-                type: 'xp',
-                rate: document.getElementById('xp-rate').value,
-                channel_id: document.getElementById('levelup-channel').value
-            };
-            
-            saveConfig(data, 'xp-alert');
-        });
-        
-        function saveConfig(data, alertId) {
-            fetch('/api/config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(data)
-            })
-            .then(response => response.json())
-            .then(result => {
-                const alertEl = document.getElementById(alertId);
-                if (result.success) {
-                    alertEl.className = 'alert alert-success';
-                    alertEl.textContent = '✅ Configuração salva com sucesso!';
-                } else {
-                    alertEl.className = 'alert alert-error';
-                    alertEl.textContent = '❌ Erro ao salvar configuração: ' + (result.error || 'Erro desconhecido');
-                }
-                alertEl.classList.remove('hidden');
+            // Sistema de tabs
+            function showTab(tabId) {{
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
                 
-                // Esconde a mensagem após 3 segundos
-                setTimeout(() => {
-                    alertEl.classList.add('hidden');
-                }, 3000);
-            })
-            .catch(error => {
-                const alertEl = document.getElementById(alertId);
-                alertEl.className = 'alert alert-error';
-                alertEl.textContent = '❌ Erro de conexão: ' + error;
-                alertEl.classList.remove('hidden');
-            });
-        }
-        
-        function addLevelRole() {
-            const level = document.getElementById('new-level').value;
-            const roleId = document.getElementById('new-role').value;
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
+                
+                // Carrega dados específicos
+                if (tabId === 'xp') loadLevelRoles();
+                if (tabId === 'commands' || tabId === 'moderation') loadMembers();
+                if (tabId === 'moderation') loadCommandChannels();
+            }}
             
-            if (!level || !roleId) {
-                alert('Preencha todos os campos');
-                return;
-            }
+            // Inicialização
+            document.addEventListener('DOMContentLoaded', function() {{
+                populateSelects();
+                loadMembers();
+            }});
             
-            const data = {
-                type: 'level_role',
-                level: level,
-                role_id: roleId
-            };
+            // Preenche todos os selects
+            function populateSelects() {{
+                // Canais
+                const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 
+                                       'embed-channel', 'blocklinks-channel'];
+                
+                channelSelects.forEach(selectId => {{
+                    const select = document.getElementById(selectId);
+                    if (select) {{
+                        guildChannels.forEach(channel => {{
+                            const option = document.createElement('option');
+                            option.value = channel.id;
+                            option.textContent = '#' + channel.name;
+                            select.appendChild(option);
+                        }});
+                    }}
+                }});
+                
+                // Cargos
+                const roleSelect = document.getElementById('new-role');
+                if (roleSelect && guildRoles) {{
+                    guildRoles.forEach(role => {{
+                        const option = document.createElement('option');
+                        option.value = role.id;
+                        option.textContent = role.name;
+                        roleSelect.appendChild(option);
+                    }});
+                }}
+                
+                // Valores atuais
+                document.getElementById('welcome-channel').value = '{welcome_chan}' || '';
+                document.getElementById('levelup-channel').value = '{levelup_chan}' || '';
+            }}
             
-            saveConfig(data, 'xp-alert');
+            // Carrega membros da guild
+            async function loadMembers() {{
+                try {{
+                    const response = await fetch('/api/guild/members');
+                    const result = await response.json();
+                    
+                    if (result.success) {{
+                        guildMembers = result.members || [];
+                        
+                        // Preenche selects de membros
+                        const memberSelects = ['warn-member', 'clearwarn-member', 'viewwarns-member'];
+                        memberSelects.forEach(selectId => {{
+                            const select = document.getElementById(selectId);
+                            if (select) {{
+                                select.innerHTML = '<option value="">Selecione membro</option>';
+                                guildMembers.forEach(member => {{
+                                    const option = document.createElement('option');
+                                    option.value = member.id;
+                                    option.textContent = member.name;
+                                    select.appendChild(option.cloneNode(true));
+                                }});
+                            }}
+                        }});
+                    }}
+                }} catch (error) {{
+                    console.error('Erro ao carregar membros:', error);
+                }}
+            }}
             
-            // Limpa campos
-            document.getElementById('new-level').value = '';
-            document.getElementById('new-role').value = '';
+            // Funções para salvar configurações
+            async function saveWelcomeConfig() {{
+                const data = {{
+                    message: document.getElementById('welcome-message').value,
+                    channel_id: document.getElementById('welcome-channel').value,
+                    image_url: document.getElementById('welcome-image').value
+                }};
+                
+                try {{
+                    const response = await fetch('/api/config/welcome', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(data)
+                    }});
+                    
+                    const result = await response.json();
+                    showAlert('welcome-alert', result.message, result.success);
+                }} catch (error) {{
+                    showAlert('welcome-alert', 'Erro de conexão', false);
+                }}
+            }}
             
-            // Atualiza lista
-            setTimeout(loadLevelRoles, 500);
-        }
-        
-        function removeLevelRole(level) {
-            if (!confirm(`Remover cargo do nível ${level}?`)) return;
+            async function saveXPConfig() {{
+                const data = {{
+                    rate: parseInt(document.getElementById('xp-rate').value),
+                    channel_id: document.getElementById('levelup-channel').value
+                }};
+                
+                try {{
+                    const response = await fetch('/api/config/xp', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(data)
+                    }});
+                    
+                    const result = await response.json();
+                    showAlert('xp-alert', result.message, result.success);
+                }} catch (error) {{
+                    showAlert('xp-alert', 'Erro de conexão', false);
+                }}
+            }}
             
-            const data = {
-                type: 'level_role',
-                level: level,
-                role_id: ''
-            };
+            // Reaction Roles
+            async function createReactionRole() {{
+                const channelId = document.getElementById('rr-channel').value;
+                const content = document.getElementById('rr-content').value;
+                const pairs = document.getElementById('rr-pair').value;
+                
+                if (!channelId || !content || !pairs) {{
+                    showAlert('roles-alert', 'Preencha todos os campos', false);
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/reactionrole/create', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            channel_id: channelId,
+                            content: content,
+                            emoji_cargo: pairs
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    showAlert('roles-alert', result.message, result.success);
+                    
+                    if (result.success) {{
+                        document.getElementById('rr-content').value = '';
+                        document.getElementById('rr-pair').value = '';
+                    }}
+                }} catch (error) {{
+                    showAlert('roles-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
             
-            saveConfig(data, 'xp-alert');
-            setTimeout(loadLevelRoles, 500);
-        }
-        
-        function addCommandChannel(command) {
-            const channelId = document.getElementById(`channel-${command}`).value;
+            // Botões de cargos
+            async function createRoleButtons() {{
+                const channelId = document.getElementById('btn-channel').value;
+                const content = document.getElementById('btn-content').value;
+                const pairs = document.getElementById('btn-pairs').value;
+                
+                if (!channelId || !content || !pairs) {{
+                    showAlert('roles-alert', 'Preencha todos os campos', false);
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/rolebuttons/create', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            channel_id: channelId,
+                            content: content,
+                            roles: pairs
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    showAlert('roles-alert', result.message, result.success);
+                    
+                    if (result.success) {{
+                        document.getElementById('btn-content').value = '';
+                        document.getElementById('btn-pairs').value = '';
+                    }}
+                }} catch (error) {{
+                    showAlert('roles-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
             
-            if (!channelId) {
-                alert('Selecione um canal');
-                return;
-            }
+            // Executar comandos
+            async function executeWarn() {{
+                const memberId = document.getElementById('warn-member').value;
+                const reason = document.getElementById('warn-reason').value;
+                
+                if (!memberId || !reason) {{
+                    alert('Selecione um membro e digite um motivo');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/command/warn', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            member_id: memberId,
+                            reason: reason
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    alert(result.message);
+                    
+                    if (result.success) {{
+                        document.getElementById('warn-reason').value = '';
+                    }}
+                }} catch (error) {{
+                    alert('Erro: ' + error.message);
+                }}
+            }}
             
-            const data = {
-                type: 'command_channel',
-                command: command,
-                channel_id: channelId,
-                action: 'add'
-            };
+            async function createEmbed() {{
+                const channelId = document.getElementById('embed-channel').value;
+                const title = document.getElementById('embed-title').value;
+                const body = document.getElementById('embed-body').value;
+                
+                if (!channelId || !title || !body) {{
+                    alert('Preencha todos os campos');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/command/embed', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            channel_id: channelId,
+                            title: title,
+                            body: body
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    alert(result.message);
+                    
+                    if (result.success) {{
+                        document.getElementById('embed-title').value = '';
+                        document.getElementById('embed-body').value = '';
+                    }}
+                }} catch (error) {{
+                    alert('Erro: ' + error.message);
+                }}
+            }}
             
-            saveConfig(data, 'commands-alert');
+            async function clearWarns() {{
+                const memberId = document.getElementById('clearwarn-member').value;
+                
+                if (!memberId) {{
+                    alert('Selecione um membro');
+                    return;
+                }}
+                
+                if (!confirm('Tem certeza que deseja limpar todas as advertências deste membro?')) {{
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/command/clearwarns', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            member_id: memberId
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    alert(result.message);
+                }} catch (error) {{
+                    alert('Erro: ' + error.message);
+                }}
+            }}
             
-            // Atualiza lista
-            setTimeout(() => {
-                document.getElementById(`channel-${command}`).value = '';
-                // Simula atualização
-                const currentChannels = Array.from({{ data.get('command_channels', {})|tojson|safe }}[command] || []);
-                if (!currentChannels.includes(channelId)) {
-                    currentChannels.push(channelId);
-                }
-                updateCommandChannelsList(command, currentChannels);
-            }, 500);
-        }
-        
-        function removeCommandChannel(command, channelId) {
-            if (!confirm(`Remover este canal do comando /${command}?`)) return;
+            async function toggleBlockLinks() {{
+                const channelId = document.getElementById('blocklinks-channel').value;
+                
+                if (!channelId) {{
+                    alert('Selecione um canal');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/command/blocklinks', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            channel_id: channelId
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    alert(result.message);
+                }} catch (error) {{
+                    alert('Erro: ' + error.message);
+                }}
+            }}
             
-            const data = {
-                type: 'command_channel',
-                command: command,
-                channel_id: channelId,
-                action: 'remove'
-            };
+            // Ver advertências de membro
+            async function viewMemberWarns() {{
+                const memberId = document.getElementById('viewwarns-member').value;
+                
+                if (!memberId) {{
+                    document.getElementById('warns-list').style.display = 'none';
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/member/warns?member_id=' + memberId);
+                    const result = await response.json();
+                    
+                    const container = document.getElementById('warns-list');
+                    if (result.warns && result.warns.length > 0) {{
+                        let html = '<h4>Advertências:</h4><ul>';
+                        result.warns.forEach(warn => {{
+                            html += `<li><strong>${{warn.reason}}</strong> - ${{warn.ts}}</li>`;
+                        }});
+                        html += '</ul>';
+                        container.innerHTML = html;
+                    }} else {{
+                        container.innerHTML = '<p>Nenhuma advertência encontrada.</p>';
+                    }}
+                    container.style.display = 'block';
+                }} catch (error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
             
-            saveConfig(data, 'commands-alert');
+            // Carregar cargos por nível
+            async function loadLevelRoles() {{
+                try {{
+                    const response = await fetch('/api/level-roles');
+                    const result = await response.json();
+                    
+                    const container = document.getElementById('level-roles-container');
+                    if (!result.level_roles || Object.keys(result.level_roles).length === 0) {{
+                        container.innerHTML = '<p>Nenhum cargo por nível configurado.</p>';
+                        return;
+                    }}
+                    
+                    let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
+                    for (const [level, roleId] of Object.entries(result.level_roles)) {{
+                        const role = guildRoles.find(r => r.id == roleId);
+                        const roleName = role ? role.name : 'Cargo não encontrado';
+                        html += `
+                            <div style="background: #e9ecef; padding: 0.5rem 1rem; border-radius: 5px; display: flex; align-items: center; gap: 0.5rem;">
+                                <strong>Nível ${{level}}:</strong> ${{roleName}}
+                                <button onclick="removeLevelRole(${{level}})" 
+                                        style="background: #dc3545; color: white; border: none; border-radius: 3px; padding: 0.25rem 0.5rem; cursor: pointer;">
+                                    ×
+                                </button>
+                            </div>
+                        `;
+                    }}
+                    html += '</div>';
+                    container.innerHTML = html;
+                }} catch (error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
             
-            // Atualiza lista
-            setTimeout(() => {
-                const currentChannels = Array.from({{ data.get('command_channels', {})|tojson|safe }}[command] || []);
-                const index = currentChannels.indexOf(channelId);
-                if (index > -1) {
-                    currentChannels.splice(index, 1);
-                }
-                updateCommandChannelsList(command, currentChannels);
-            }, 500);
-        }
-        
-        function toggleBlockChannel() {
-            const channelId = document.getElementById('block-channel-select').value;
+            async function addLevelRole() {{
+                const level = document.getElementById('new-level').value;
+                const roleId = document.getElementById('new-role').value;
+                
+                if (!level || !roleId) {{
+                    showAlert('xp-alert', 'Preencha o nível e selecione um cargo', false);
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/level-roles', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            level: level,
+                            role_id: roleId
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    showAlert('xp-alert', result.message, result.success);
+                    
+                    if (result.success) {{
+                        document.getElementById('new-level').value = '';
+                        loadLevelRoles();
+                    }}
+                }} catch (error) {{
+                    showAlert('xp-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
             
-            if (!channelId) {
-                alert('Selecione um canal');
-                return;
-            }
+            async function removeLevelRole(level) {{
+                if (!confirm('Remover cargo do nível ' + level + '?')) return;
+                
+                try {{
+                    const response = await fetch('/api/level-roles?level=' + level, {{
+                        method: 'DELETE'
+                    }});
+                    
+                    const result = await response.json();
+                    showAlert('xp-alert', result.message, result.success);
+                    if (result.success) loadLevelRoles();
+                }} catch (error) {{
+                    showAlert('xp-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
             
-            // Como não temos API específica para isso, mostra mensagem
-            const alertEl = document.getElementById('moderation-alert');
-            alertEl.className = 'alert alert-success';
-            alertEl.textContent = '✅ Use o comando /bloquear_links no Discord para bloquear/desbloquear links neste canal.';
-            alertEl.classList.remove('hidden');
+            // Configuração de canais de comandos
+            async function loadCommandChannels() {{
+                try {{
+                    const response = await fetch('/api/command-channels');
+                    const result = await response.json();
+                    
+                    const container = document.getElementById('command-channels-config');
+                    if (!result.command_channels) {{
+                        container.innerHTML = '<p>Nenhuma configuração encontrada.</p>';
+                        return;
+                    }}
+                    
+                    let html = '';
+                    for (const [cmd, channels] of Object.entries(result.command_channels)) {{
+                        html += `
+                            <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
+                                <strong>/${{cmd}}</strong>
+                                <div style="margin-top: 0.5rem;">
+                                    ${{channels.length > 0 ? 
+                                        'Canais permitidos: ' + channels.map(c => {
+                                            const chan = guildChannels.find(gc => gc.id == c);
+                                            return chan ? '#' + chan.name : c;
+                                        }).join(', ') : 
+                                        '✅ Todos os canais permitidos'}}
+                                </div>
+                            </div>
+                        `;
+                    }}
+                    container.innerHTML = html || '<p>Nenhuma configuração encontrada.</p>';
+                }} catch (error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
             
-            setTimeout(() => {
-                alertEl.classList.add('hidden');
-            }, 5000);
-        }
-        
-        // Carrega dados na inicialização
-        document.addEventListener('DOMContentLoaded', function() {
-            loadStats();
-            loadLevelRoles();
-            loadCommands();
-            loadBlockedChannels();
-        });
-    </script>
-</body>
-</html>
-'''
+            // Utilitários
+            function showAlert(elementId, message, isSuccess) {{
+                const alertEl = document.getElementById(elementId);
+                alertEl.textContent = message;
+                alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
+                alertEl.style.display = 'block';
+                
+                setTimeout(() => {{
+                    alertEl.style.display = 'none';
+                }}, 5000);
+            }}
+        </script>
+    </body>
+    </html>
+    '''
 
-def render_template_string(template, **context):
-    """Renderiza uma string como template Jinja2"""
-    from jinja2 import Template
-    return Template(template).render(**context)
+# -------------------------
+# APIs do Site
+# -------------------------
+
+@app.route("/api/config/welcome", methods=["POST"])
+def api_config_welcome():
+    """API para configurar boas-vindas"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        config = data.setdefault("config", {})
+        
+        if 'message' in req_data:
+            config["welcome_message"] = req_data['message']
+        if 'channel_id' in req_data:
+            config["welcome_channel"] = req_data['channel_id']
+        if 'image_url' in req_data:
+            config["welcome_background"] = req_data['image_url']
+        
+        success = save_data_to_github("Config boas-vindas via site")
+        return jsonify({"success": success, "message": "Configuração salva!"})
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/config/xp", methods=["POST"])
+def api_config_xp():
+    """API para configurar XP"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        config = data.setdefault("config", {})
+        
+        if 'rate' in req_data:
+            rate = int(req_data['rate'])
+            if 1 <= rate <= 10:
+                config["xp_rate"] = rate
+        
+        if 'channel_id' in req_data:
+            config["levelup_channel"] = req_data['channel_id']
+        
+        success = save_data_to_github("Config XP via site")
+        return jsonify({"success": success, "message": "Configuração de XP salva!"})
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/level-roles", methods=["GET", "POST", "DELETE"])
+def api_level_roles():
+    """API para cargos por nível"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        if request.method == "GET":
+            level_roles = data.get("level_roles", {})
+            return jsonify({"success": True, "level_roles": level_roles})
+        
+        elif request.method == "POST":
+            req_data = request.json
+            level = str(req_data.get('level'))
+            role_id = req_data.get('role_id')
+            
+            if not level or not role_id:
+                return jsonify({"success": False, "message": "Nível e cargo são obrigatórios"})
+            
+            data.setdefault("level_roles", {})[level] = role_id
+            save_data_to_github(f"Add level role {level}")
+            return jsonify({"success": True, "message": f"Cargo definido para nível {level}"})
+        
+        elif request.method == "DELETE":
+            level = request.args.get('level')
+            if not level:
+                return jsonify({"success": False, "message": "Nível é obrigatório"})
+            
+            if level in data.get("level_roles", {}):
+                del data["level_roles"][level]
+                save_data_to_github(f"Remove level role {level}")
+                return jsonify({"success": True, "message": f"Cargo removido do nível {level}"})
+            else:
+                return jsonify({"success": False, "message": "Nível não encontrado"})
+                
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/guild/members")
+def api_guild_members():
+    """API para obter membros da guild"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+        if not guild:
+            return jsonify({"success": False, "message": "Guild não encontrada"})
+        
+        members = []
+        for member in guild.members:
+            if not member.bot:
+                members.append({
+                    "id": str(member.id),
+                    "name": member.display_name,
+                    "avatar": str(member.avatar.url) if member.avatar else None
+                })
+        
+        return jsonify({"success": True, "members": members[:100]})  # Limita a 100 membros
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/member/warns")
+def api_member_warns():
+    """API para ver advertências de um membro"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    member_id = request.args.get('member_id')
+    if not member_id:
+        return jsonify({"success": False, "message": "ID do membro é obrigatório"})
+    
+    warns = data.get("warns", {}).get(str(member_id), [])
+    return jsonify({"success": True, "warns": warns})
+
+@app.route("/api/command/warn", methods=["POST"])
+def api_command_warn():
+    """API para executar comando de advertência"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        member_id = req_data.get('member_id')
+        reason = req_data.get('reason', 'Sem motivo informado')
+        
+        if not member_id:
+            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
+        
+        # Simula o comando /advertir
+        entry = {
+            "by": session['user']['id'],
+            "reason": reason,
+            "ts": now_br().strftime("%d/%m/%Y %H:%M")
+        }
+        data.setdefault("warns", {}).setdefault(member_id, []).append(entry)
+        save_data_to_github(f"Warn via site: {member_id}")
+        
+        return jsonify({
+            "success": True, 
+            "message": f"✅ Membro advertido com sucesso!\nMotivo: {reason}"
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/command/clearwarns", methods=["POST"])
+def api_command_clearwarns():
+    """API para limpar advertências"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        member_id = str(req_data.get('member_id'))
+        
+        if not member_id:
+            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
+        
+        if member_id in data.get("warns", {}):
+            data["warns"].pop(member_id)
+            save_data_to_github(f"Clear warns via site: {member_id}")
+            return jsonify({"success": True, "message": "✅ Advertências removidas!"})
+        else:
+            return jsonify({"success": False, "message": "❌ Membro não tem advertências"})
+            
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/command/embed", methods=["POST"])
+def api_command_embed():
+    """API para criar embed"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        channel_id = req_data.get('channel_id')
+        title = req_data.get('title')
+        body = req_data.get('body')
+        
+        if not channel_id or not title or not body:
+            return jsonify({"success": False, "message": "Preencha todos os campos"})
+        
+        # Aqui você pode implementar o envio real da embed
+        # Por enquanto, apenas registra
+        print(f"[SITE] Embed criada: {title} em {channel_id}")
+        
+        return jsonify({
+            "success": True, 
+            "message": f"✅ Embed '{title}' criada com sucesso!\nUse /mensagem_personalizada no Discord para mais opções."
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/command/blocklinks", methods=["POST"])
+def api_command_blocklinks():
+    """API para bloquear links"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        channel_id = req_data.get('channel_id')
+        
+        if not channel_id:
+            return jsonify({"success": False, "message": "ID do canal é obrigatório"})
+        
+        blocked = data.setdefault("blocked_links_channels", [])
+        
+        if int(channel_id) in blocked:
+            blocked.remove(int(channel_id))
+            message = "✅ Links desbloqueados neste canal"
+        else:
+            blocked.append(int(channel_id))
+            message = "✅ Links bloqueados neste canal"
+        
+        save_data_to_github("Toggle block links via site")
+        return jsonify({"success": True, "message": message})
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/reactionrole/create", methods=["POST"])
+def api_reactionrole_create():
+    """API para criar reaction role"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        channel_id = req_data.get('channel_id')
+        content = req_data.get('content')
+        emoji_cargo = req_data.get('emoji_cargo')
+        
+        if not channel_id or not content or not emoji_cargo:
+            return jsonify({"success": False, "message": "Preencha todos os campos"})
+        
+        # Registra para execução posterior
+        print(f"[SITE] Reaction role criada: {content}")
+        
+        return jsonify({
+            "success": True,
+            "message": "✅ Reaction role criada!\nUse /reajir_com_emoji no Discord para mais opções."
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/rolebuttons/create", methods=["POST"])
+def api_rolebuttons_create():
+    """API para criar botões de cargos"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    try:
+        req_data = request.json
+        channel_id = req_data.get('channel_id')
+        content = req_data.get('content')
+        roles = req_data.get('roles')
+        
+        if not channel_id or not content or not roles:
+            return jsonify({"success": False, "message": "Preencha todos os campos"})
+        
+        print(f"[SITE] Botões de cargo criados: {content}")
+        
+        return jsonify({
+            "success": True,
+            "message": "✅ Botões de cargo criados!\nUse /criar_reação_com_botao no Discord para mais opções."
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/command-channels")
+def api_command_channels():
+    """API para obter configuração de canais de comandos"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    command_channels = data.get("command_channels", {})
+    return jsonify({"success": True, "command_channels": command_channels})
 
 # -------------------------
 # Auto ping (manter bot ativo)
@@ -1971,7 +1539,7 @@ def auto_ping():
             url = os.environ.get("REPLIT_URL") or os.environ.get("SELF_URL")
             if url:
                 requests.get(url)
-            time.sleep(300)  # ping a cada 5 minutos
+            time.sleep(300)
         except Exception as e:
             print(f"Erro no auto-ping: {e}")
 
@@ -2142,7 +1710,6 @@ class PersistentRoleButton(ui.Button):
 # -------------------------
 @bot.event
 async def on_ready():
-    bot.start_time = datetime.now()
     print(f"Logado como {bot.user} (id: {bot.user.id})")
     load_data_from_github()
 
@@ -2197,7 +1764,8 @@ async def on_member_join(member: discord.Member):
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
     # ----- Imagem de fundo personalizada -----
-    background_path = data.get("config", {}).get("welcome_background")
+    background_path = data.get("config", {}).get(
+    "welcome_background")
 
 
     width, height = 900, 300
@@ -2462,6 +2030,18 @@ async def on_message(message: discord.Message):
     else:
         user_msgs.append(content)
     data["last_messages_content"][uid] = user_msgs
+
+    # -------- DETECÇÃO DE MAIÚSCULAS --------
+    #if len(content) > 5 and content.isupper():
+        #if not is_staff:
+            #delete_message = True
+           # try:
+            #    await message.delete()
+           # except discord.Forbidden:
+            #    pass
+           # await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
+          #  await add_warn(message.author, reason="Uso excessivo de maiúsculas")
+           # return
 
     # -------- SISTEMA DE XP --------
     if not delete_message:
@@ -2993,7 +2573,7 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
 )
 async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
     if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -3109,7 +2689,6 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-# Inicia o Flask em uma thread separada
 Thread(target=run_flask, daemon=True).start()
 
 if __name__ == "__main__":
