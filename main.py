@@ -1329,7 +1329,17 @@ tree.add_command(reactionrole_group)
 # Start bot
 # -------------------------
 if __name__ == "__main__":
+    # Inicia o painel em uma thread separada
+    import threading
+    panel_thread = threading.Thread(
+        target=lambda: panel_app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False),
+        daemon=True
+    )
+    panel_thread.start()
+    
     try:
         bot.run(BOT_TOKEN)
     except Exception as e:
         print("Erro ao iniciar o bot:", e)
+
+from panel import app as panel_app        
