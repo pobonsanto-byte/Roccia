@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="mb-4">Dashboard</h1>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <h3>{{ stats.total_users }}</h3>
+            <p>Usuários Ativos</p>
+            <i class="bi bi-people-fill fs-1"></i>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card" style="background: linear-gradient(135deg, #F04747, #ED4245);">
+            <h3>{{ stats.total_warns }}</h3>
+            <p>Advertências</p>
+            <i class="bi bi-exclamation-triangle fs-1"></i>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card" style="background: linear-gradient(135deg, #57F287, #3BA55C);">
+            <h3>{{ stats.role_buttons }}</h3>
+            <p>Botões de Cargo</p>
+            <i class="bi bi-toggle-on fs-1"></i>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card" style="background: linear-gradient(135deg, #FEE75C, #F1C40F);">
+            <h3>{{ stats.reaction_roles }}</h3>
+            <p>Reaction Roles</p>
+            <i class="bi bi-emoji-smile fs-1"></i>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Top 5 XP</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-dark">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Usuário</th>
+                            <th>XP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user_id, xp in ranking %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ user_id }}</td>
+                            <td>{{ xp }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Status do Sistema</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        Bot Online
+                    </li>
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        GitHub Sync Ativo
+                    </li>
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        Painel Web Rodando
+                    </li>
+                    <li class="list-group-item bg-transparent text-white">
+                        <i class="bi bi-info-circle-fill text-info"></i>
+                        Último Backup: {{ data.get('_last_save', 'Nunca') }}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
