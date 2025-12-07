@@ -1196,17 +1196,17 @@ def dashboard():
                         return;
                     }}
                     
-                    let html = '';
+                                        let html = '';
                     for (const [cmd, channels] of Object.entries(result.command_channels)) {{
                         html += `
                             <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
                                 <strong>/${{cmd}}</strong>
                                 <div style="margin-top: 0.5rem;">
                                     ${{channels.length > 0 ? 
-                                        'Canais permitidos: ' + channels.map(c => {
-                                            const chan = guildChannels.find(gc => gc.id == c);
+                                        'Canais permitidos: ' + channels.map(function(c) {{
+                                            var chan = guildChannels.find(function(gc) {{ return gc.id == c; }});
                                             return chan ? '#' + chan.name : c;
-                                        }).join(', ') : 
+                                        }}).join(', ') : 
                                         '✅ Todos os canais permitidos'}}
                                 </div>
                             </div>
