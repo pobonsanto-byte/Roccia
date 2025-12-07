@@ -16,6 +16,9 @@ from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 
+# Import do painel
+from panel import app as panel_app
+
 # -------------------------
 # Config / Ambiente
 # -------------------------
@@ -34,7 +37,7 @@ if not BOT_TOKEN or not GITHUB_TOKEN:
 GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
 
 # -------------------------
-# Flask keepalive
+# Flask keepalive + Painel
 # -------------------------
 app = Flask("imunebot")
 
@@ -44,9 +47,14 @@ def home():
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+def run_panel():
+    port = int(os.environ.get("PANEL_PORT", 5001))
+    panel_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 Thread(target=run_flask, daemon=True).start()
+Thread(target=run_panel, daemon=True).start()
 
 # -------------------------
 # Auto ping (manter bot ativo)
@@ -149,82 +157,6 @@ def add_log(entry):
         save_data_to_github(f"log: {entry}")
     except Exception:
         pass
-
-# -------------------------
-# GitHub Image Upload
-# -------------------------
-def upload_image_to_github(image_data: bytes, filename: str, message: str = "Upload imagem de fundo"):
-    """Faz upload de uma imagem para o repositório GitHub"""
-    try:
-        # Define o path no GitHub
-        image_path = f"welcome_images/{filename}"
-        github_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{image_path}"
-        
-        # Codifica a imagem em base64
-        content_b64 = base64.b64encode(image_data).decode('utf-8')
-        
-        # Prepara o payload
-        payload = {
-            "message": f"{message} @ {now_br().isoformat()}",
-            "content": content_b64,
-            "branch": BRANCH
-        }
-        
-        # Verifica se o arquivo já existe para obter o SHA
-        r = requests.get(github_url, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
-        if r.status_code == 200:
-            payload["sha"] = r.json().get("sha")
-        
-        # Faz o upload
-        put = requests.put(github_url, headers=_gh_headers(), json=payload, timeout=30)
-        if put.status_code in (200, 201):
-            # Retorna a URL raw do GitHub
-            raw_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/{BRANCH}/{image_path}"
-            print(f"Imagem salva no GitHub: {raw_url}")
-            return raw_url
-        else:
-            print(f"Erro ao fazer upload da imagem: {put.status_code} - {put.text[:200]}")
-            return None
-            
-    except Exception as e:
-        print(f"Exception no upload da imagem: {e}")
-        return None
-
-def download_and_upload_background(image_url: str):
-    """Faz download de uma imagem e faz upload para o GitHub"""
-    try:
-        # Faz download da imagem
-        response = requests.get(image_url, timeout=15)
-        response.raise_for_status()
-        
-        # Verifica se é uma imagem válida
-        image = Image.open(BytesIO(response.content))
-        image.verify()  # Verifica integridade
-        image = Image.open(BytesIO(response.content))  # Reabre após verify
-        
-        # Gera um nome único para o arquivo
-        timestamp = int(time.time())
-        file_extension = get_image_extension(response.headers.get('content-type', ''))
-        filename = f"welcome_bg_{timestamp}{file_extension}"
-        
-        # Faz upload para o GitHub
-        github_url = upload_image_to_github(response.content, filename, "Background boas-vindas")
-        return github_url
-        
-    except Exception as e:
-        print(f"Erro ao processar imagem: {e}")
-        return None
-
-def get_image_extension(content_type: str):
-    """Retorna a extensão do arquivo baseado no content-type"""
-    extensions = {
-        'image/jpeg': '.jpg',
-        'image/jpg': '.jpg',
-        'image/png': '.png',
-        'image/gif': '.gif',
-        'image/webp': '.webp'
-    }
-    return extensions.get(content_type.lower(), '.jpg')
 
 # -------------------------
 # XP / level
@@ -357,37 +289,23 @@ async def on_member_join(member: discord.Member):
     welcome_msg = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
     welcome_msg = welcome_msg.replace("{member}", member.mention)
 
-    # ----- Imagem de fundo do GitHub -----
-    background_path = data.get("config", {}).get("welcome_background")
+    # ----- Imagem de fundo personalizada -----
+    background_path = data.get("config", {}).get(
+    "welcome_background")
+
 
     width, height = 900, 300
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
 
-    # Fundo (agora do GitHub - muito mais confiável)
-    background_loaded = False
-    if background_path and background_path.startswith('https://raw.githubusercontent.com/'):
-        try:
-            response = requests.get(background_path, timeout=10)
-            response.raise_for_status()
-            bg = Image.open(BytesIO(response.content)).convert("RGBA")
-            bg = bg.resize((width, height), Image.Resampling.LANCZOS)
-            img.paste(bg, (0, 0))
-            background_loaded = True
-            print(f"Imagem de fundo carregada do GitHub: {background_path}")
-        except Exception as e:
-            print(f"Erro ao carregar imagem de fundo do GitHub: {e}")
-    
-    # Fallback para gradiente se a imagem do GitHub falhar ou não existir
-    if not background_loaded:
-        # Cria um gradiente roxo-azul como fallback
-        for y in range(height):
-            for x in range(width):
-                # Gradiente roxo-azul
-                r = int(80 + (x / width) * 60)
-                g = int(50 + (y / height) * 40)
-                b = int(150 + (x / width) * 80)
-                img.putpixel((x, y), (r, g, b, 255))
-        print("Usando fallback gradient para imagem de fundo")
+    # Fundo (baixa via URL)
+    try:
+        import requests
+        response = requests.get(background_path)
+        bg = Image.open(BytesIO(response.content)).convert("RGBA")
+        bg = bg.resize((width, height))
+        img.paste(bg, (0, 0))
+    except Exception as e:
+        print(f"Erro ao carregar imagem de fundo: {e}")
 
     # Overlay cinza translúcido para melhorar contraste do texto
     overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
@@ -721,7 +639,6 @@ def is_command_allowed(interaction: discord.Interaction, command_name: str) -> b
     return interaction.channel_id in allowed
 
 
-
 #/cargo_xp
 
 @tree.command(name="cargo_xp", description="Define um cargo para ser atribuído ao atingir certo nível (admin)")
@@ -763,31 +680,6 @@ async def set_xp_rate(interaction: discord.Interaction, rate: int):
 
     await interaction.response.send_message(f"✅ Taxa de XP ajustada para **x{rate}**. Agora é **{rate}x mais difícil** subir de nível.", ephemeral=False)
 
-@tree.command(name="verificar_imagem_boas-vindas", description="Verifica a imagem de fundo atual (admin)")
-async def slash_checkwelcomeimage(interaction: discord.Interaction):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Sem permissão.", ephemeral=True)
-        return
-    
-    background_path = data.get("config", {}).get("welcome_background")
-    original_url = data.get("config", {}).get("welcome_background_original", "Não salva")
-    
-    if background_path:
-        embed = discord.Embed(
-            title="🖼️ Imagem de Fundo das Boas-vindas",
-            color=0x5865F2
-        )
-        embed.add_field(name="URL GitHub", value=background_path, inline=False)
-        embed.add_field(name="URL Original", value=original_url, inline=False)
-        embed.add_field(name="Status", value="✅ Configurada", inline=False)
-        
-        # Tenta mostrar preview se for do GitHub
-        if "github.com" in background_path:
-            embed.set_image(url=background_path)
-            
-        await interaction.response.send_message(embed=embed, ephemeral=False)
-    else:
-        await interaction.response.send_message("❌ Nenhuma imagem de fundo configurada.", ephemeral=False)
 
 #/mensagem_personalizada
 @tree.command(name="mensagem_personalizada", description="Cria uma mensagem personalizada (admin)")
@@ -872,21 +764,11 @@ async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = Non
         await interaction.response.send_message("❌ Forneça uma URL válida começando com http:// ou https://", ephemeral=True)
         return
 
-    await interaction.response.defer(ephemeral=True)  # Defer pois pode demorar
-
-    # --- Fazer download e upload para GitHub ---
-    github_image_url = download_and_upload_background(url)
-    
-    if not github_image_url:
-        await interaction.followup.send("❌ Erro ao processar a imagem. Verifique se a URL é válida e acessível.", ephemeral=True)
-        return
-
-    # --- Salvar nova imagem (agora usando URL do GitHub) ---
-    config["welcome_background"] = github_image_url
-    config["welcome_background_original"] = url  # Salva a URL original também, se quiser
+    # --- Salvar nova imagem ---
+    config["welcome_background"] = url
     save_data_to_github("Set welcome background")
+    await interaction.response.send_message(f"✅ Imagem de fundo definida com sucesso!\n{url}", ephemeral=False)
 
-    await interaction.followup.send(f"✅ Imagem de fundo salva no GitHub e definida com sucesso!\n**URL Original:** {url}\n**URL GitHub:** {github_image_url}", ephemeral=False)
 
 #/definir_canal_comando
 @tree.command(name="definir_canal_comando", description="Define canais onde um comando pode ser usado (admin)")
@@ -1217,7 +1099,7 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
 )
 async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
     if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
+        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -1329,17 +1211,7 @@ tree.add_command(reactionrole_group)
 # Start bot
 # -------------------------
 if __name__ == "__main__":
-    # Inicia o painel em uma thread separada
-    import threading
-    panel_thread = threading.Thread(
-        target=lambda: panel_app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False),
-        daemon=True
-    )
-    panel_thread.start()
-    
     try:
         bot.run(BOT_TOKEN)
     except Exception as e:
         print("Erro ao iniciar o bot:", e)
-
-from panel import app as panel_app        
