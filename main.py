@@ -16,9 +16,6 @@ from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 
-# Import do painel (removido do mesmo arquivo - será separado no Render)
-# No Render, vamos rodar o painel como um serviço separado
-
 # -------------------------
 # Config / Ambiente
 # -------------------------
@@ -28,7 +25,7 @@ GITHUB_USER = os.getenv("GITHUB_USER", "pobonsanto-byte")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "imune-bot-data")
 DATA_FILE = os.getenv("DATA_FILE", "data.json")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
-PORT = int(os.getenv("PORT", 10000))
+PORT = int(os.getenv("PORT", 8080))
 GUILD_ID = os.getenv("GUILD_ID")
 
 if not BOT_TOKEN or not GITHUB_TOKEN:
@@ -43,11 +40,11 @@ app = Flask("imunebot")
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Bot rodando! Para acessar o painel, vá para: https://seu-painel.onrender.com"
+    return "🤖 Bot rodando!"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 Thread(target=run_flask, daemon=True).start()
 
@@ -57,10 +54,9 @@ Thread(target=run_flask, daemon=True).start()
 def auto_ping():
     while True:
         try:
-            # No Render, pingamos a própria URL
-            url = os.environ.get("RENDER_EXTERNAL_URL")
+            url = os.environ.get("REPLIT_URL") or os.environ.get("SELF_URL")
             if url:
-                requests.get(url, timeout=10)
+                requests.get(url)
             time.sleep(300)  # ping a cada 5 minutos
         except Exception as e:
             print(f"Erro no auto-ping: {e}")
@@ -340,9 +336,8 @@ async def on_member_join(member: discord.Member):
 
     # ----- Texto -----
     try:
-        # No Render, use fontes padrão
-        font_b = ImageFont.load_default()
-        font_s = ImageFont.load_default()
+        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
     except:
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
@@ -553,6 +548,18 @@ async def on_message(message: discord.Message):
     else:
         user_msgs.append(content)
     data["last_messages_content"][uid] = user_msgs
+
+    # -------- DETECÇÃO DE MAIÚSCULAS --------
+    #if len(content) > 5 and content.isupper():
+        #if not is_staff:
+            #delete_message = True
+           # try:
+            #    await message.delete()
+           # except discord.Forbidden:
+            #    pass
+           # await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
+          #  await add_warn(message.author, reason="Uso excessivo de maiúsculas")
+           # return
 
     # -------- SISTEMA DE XP --------
     if not delete_message:
@@ -871,9 +878,13 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     img = Image.new("RGBA", (width, height), (0, 0, 0, 255))  # fundo preto
     draw = ImageDraw.Draw(img)
 
-    # Fontes - No Render use padrão
-    font_b = ImageFont.load_default()
-    font_s = ImageFont.load_default()
+    # Fontes
+    try:
+        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+    except:
+        font_b = ImageFont.load_default()
+        font_s = ImageFont.load_default()
 
     # Avatar circular
     try:
@@ -1080,7 +1091,7 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
 )
 async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
     if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
+        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
 
     guild = interaction.guild
