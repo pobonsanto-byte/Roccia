@@ -253,221 +253,254 @@ async def execute_bot_action_internal(action):
     
     try:
         if action_type == "create_embed":
-            channel_id = int(action_data["channel_id"])
-            channel = guild.get_channel(channel_id)
-            
-            if not channel:
-                print(f"❌ Canal {channel_id} não encontrado!")
-                print(f"   Canais disponíveis:")
-                for c in guild.text_channels:
-                    print(f"      {c.id}: #{c.name}")
+            try:
+                channel_id = int(action_data["channel_id"])
+                print(f"🔍 Procurando canal ID: {channel_id} ({type(channel_id)})")
+                
+                channel = guild.get_channel(channel_id)
+                
+                if not channel:
+                    print(f"⚠️ Canal {channel_id} não encontrado via get_channel")
+                    # Tenta encontrar manualmente
+                    for c in guild.text_channels:
+                        if c.id == channel_id:
+                            channel = c
+                            print(f"✅ Encontrado na iteração: #{c.name}")
+                            break
+                    
+                    if not channel:
+                        print("❌ Canal realmente não encontrado após iteração completa")
+                        print("📋 Canais disponíveis:")
+                        for c in guild.text_channels[:20]:
+                            print(f"   {c.id}: #{c.name}")
+                        return False
+                
+                print(f"✅ Canal encontrado: #{channel.name} ({channel.id})")
+                print(f"📝 Título: {action_data['title'][:50]}...")
+                print(f"📄 Corpo: {action_data['body'][:100]}...")
+                
+                # Verifica permissões
+                bot_member = guild.get_member(bot.user.id)
+                if bot_member:
+                    permissions = channel.permissions_for(bot_member)
+                    if not permissions.send_messages:
+                        print("❌ Bot não tem permissão para enviar mensagens neste canal!")
+                        return False
+                    if not permissions.embed_links:
+                        print("❌ Bot não tem permissão para enviar embeds neste canal!")
+                        return False
+                
+                # Cria e envia embed
+                embed = discord.Embed(
+                    title=action_data["title"],
+                    description=action_data["body"],
+                    color=discord.Color.blue()
+                )
+                embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
+                
+                print("📤 Enviando embed...")
+                await channel.send(embed=embed)
+                print(f"✅ Embed enviada com sucesso para #{channel.name}")
+                
+                # Log no canal de logs se configurado
+                logs_channel_id = data.get("config", {}).get("logs_channel")
+                if logs_channel_id:
+                    logs_channel = guild.get_channel(int(logs_channel_id))
+                    if logs_channel:
+                        await logs_channel.send(
+                            f"📝 Embed criada por {action_data.get('admin', 'Site Admin')} em #{channel.name}\n"
+                            f"Título: {action_data['title'][:100]}"
+                        )
+                
+                return True
+                
+            except ValueError as e:
+                print(f"❌ ERRO DE CONVERSÃO: Não foi possível converter channel_id para inteiro")
+                print(f"   channel_id recebido: {action_data.get('channel_id')}")
+                print(f"   Tipo: {type(action_data.get('channel_id'))}")
                 return False
-            
-            print(f"✅ Canal: #{channel.name} ({channel.id})")
-            print(f"📝 Título: {action_data['title'][:50]}...")
-            print(f"📄 Corpo: {action_data['body'][:100]}...")
-            
-            # Verifica permissões
-            bot_member = guild.get_member(bot.user.id)
-            if bot_member:
-                permissions = channel.permissions_for(bot_member)
-                if not permissions.send_messages:
-                    print("❌ Bot não tem permissão para enviar mensagens neste canal!")
-                    return False
-                if not permissions.embed_links:
-                    print("❌ Bot não tem permissão para enviar embeds neste canal!")
-                    return False
-            
-            # Cria e envia embed
-            embed = discord.Embed(
-                title=action_data["title"],
-                description=action_data["body"],
-                color=discord.Color.blue()
-            )
-            embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
-            
-            print("📤 Enviando embed...")
-            await channel.send(embed=embed)
-            print(f"✅ Embed enviada com sucesso para #{channel.name}")
-            
-            # Log no canal de logs se configurado
-            logs_channel_id = data.get("config", {}).get("logs_channel")
-            if logs_channel_id:
-                logs_channel = guild.get_channel(int(logs_channel_id))
-                if logs_channel:
-                    await logs_channel.send(
-                        f"📝 Embed criada por {action_data.get('admin', 'Site Admin')} em #{channel.name}\n"
-                        f"Título: {action_data['title'][:100]}"
-                    )
-            
-            return True
         
         elif action_type == "create_reaction_role":
-            channel_id = int(action_data["channel_id"])
-            channel = guild.get_channel(channel_id)
-            
-            if not channel:
-                print(f"❌ Canal {channel_id} não encontrado!")
-                return False
-            
-            print(f"✅ Canal: #{channel.name}")
-            print(f"📝 Conteúdo: {action_data['content'][:100]}...")
-            
-            # Verifica permissões
-            bot_member = guild.get_member(bot.user.id)
-            if bot_member:
-                permissions = channel.permissions_for(bot_member)
-                if not permissions.send_messages:
-                    print("❌ Sem permissão para enviar mensagens")
+            try:
+                channel_id = int(action_data["channel_id"])
+                channel = guild.get_channel(channel_id)
+                
+                if not channel:
+                    print(f"❌ Canal {channel_id} não encontrado!")
                     return False
-                if not permissions.add_reactions:
-                    print("❌ Sem permissão para adicionar reações")
-                    return False
-            
-            # Envia mensagem
-            message = await channel.send(action_data["content"])
-            message_id = str(message.id)
-            print(f"✅ Mensagem enviada com ID: {message_id}")
-            
-            # Processa pares emoji:cargo
-            pairs = action_data.get("emoji_cargo", "").split(",")
-            reaction_roles_data = {}
-            print(f"🔄 Processando {len(pairs)} pares")
-            
-            for pair in pairs:
-                if ":" in pair:
-                    try:
-                        emoji_str, role_name = pair.split(":", 1)
-                        emoji_str = emoji_str.strip()
-                        role_name = role_name.strip()
-                        print(f"   Processando: {emoji_str} -> {role_name}")
-                        
-                        # Encontra o cargo
-                        role = discord.utils.get(guild.roles, name=role_name)
-                        if role:
-                            # Adiciona reação
-                            try:
-                                await message.add_reaction(emoji_str)
-                                print(f"   ✅ Reação adicionada: {emoji_str}")
-                            except Exception as e:
-                                print(f"   ❌ Erro ao adicionar reação {emoji_str}: {e}")
-                                continue
+                
+                print(f"✅ Canal: #{channel.name}")
+                print(f"📝 Conteúdo: {action_data['content'][:100]}...")
+                
+                # Verifica permissões
+                bot_member = guild.get_member(bot.user.id)
+                if bot_member:
+                    permissions = channel.permissions_for(bot_member)
+                    if not permissions.send_messages:
+                        print("❌ Sem permissão para enviar mensagens")
+                        return False
+                    if not permissions.add_reactions:
+                        print("❌ Sem permissão para adicionar reações")
+                        return False
+                
+                # Envia mensagem
+                message = await channel.send(action_data["content"])
+                message_id = str(message.id)
+                print(f"✅ Mensagem enviada com ID: {message_id}")
+                
+                # Processa pares emoji:cargo
+                pairs = action_data.get("emoji_cargo", "").split(",")
+                reaction_roles_data = {}
+                print(f"🔄 Processando {len(pairs)} pares")
+                
+                for pair in pairs:
+                    if ":" in pair:
+                        try:
+                            emoji_str, role_name = pair.split(":", 1)
+                            emoji_str = emoji_str.strip()
+                            role_name = role_name.strip()
+                            print(f"   Processando: {emoji_str} -> {role_name}")
                             
-                            # Prepara dados para salvar
-                            if emoji_str.startswith("<"):
-                                parsed = parse_emoji_str(emoji_str, guild)
-                                if parsed and hasattr(parsed, 'id'):
-                                    reaction_roles_data[str(parsed.id)] = str(role.id)
+                            # Encontra o cargo
+                            role = discord.utils.get(guild.roles, name=role_name)
+                            if role:
+                                # Adiciona reação
+                                try:
+                                    await message.add_reaction(emoji_str)
+                                    print(f"   ✅ Reação adicionada: {emoji_str}")
+                                except Exception as e:
+                                    print(f"   ❌ Erro ao adicionar reação {emoji_str}: {e}")
+                                    continue
+                                
+                                # Prepara dados para salvar
+                                if emoji_str.startswith("<"):
+                                    parsed = parse_emoji_str(emoji_str, guild)
+                                    if parsed and hasattr(parsed, 'id'):
+                                        reaction_roles_data[str(parsed.id)] = str(role.id)
+                                    else:
+                                        reaction_roles_data[emoji_str] = str(role.id)
                                 else:
                                     reaction_roles_data[emoji_str] = str(role.id)
+                                
+                                print(f"   ✅ Mapeamento: {emoji_str} -> {role.name}")
                             else:
-                                reaction_roles_data[emoji_str] = str(role.id)
-                            
-                            print(f"   ✅ Mapeamento: {emoji_str} -> {role.name}")
-                        else:
-                            print(f"   ❌ Cargo '{role_name}' não encontrado!")
-                    except Exception as e:
-                        print(f"   ❌ Erro ao processar par {pair}: {e}")
-            
-            # Salva no data.json se houver dados
-            if reaction_roles_data:
-                data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
-                save_data_to_github("Reaction role via site")
-                print(f"✅ Reaction role salva: {message_id}")
-                return True
-            else:
-                print("⚠️ Nenhum mapeamento válido criado")
+                                print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                        except Exception as e:
+                            print(f"   ❌ Erro ao processar par {pair}: {e}")
+                
+                # Salva no data.json se houver dados
+                if reaction_roles_data:
+                    data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
+                    save_data_to_github("Reaction role via site")
+                    print(f"✅ Reaction role salva: {message_id}")
+                    return True
+                else:
+                    print("⚠️ Nenhum mapeamento válido criado")
+                    return False
+                    
+            except ValueError as e:
+                print(f"❌ ERRO DE CONVERSÃO: channel_id inválido")
                 return False
         
         elif action_type == "create_role_buttons":
-            channel_id = int(action_data["channel_id"])
-            channel = guild.get_channel(channel_id)
-            
-            if not channel:
-                print(f"❌ Canal {channel_id} não encontrado!")
-                return False
-            
-            print(f"✅ Canal: #{channel.name}")
-            
-            # Processa pares botão:cargo
-            pairs = action_data.get("roles", "").split(",")
-            buttons_dict = {}
-            print(f"🔄 Processando {len(pairs)} botões")
-            
-            for pair in pairs:
-                if ":" in pair:
-                    try:
-                        button_name, role_name = pair.split(":", 1)
-                        button_name = button_name.strip()
-                        role_name = role_name.strip()
-                        print(f"   Processando botão: {button_name} -> {role_name}")
-                        
-                        # Encontra o cargo
-                        role = discord.utils.get(guild.roles, name=role_name)
-                        if role:
-                            buttons_dict[button_name] = role.id
-                            print(f"   ✅ Botão mapeado: {button_name} -> {role.name}")
-                        else:
-                            print(f"   ❌ Cargo '{role_name}' não encontrado!")
-                    except Exception as e:
-                        print(f"   ❌ Erro ao processar par {pair}: {e}")
-            
-            if buttons_dict:
-                # Cria view com botões
-                view = PersistentRoleButtonView(0, buttons_dict)
-                sent = await channel.send(action_data["content"], view=view)
-                print(f"✅ Mensagem com botões enviada: {sent.id}")
+            try:
+                channel_id = int(action_data["channel_id"])
+                channel = guild.get_channel(channel_id)
                 
-                # Atualiza IDs
-                view.message_id = sent.id
-                for item in view.children:
-                    if isinstance(item, PersistentRoleButton):
-                        item.message_id = sent.id
+                if not channel:
+                    print(f"❌ Canal {channel_id} não encontrado!")
+                    return False
                 
-                # Salva no data.json
-                data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
-                save_data_to_github("Role buttons via site")
+                print(f"✅ Canal: #{channel.name}")
                 
-                print(f"✅ Botões de cargo criados em #{channel.name}")
-                return True
-            else:
-                print("⚠️ Nenhum botão válido criado")
+                # Processa pares botão:cargo
+                pairs = action_data.get("roles", "").split(",")
+                buttons_dict = {}
+                print(f"🔄 Processando {len(pairs)} botões")
+                
+                for pair in pairs:
+                    if ":" in pair:
+                        try:
+                            button_name, role_name = pair.split(":", 1)
+                            button_name = button_name.strip()
+                            role_name = role_name.strip()
+                            print(f"   Processando botão: {button_name} -> {role_name}")
+                            
+                            # Encontra o cargo
+                            role = discord.utils.get(guild.roles, name=role_name)
+                            if role:
+                                buttons_dict[button_name] = role.id
+                                print(f"   ✅ Botão mapeado: {button_name} -> {role.name}")
+                            else:
+                                print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                        except Exception as e:
+                            print(f"   ❌ Erro ao processar par {pair}: {e}")
+                
+                if buttons_dict:
+                    # Cria view com botões
+                    view = PersistentRoleButtonView(0, buttons_dict)
+                    sent = await channel.send(action_data["content"], view=view)
+                    print(f"✅ Mensagem com botões enviada: {sent.id}")
+                    
+                    # Atualiza IDs
+                    view.message_id = sent.id
+                    for item in view.children:
+                        if isinstance(item, PersistentRoleButton):
+                            item.message_id = sent.id
+                    
+                    # Salva no data.json
+                    data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
+                    save_data_to_github("Role buttons via site")
+                    
+                    print(f"✅ Botões de cargo criados em #{channel.name}")
+                    return True
+                else:
+                    print("⚠️ Nenhum botão válido criado")
+                    return False
+                    
+            except ValueError as e:
+                print(f"❌ ERRO DE CONVERSÃO: channel_id inválido")
                 return False
         
         elif action_type == "warn_member":
-            member_id = int(action_data["member_id"])
-            member = guild.get_member(member_id)
-            
-            if not member:
-                print(f"❌ Membro {member_id} não encontrado!")
+            try:
+                member_id = int(action_data["member_id"])
+                member = guild.get_member(member_id)
+                
+                if not member:
+                    print(f"❌ Membro {member_id} não encontrado!")
+                    return False
+                
+                print(f"✅ Membro: {member.display_name}")
+                print(f"📝 Motivo: {action_data['reason']}")
+                
+                # Adiciona advertência
+                entry = {
+                    "by": "site_admin",
+                    "reason": action_data["reason"],
+                    "ts": now_br().strftime("%d/%m/%Y %H:%M"),
+                    "admin": action_data.get('admin', 'Site Admin')
+                }
+                data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
+                save_data_to_github(f"Warn via site: {member.display_name}")
+                
+                # Envia mensagem no canal de logs, se configurado
+                logs_channel_id = data.get("config", {}).get("logs_channel")
+                if logs_channel_id:
+                    logs_channel = guild.get_channel(int(logs_channel_id))
+                    if logs_channel:
+                        await logs_channel.send(
+                            f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
+                            f"Motivo: {action_data['reason']}"
+                        )
+                        print(f"📝 Log enviado para #{logs_channel.name}")
+                
+                print(f"✅ Membro advertido: {member.display_name}")
+                return True
+                
+            except ValueError as e:
+                print(f"❌ ERRO DE CONVERSÃO: member_id inválido")
                 return False
-            
-            print(f"✅ Membro: {member.display_name}")
-            print(f"📝 Motivo: {action_data['reason']}")
-            
-            # Adiciona advertência
-            entry = {
-                "by": "site_admin",
-                "reason": action_data["reason"],
-                "ts": now_br().strftime("%d/%m/%Y %H:%M"),
-                "admin": action_data.get('admin', 'Site Admin')
-            }
-            data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
-            save_data_to_github(f"Warn via site: {member.display_name}")
-            
-            # Envia mensagem no canal de logs, se configurado
-            logs_channel_id = data.get("config", {}).get("logs_channel")
-            if logs_channel_id:
-                logs_channel = guild.get_channel(int(logs_channel_id))
-                if logs_channel:
-                    await logs_channel.send(
-                        f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
-                        f"Motivo: {action_data['reason']}"
-                    )
-                    print(f"📝 Log enviado para #{logs_channel.name}")
-            
-            print(f"✅ Membro advertido: {member.display_name}")
-            return True
         
         else:
             print(f"❌ Tipo de ação desconhecida: {action_type}")
@@ -480,10 +513,6 @@ async def execute_bot_action_internal(action):
         
     except discord.HTTPException as e:
         print(f"❌ ERRO HTTP: {e}")
-        return False
-        
-    except ValueError as e:
-        print(f"❌ ERRO DE VALOR: {e}")
         return False
         
     except Exception as e:
@@ -884,8 +913,8 @@ def dashboard():
     roles = []
     
     if guild:
-        channels = [{"id": c.id, "name": c.name} for c in guild.text_channels]
-        roles = [{"id": r.id, "name": r.name} for r in guild.roles if r.name != "@everyone"]
+        channels = [{"id": str(c.id), "name": c.name} for c in guild.text_channels]  # ID como string
+        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if r.name != "@everyone"]
     
     channels_json = json.dumps(channels, ensure_ascii=False)
     roles_json = json.dumps(roles, ensure_ascii=False)
@@ -1439,6 +1468,8 @@ def dashboard():
             
             // Preenche todos os selects
             function populateSelects() {
+                console.log("Populando selects com canais:", guildChannels);
+                
                 // Canais
                 const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 
                                        'embed-channel', 'blocklinks-channel', 'test-channel'];
@@ -1446,12 +1477,18 @@ def dashboard():
                 channelSelects.forEach(selectId => {
                     const select = document.getElementById(selectId);
                     if (select) {
+                        // Limpa opções existentes
+                        select.innerHTML = '<option value="">Selecione um canal</option>';
+                        
                         guildChannels.forEach(channel => {
                             const option = document.createElement('option');
-                            option.value = channel.id;
+                            option.value = channel.id;  // Já é string
                             option.textContent = '#' + channel.name;
                             select.appendChild(option);
                         });
+                        
+                        // Debug: log do que foi adicionado
+                        console.log(`Select ${selectId}: ${select.options.length} opções`);
                     }
                 });
                 
@@ -1460,15 +1497,27 @@ def dashboard():
                 if (roleSelect && guildRoles) {
                     guildRoles.forEach(role => {
                         const option = document.createElement('option');
-                        option.value = role.id;
+                        option.value = role.id;  // Já é string
                         option.textContent = role.name;
                         roleSelect.appendChild(option);
                     });
                 }
                 
                 // Valores atuais
-                document.getElementById('welcome-channel').value = ''' + json.dumps(welcome_chan) + ''' || '';
-                document.getElementById('levelup-channel').value = ''' + json.dumps(levelup_chan) + ''' || '';
+                const welcomeChanSelect = document.getElementById('welcome-channel');
+                const levelupChanSelect = document.getElementById('levelup-channel');
+                
+                if (welcomeChanSelect) {
+                    const welcomeChanValue = ''' + json.dumps(welcome_chan) + ''' || '';
+                    welcomeChanSelect.value = welcomeChanValue;
+                    console.log("Valor do canal de boas-vindas:", welcomeChanValue);
+                }
+                
+                if (levelupChanSelect) {
+                    const levelupChanValue = ''' + json.dumps(levelup_chan) + ''' || '';
+                    levelupChanSelect.value = levelupChanValue;
+                    console.log("Valor do canal de level up:", levelupChanValue);
+                }
             }
             
             // Carrega membros da guild
@@ -1513,6 +1562,8 @@ def dashboard():
                     image_url: document.getElementById('welcome-image').value
                 };
                 
+                console.log("Salvando configuração de boas-vindas:", data);
+                
                 try {
                     const response = await fetch('/api/config/welcome', {
                         method: 'POST',
@@ -1523,7 +1574,8 @@ def dashboard():
                     const result = await response.json();
                     showAlert('welcome-alert', result.message, result.success);
                 } catch (error) {
-                    showAlert('welcome-alert', 'Erro de conexão', false);
+                    console.error("Erro ao salvar configuração:", error);
+                    showAlert('welcome-alert', 'Erro de conexão: ' + error.message, false);
                 }
             }
             
@@ -1532,6 +1584,8 @@ def dashboard():
                     rate: parseInt(document.getElementById('xp-rate').value),
                     channel_id: document.getElementById('levelup-channel').value
                 };
+                
+                console.log("Salvando configuração de XP:", data);
                 
                 try {
                     const response = await fetch('/api/config/xp', {
@@ -1543,7 +1597,8 @@ def dashboard():
                     const result = await response.json();
                     showAlert('xp-alert', result.message, result.success);
                 } catch (error) {
-                    showAlert('xp-alert', 'Erro de conexão', false);
+                    console.error("Erro ao salvar configuração XP:", error);
+                    showAlert('xp-alert', 'Erro de conexão: ' + error.message, false);
                 }
             }
             
@@ -1552,6 +1607,8 @@ def dashboard():
                 const channelId = document.getElementById('rr-channel').value;
                 const content = document.getElementById('rr-content').value;
                 const pairs = document.getElementById('rr-pair').value;
+                
+                console.log("Criando Reaction Role:", { channelId, content, pairs });
                 
                 if (!channelId || !content || !pairs) {
                     showAlert('roles-alert', 'Preencha todos os campos', false);
@@ -1577,6 +1634,7 @@ def dashboard():
                         document.getElementById('rr-pair').value = '';
                     }
                 } catch (error) {
+                    console.error("Erro ao criar Reaction Role:", error);
                     showAlert('roles-alert', 'Erro: ' + error.message, false);
                 }
             }
@@ -1586,6 +1644,8 @@ def dashboard():
                 const channelId = document.getElementById('btn-channel').value;
                 const content = document.getElementById('btn-content').value;
                 const pairs = document.getElementById('btn-pairs').value;
+                
+                console.log("Criando botões de cargo:", { channelId, content, pairs });
                 
                 if (!channelId || !content || !pairs) {
                     showAlert('roles-alert', 'Preencha todos os campos', false);
@@ -1611,6 +1671,7 @@ def dashboard():
                         document.getElementById('btn-pairs').value = '';
                     }
                 } catch (error) {
+                    console.error("Erro ao criar botões:", error);
                     showAlert('roles-alert', 'Erro: ' + error.message, false);
                 }
             }
@@ -1619,6 +1680,8 @@ def dashboard():
             async function executeWarn() {
                 const memberId = document.getElementById('warn-member').value;
                 const reason = document.getElementById('warn-reason').value;
+                
+                console.log("Executando advertência:", { memberId, reason });
                 
                 if (!memberId || !reason) {
                     alert('Selecione um membro e digite um motivo');
@@ -1642,6 +1705,7 @@ def dashboard():
                         document.getElementById('warn-reason').value = '';
                     }
                 } catch (error) {
+                    console.error("Erro ao advertir:", error);
                     alert('Erro: ' + error.message);
                 }
             }
@@ -1650,6 +1714,8 @@ def dashboard():
                 const channelId = document.getElementById('embed-channel').value;
                 const title = document.getElementById('embed-title').value;
                 const body = document.getElementById('embed-body').value;
+                
+                console.log("Criando embed:", { channelId, title, body });
                 
                 if (!channelId || !title || !body) {
                     alert('Preencha todos os campos');
@@ -1675,12 +1741,15 @@ def dashboard():
                         document.getElementById('embed-body').value = '';
                     }
                 } catch (error) {
+                    console.error("Erro ao criar embed:", error);
                     alert('Erro: ' + error.message);
                 }
             }
             
             async function clearWarns() {
                 const memberId = document.getElementById('clearwarn-member').value;
+                
+                console.log("Limpando advertências para:", memberId);
                 
                 if (!memberId) {
                     alert('Selecione um membro');
@@ -1703,12 +1772,15 @@ def dashboard():
                     const result = await response.json();
                     alert(result.message);
                 } catch (error) {
+                    console.error("Erro ao limpar advertências:", error);
                     alert('Erro: ' + error.message);
                 }
             }
             
             async function toggleBlockLinks() {
                 const channelId = document.getElementById('blocklinks-channel').value;
+                
+                console.log("Alternando bloqueio de links para canal:", channelId);
                 
                 if (!channelId) {
                     alert('Selecione um canal');
@@ -1727,6 +1799,7 @@ def dashboard():
                     const result = await response.json();
                     alert(result.message);
                 } catch (error) {
+                    console.error("Erro ao alternar bloqueio de links:", error);
                     alert('Erro: ' + error.message);
                 }
             }
@@ -1821,6 +1894,7 @@ def dashboard():
                         loadLevelRoles();
                     }
                 } catch (error) {
+                    console.error('Erro ao adicionar cargo por nível:', error);
                     showAlert('xp-alert', 'Erro: ' + error.message, false);
                 }
             }
@@ -1837,6 +1911,7 @@ def dashboard():
                     showAlert('xp-alert', result.message, result.success);
                     if (result.success) loadLevelRoles();
                 } catch (error) {
+                    console.error('Erro ao remover cargo por nível:', error);
                     showAlert('xp-alert', 'Erro: ' + error.message, false);
                 }
             }
@@ -1898,6 +1973,7 @@ def dashboard():
                     
                     setTimeout(checkProcessorStatus, 2000);
                 } catch (error) {
+                    console.error('Erro ao iniciar processador:', error);
                     resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
                 }
             }
@@ -1921,6 +1997,7 @@ def dashboard():
                     
                     setTimeout(checkProcessorStatus, 2000);
                 } catch (error) {
+                    console.error('Erro ao parar processador:', error);
                     resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
                 }
             }
@@ -1944,6 +2021,7 @@ def dashboard():
                     
                     setTimeout(checkQueue, 2000);
                 } catch (error) {
+                    console.error('Erro ao processar uma ação:', error);
                     resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
                 }
             }
@@ -1974,6 +2052,7 @@ def dashboard():
                     
                     resultDiv.innerHTML = html;
                 } catch (error) {
+                    console.error('Erro ao verificar status:', error);
                     resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
                 }
             }
@@ -2018,6 +2097,7 @@ def dashboard():
                     
                     resultDiv.innerHTML = html;
                 } catch (error) {
+                    console.error('Erro no teste de conexão:', error);
                     resultDiv.innerHTML = '<p class="error">❌ Erro de conexão: ' + error.message + '</p>';
                 }
             }
@@ -2056,12 +2136,15 @@ def dashboard():
                     
                     resultDiv.innerHTML = html;
                 } catch (error) {
+                    console.error('Erro ao verificar fila:', error);
                     resultDiv.innerHTML = '<p class="error">❌ Erro: ' + error.message + '</p>';
                 }
             }
             
             async function sendTestAction() {
                 const channelId = document.getElementById('test-channel').value;
+                console.log("Enviando teste para canal:", channelId);
+                
                 if (!channelId) {
                     alert('Selecione um canal primeiro');
                     return;
@@ -2089,6 +2172,7 @@ def dashboard():
                         resultDiv.innerHTML = '<div class="alert-error">❌ Falha: ' + data.message + '</div>';
                     }
                 } catch (error) {
+                    console.error('Erro ao enviar teste:', error);
                     resultDiv.innerHTML = '<div class="alert-error">❌ Erro de conexão: ' + error.message + '</div>';
                 }
             }
@@ -2442,7 +2526,7 @@ def api_test_bot():
                 
                 bot_status["target_guild"] = {
                     "name": guild.name,
-                    "channels": [{"id": c.id, "name": c.name} for c in guild.text_channels],
+                    "channels": [{"id": str(c.id), "name": c.name} for c in guild.text_channels],
                     "permissions": {
                         "send_messages": permissions.send_messages if permissions else False,
                         "embed_links": permissions.embed_links if permissions else False,
@@ -2532,7 +2616,6 @@ def api_processor_process_one():
         async def process_action_directly():
             return await execute_bot_action_internal(action)
         
-        import asyncio
         try:
             future = asyncio.run_coroutine_threadsafe(process_action_directly(), bot.loop)
             success = future.result(timeout=15)
@@ -2701,16 +2784,7 @@ async def on_ready():
     await asyncio.sleep(3)
     
     try:
-        def start_processor():
-            return start_action_processor()
-        
-        import threading
-        threading.Thread(target=start_processor, daemon=True).start()
-        
-        bot.loop.call_soon_threadsafe(
-            lambda: bot.loop.create_task(process_bot_actions_continuous())
-        )
-        
+        start_action_processor()
         print("✅ Sistema de ações INICIADO com sucesso!")
         
     except Exception as e:
