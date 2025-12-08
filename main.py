@@ -764,7 +764,7 @@ def home():
                 </ul>
             </div>
             
-            {"<p>Faça login para configurar o bot pelo navegador</p><a href=\"/login\" class=\"btn\">🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para Dashboard</a><a href="/logout" class="btn">🚪 Sair</a>'}
+            {"<p>Faça login para configurar o bot pelo navegador</p><a href='/login' class='btn'>🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para Dashboard</a><a href="/logout" class="btn">🚪 Sair</a>'}
             
             <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
                 Use <code>/comando</code> no Discord ou configure pelo site!
@@ -890,7 +890,7 @@ def dashboard():
     channels_json = json.dumps(channels, ensure_ascii=False)
     roles_json = json.dumps(roles, ensure_ascii=False)
     
-    return f'''
+    return '''
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
@@ -898,51 +898,51 @@ def dashboard():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Dashboard - Imune Bot</title>
         <style>
-            :root {{
+            :root {
                 --primary: #5865F2;
                 --primary-dark: #4752C4;
                 --success: #28a745;
                 --danger: #dc3545;
                 --warning: #ffc107;
                 --dark: #343a40;
-            }}
-            * {{
+            }
+            * {
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
-            }}
-            body {{
+            }
+            body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 background: #f5f5f5;
                 color: #333;
-            }}
-            header {{
+            }
+            header {
                 background: white;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 padding: 1rem 2rem;
-            }}
-            .header-content {{
+            }
+            .header-content {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 max-width: 1200px;
                 margin: 0 auto;
-            }}
-            h1 {{
+            }
+            h1 {
                 color: var(--primary);
-            }}
-            .user-info {{
+            }
+            .user-info {
                 display: flex;
                 align-items: center;
                 gap: 1rem;
-            }}
-            .avatar {{
+            }
+            .avatar {
                 width: 40px;
                 height: 40px;
                 border-radius: 50%;
                 border: 2px solid var(--primary);
-            }}
-            .btn {{
+            }
+            .btn {
                 padding: 0.5rem 1rem;
                 border: none;
                 border-radius: 5px;
@@ -951,138 +951,138 @@ def dashboard():
                 text-decoration: none;
                 display: inline-block;
                 transition: all 0.2s;
-            }}
-            .btn-primary {{ background: var(--primary); color: white; }}
-            .btn-primary:hover {{ background: var(--primary-dark); }}
-            .btn-success {{ background: var(--success); color: white; }}
-            .btn-danger {{ background: var(--danger); color: white; }}
-            .btn-warning {{ background: var(--warning); color: #333; }}
+            }
+            .btn-primary { background: var(--primary); color: white; }
+            .btn-primary:hover { background: var(--primary-dark); }
+            .btn-success { background: var(--success); color: white; }
+            .btn-danger { background: var(--danger); color: white; }
+            .btn-warning { background: var(--warning); color: #333; }
             
-            .container {{
+            .container {
                 max-width: 1200px;
                 margin: 2rem auto;
                 padding: 0 1rem;
-            }}
+            }
             
-            .tab-nav {{
+            .tab-nav {
                 display: flex;
                 gap: 0.5rem;
                 margin-bottom: 1rem;
                 border-bottom: 2px solid #ddd;
                 padding-bottom: 0.5rem;
-            }}
-            .tab-btn {{
+            }
+            .tab-btn {
                 padding: 0.75rem 1.5rem;
                 background: #e9ecef;
                 border: none;
                 border-radius: 5px 5px 0 0;
                 cursor: pointer;
                 font-weight: 600;
-            }}
-            .tab-btn.active {{
+            }
+            .tab-btn.active {
                 background: var(--primary);
                 color: white;
-            }}
-            .tab {{
+            }
+            .tab {
                 display: none;
                 animation: fadeIn 0.3s;
-            }}
-            .tab.active {{ display: block; }}
+            }
+            .tab.active { display: block; }
             
-            @keyframes fadeIn {{
-                from {{ opacity: 0; transform: translateY(10px); }}
-                to {{ opacity: 1; transform: translateY(0); }}
-            }}
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
             
-            .card {{
+            .card {
                 background: white;
                 border-radius: 10px;
                 padding: 1.5rem;
                 margin: 1rem 0;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            }}
-            .stats-grid {{
+            }
+            .stats-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
                 gap: 1rem;
                 margin: 1rem 0;
-            }}
-            .stat-card {{
+            }
+            .stat-card {
                 background: linear-gradient(135deg, var(--primary), var(--primary-dark));
                 color: white;
                 padding: 1.5rem;
                 border-radius: 10px;
                 text-align: center;
-            }}
-            .stat-card h3 {{
+            }
+            .stat-card h3 {
                 font-size: 2rem;
                 margin-bottom: 0.5rem;
-            }}
+            }
             
-            .form-group {{
+            .form-group {
                 margin-bottom: 1.5rem;
-            }}
-            label {{
+            }
+            label {
                 display: block;
                 margin-bottom: 0.5rem;
                 font-weight: 600;
                 color: var(--dark);
-            }}
-            .form-control {{
+            }
+            .form-control {
                 width: 100%;
                 padding: 0.75rem;
                 border: 1px solid #ddd;
                 border-radius: 5px;
                 font-size: 1rem;
-            }}
-            .form-control:focus {{
+            }
+            .form-control:focus {
                 outline: none;
                 border-color: var(--primary);
                 box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
-            }}
+            }
             
-            .alert {{
+            .alert {
                 padding: 1rem;
                 border-radius: 5px;
                 margin: 1rem 0;
                 display: none;
-            }}
-            .alert-success {{
+            }
+            .alert-success {
                 background: #d4edda;
                 color: #155724;
                 border: 1px solid #c3e6cb;
-            }}
-            .alert-error {{
+            }
+            .alert-error {
                 background: #f8d7da;
                 color: #721c24;
                 border: 1px solid #f5c6cb;
-            }}
+            }
             
-            .command-grid {{
+            .command-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
                 gap: 1rem;
                 margin: 1rem 0;
-            }}
-            .command-card {{
+            }
+            .command-card {
                 background: white;
                 border-radius: 10px;
                 padding: 1rem;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            }}
-            .command-header {{
+            }
+            .command-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 1rem;
                 padding-bottom: 0.5rem;
                 border-bottom: 1px solid #eee;
-            }}
-            .command-name {{
+            }
+            .command-name {
                 font-family: monospace;
                 font-size: 1.1rem;
                 color: var(--primary);
-            }}
+            }
         </style>
     </head>
     <body>
@@ -1090,10 +1090,10 @@ def dashboard():
             <div class="header-content">
                 <h1>🤖 Imune Bot Dashboard</h1>
                 <div class="user-info">
-                    <img src="https://cdn.discordapp.com/avatars/{user['id']}/{user.get('avatar', '')}.png" 
+                    <img src="''' + f'https://cdn.discordapp.com/avatars/{user["id"]}/{user.get("avatar", "")}.png' + '''" 
                          alt="Avatar" class="avatar"
                          onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                    <span>{user['username']}</span>
+                    <span>''' + user['username'] + '''</span>
                     <a href="/" class="btn btn-primary">🏠 Início</a>
                     <a href="/logout" class="btn btn-danger">🚪 Sair</a>
                 </div>
@@ -1117,19 +1117,19 @@ def dashboard():
                     <h2>📊 Estatísticas do Bot</h2>
                     <div class="stats-grid">
                         <div class="stat-card">
-                            <h3>{len(data.get("xp", {}))}</h3>
+                            <h3>''' + str(len(data.get("xp", {}))) + '''</h3>
                             <p>Usuários com XP</p>
                         </div>
                         <div class="stat-card">
-                            <h3>{sum(len(w) for w in data.get("warns", {}).values())}</h3>
+                            <h3>''' + str(sum(len(w) for w in data.get("warns", {}).values())) + '''</h3>
                             <p>Advertências</p>
                         </div>
                         <div class="stat-card">
-                            <h3>{len(data.get("reaction_roles", {}))}</h3>
+                            <h3>''' + str(len(data.get("reaction_roles", {}))) + '''</h3>
                             <p>Reaction Roles</p>
                         </div>
                         <div class="stat-card">
-                            <h3>{len(data.get("role_buttons", {}))}</h3>
+                            <h3>''' + str(len(data.get("role_buttons", {}))) + '''</h3>
                             <p>Botões de Cargos</p>
                         </div>
                     </div>
@@ -1137,12 +1137,12 @@ def dashboard():
                 
                 <div class="card">
                     <h2>⚡ Status do Sistema</h2>
-                    <p><strong>Status do Bot:</strong> <span class="{'✅ Online' if bot.is_ready() else '❌ Offline'}">{'✅ Online' if bot.is_ready() else '❌ Offline'}</span></p>
-                    <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
-                    <p><strong>Membros:</strong> {len(guild.members) if guild else 0}</p>
-                    <p><strong>Taxa de XP atual:</strong> {xp_rate}x</p>
-                    <p><strong>Ações na fila:</strong> {len(bot_actions_queue)}</p>
-                    <p><strong>Processador rodando:</strong> {'✅ Sim' if action_processor_running else '❌ Não'}</p>
+                    <p><strong>Status do Bot:</strong> <span class="''' + ('online' if bot.is_ready() else 'offline') + '''">''' + ('✅ Online' if bot.is_ready() else '❌ Offline') + '''</span></p>
+                    <p><strong>Servidor:</strong> ''' + (guild.name if guild else 'Não conectado') + '''</p>
+                    <p><strong>Membros:</strong> ''' + str(len(guild.members) if guild else 0) + '''</p>
+                    <p><strong>Taxa de XP atual:</strong> ''' + str(xp_rate) + '''x</p>
+                    <p><strong>Ações na fila:</strong> ''' + str(len(bot_actions_queue)) + '''</p>
+                    <p><strong>Processador rodando:</strong> ''' + ('✅ Sim' if action_processor_running else '❌ Não') + '''</p>
                 </div>
             </div>
             
@@ -1158,12 +1158,12 @@ def dashboard():
                     </div>
                     <div class="form-group">
                         <label>Mensagem de Boas-vindas</label>
-                        <textarea id="welcome-message" class="form-control" rows="3">{welcome_msg}</textarea>
-                        <small>Use {"{member}"} para mencionar o novo membro</small>
+                        <textarea id="welcome-message" class="form-control" rows="3">''' + welcome_msg + '''</textarea>
+                        <small>Use {member} para mencionar o novo membro</small>
                     </div>
                     <div class="form-group">
                         <label>Imagem de Fundo (URL)</label>
-                        <input type="url" id="welcome-image" class="form-control" value="{welcome_bg}" placeholder="https://exemplo.com/imagem.jpg">
+                        <input type="url" id="welcome-image" class="form-control" value="''' + welcome_bg + '''" placeholder="https://exemplo.com/imagem.jpg">
                     </div>
                     <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
                     <div id="welcome-alert" class="alert"></div>
@@ -1176,7 +1176,7 @@ def dashboard():
                     <h2>⭐ Sistema de XP</h2>
                     <div class="form-group">
                         <label>Taxa de XP</label>
-                        <input type="number" id="xp-rate" class="form-control" value="{xp_rate}" min="1" max="10">
+                        <input type="number" id="xp-rate" class="form-control" value="''' + str(xp_rate) + '''" min="1" max="10">
                         <small>1 = fácil, 10 = muito difícil</small>
                     </div>
                     <div class="form-group">
@@ -1355,8 +1355,8 @@ def dashboard():
                     
                     <div class="form-group">
                         <h3>📊 Estatísticas de Moderação</h3>
-                        <p>Total de advertências: <strong>{sum(len(w) for w in data.get("warns", {}).values())}</strong></p>
-                        <p>Membros advertidos: <strong>{len(data.get("warns", {}))}</strong></p>
+                        <p>Total de advertências: <strong>''' + str(sum(len(w) for w in data.get("warns", {}).values())) + '''</strong></p>
+                        <p>Membros advertidos: <strong>''' + str(len(data.get("warns", {}))) + '''</strong></p>
                     </div>
                     
                     <div class="form-group">
@@ -1412,12 +1412,12 @@ def dashboard():
         
         <script>
             // Dados da guild
-            const guildChannels = {channels_json};
-            const guildRoles = {roles_json};
+            const guildChannels = ''' + channels_json + ''';
+            const guildRoles = ''' + roles_json + ''';
             let guildMembers = [];
             
             // Sistema de tabs
-            function showTab(tabId) {{
+            function showTab(tabId) {
                 document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
                 
@@ -1429,678 +1429,681 @@ def dashboard():
                 if (tabId === 'commands' || tabId === 'moderation') loadMembers();
                 if (tabId === 'moderation') loadCommandChannels();
                 if (tabId === 'diagnostic') loadDiagnosticData();
-            }}
+            }
             
             // Inicialização
-            document.addEventListener('DOMContentLoaded', function() {{
+            document.addEventListener('DOMContentLoaded', function() {
                 populateSelects();
                 loadMembers();
-            }});
+            });
             
             // Preenche todos os selects
-            function populateSelects() {{
+            function populateSelects() {
                 // Canais
                 const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 
                                        'embed-channel', 'blocklinks-channel', 'test-channel'];
                 
-                channelSelects.forEach(selectId => {{
+                channelSelects.forEach(selectId => {
                     const select = document.getElementById(selectId);
-                    if (select) {{
-                        guildChannels.forEach(channel => {{
+                    if (select) {
+                        guildChannels.forEach(channel => {
                             const option = document.createElement('option');
                             option.value = channel.id;
                             option.textContent = '#' + channel.name;
                             select.appendChild(option);
-                        }});
-                    }}
-                }});
+                        });
+                    }
+                });
                 
                 // Cargos
                 const roleSelect = document.getElementById('new-role');
-                if (roleSelect && guildRoles) {{
-                    guildRoles.forEach(role => {{
+                if (roleSelect && guildRoles) {
+                    guildRoles.forEach(role => {
                         const option = document.createElement('option');
                         option.value = role.id;
                         option.textContent = role.name;
                         roleSelect.appendChild(option);
-                    }});
-                }}
+                    });
+                }
                 
                 // Valores atuais
-                document.getElementById('welcome-channel').value = '{welcome_chan}' || '';
-                document.getElementById('levelup-channel').value = '{levelup_chan}' || '';
-            }}
+                document.getElementById('welcome-channel').value = ''' + json.dumps(welcome_chan) + ''' || '';
+                document.getElementById('levelup-channel').value = ''' + json.dumps(levelup_chan) + ''' || '';
+            }
             
             // Carrega membros da guild
-            async function loadMembers() {{
-                try {{
+            async function loadMembers() {
+                try {
                     const response = await fetch('/api/guild/members');
                     const result = await response.json();
                     
-                    if (result.success) {{
+                    if (result.success) {
                         guildMembers = result.members || [];
                         
                         // Preenche selects de membros
                         const memberSelects = ['warn-member', 'clearwarn-member', 'viewwarns-member'];
-                        memberSelects.forEach(selectId => {{
+                        memberSelects.forEach(selectId => {
                             const select = document.getElementById(selectId);
-                            if (select) {{
+                            if (select) {
                                 select.innerHTML = '<option value="">Selecione membro</option>';
-                                guildMembers.forEach(member => {{
+                                guildMembers.forEach(member => {
                                     const option = document.createElement('option');
                                     option.value = member.id;
                                     option.textContent = member.name;
                                     select.appendChild(option.cloneNode(true));
-                                }});
-                            }}
-                        }});
-                    }}
-                }} catch (error) {{
+                                });
+                            }
+                        });
+                    }
+                } catch (error) {
                     console.error('Erro ao carregar membros:', error);
-                }}
-            }}
+                }
+            }
             
             // Carrega dados para diagnóstico
-            async function loadDiagnosticData() {{
+            async function loadDiagnosticData() {
                 // Já preenchido por populateSelects()
-            }}
+            }
             
             // Funções para salvar configurações
-            async function saveWelcomeConfig() {{
-                const data = {{
+            async function saveWelcomeConfig() {
+                const data = {
                     message: document.getElementById('welcome-message').value,
                     channel_id: document.getElementById('welcome-channel').value,
                     image_url: document.getElementById('welcome-image').value
-                }};
+                };
                 
-                try {{
-                    const response = await fetch('/api/config/welcome', {{
+                try {
+                    const response = await fetch('/api/config/welcome', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(data)
-                    }});
+                    });
                     
                     const result = await response.json();
                     showAlert('welcome-alert', result.message, result.success);
-                }} catch (error) {{
+                } catch (error) {
                     showAlert('welcome-alert', 'Erro de conexão', false);
-                }}
-            }}
+                }
+            }
             
-            async function saveXPConfig() {{
-                const data = {{
+            async function saveXPConfig() {
+                const data = {
                     rate: parseInt(document.getElementById('xp-rate').value),
                     channel_id: document.getElementById('levelup-channel').value
-                }};
+                };
                 
-                try {{
-                    const response = await fetch('/api/config/xp', {{
+                try {
+                    const response = await fetch('/api/config/xp', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(data)
-                    }});
+                    });
                     
                     const result = await response.json();
                     showAlert('xp-alert', result.message, result.success);
-                }} catch (error) {{
+                } catch (error) {
                     showAlert('xp-alert', 'Erro de conexão', false);
-                }}
-            }}
+                }
+            }
             
             // Reaction Roles
-            async function createReactionRole() {{
+            async function createReactionRole() {
                 const channelId = document.getElementById('rr-channel').value;
                 const content = document.getElementById('rr-content').value;
                 const pairs = document.getElementById('rr-pair').value;
                 
-                if (!channelId || !content || !pairs) {{
+                if (!channelId || !content || !pairs) {
                     showAlert('roles-alert', 'Preencha todos os campos', false);
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/reactionrole/create', {{
+                try {
+                    const response = await fetch('/api/reactionrole/create', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             channel_id: channelId,
                             content: content,
                             emoji_cargo: pairs
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     showAlert('roles-alert', result.message, result.success);
                     
-                    if (result.success) {{
+                    if (result.success) {
                         document.getElementById('rr-content').value = '';
                         document.getElementById('rr-pair').value = '';
-                    }}
-                }} catch (error) {{
+                    }
+                } catch (error) {
                     showAlert('roles-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
+                }
+            }
             
             // Botões de cargos
-            async function createRoleButtons() {{
+            async function createRoleButtons() {
                 const channelId = document.getElementById('btn-channel').value;
                 const content = document.getElementById('btn-content').value;
                 const pairs = document.getElementById('btn-pairs').value;
                 
-                if (!channelId || !content || !pairs) {{
+                if (!channelId || !content || !pairs) {
                     showAlert('roles-alert', 'Preencha todos os campos', false);
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/rolebuttons/create', {{
+                try {
+                    const response = await fetch('/api/rolebuttons/create', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             channel_id: channelId,
                             content: content,
                             roles: pairs
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     showAlert('roles-alert', result.message, result.success);
                     
-                    if (result.success) {{
+                    if (result.success) {
                         document.getElementById('btn-content').value = '';
                         document.getElementById('btn-pairs').value = '';
-                    }}
-                }} catch (error) {{
+                    }
+                } catch (error) {
                     showAlert('roles-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
+                }
+            }
             
             // Executar comandos
-            async function executeWarn() {{
+            async function executeWarn() {
                 const memberId = document.getElementById('warn-member').value;
                 const reason = document.getElementById('warn-reason').value;
                 
-                if (!memberId || !reason) {{
+                if (!memberId || !reason) {
                     alert('Selecione um membro e digite um motivo');
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/command/warn', {{
+                try {
+                    const response = await fetch('/api/command/warn', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             member_id: memberId,
                             reason: reason
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     alert(result.message);
                     
-                    if (result.success) {{
+                    if (result.success) {
                         document.getElementById('warn-reason').value = '';
-                    }}
-                }} catch (error) {{
+                    }
+                } catch (error) {
                     alert('Erro: ' + error.message);
-                }}
-            }}
+                }
+            }
             
-            async function createEmbed() {{
+            async function createEmbed() {
                 const channelId = document.getElementById('embed-channel').value;
                 const title = document.getElementById('embed-title').value;
                 const body = document.getElementById('embed-body').value;
                 
-                if (!channelId || !title || !body) {{
+                if (!channelId || !title || !body) {
                     alert('Preencha todos os campos');
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/command/embed', {{
+                try {
+                    const response = await fetch('/api/command/embed', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             channel_id: channelId,
                             title: title,
                             body: body
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     alert(result.message);
                     
-                    if (result.success) {{
+                    if (result.success) {
                         document.getElementById('embed-title').value = '';
                         document.getElementById('embed-body').value = '';
-                    }}
-                }} catch (error) {{
+                    }
+                } catch (error) {
                     alert('Erro: ' + error.message);
-                }}
-            }}
+                }
+            }
             
-            async function clearWarns() {{
+            async function clearWarns() {
                 const memberId = document.getElementById('clearwarn-member').value;
                 
-                if (!memberId) {{
+                if (!memberId) {
                     alert('Selecione um membro');
                     return;
-                }}
+                }
                 
-                if (!confirm('Tem certeza que deseja limpar todas as advertências deste membro?')) {{
+                if (!confirm('Tem certeza que deseja limpar todas as advertências deste membro?')) {
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/command/clearwarns', {{
+                try {
+                    const response = await fetch('/api/command/clearwarns', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             member_id: memberId
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     alert(result.message);
-                }} catch (error) {{
+                } catch (error) {
                     alert('Erro: ' + error.message);
-                }}
-            }}
+                }
+            }
             
-            async function toggleBlockLinks() {{
+            async function toggleBlockLinks() {
                 const channelId = document.getElementById('blocklinks-channel').value;
                 
-                if (!channelId) {{
+                if (!channelId) {
                     alert('Selecione um canal');
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/command/blocklinks', {{
+                try {
+                    const response = await fetch('/api/command/blocklinks', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             channel_id: channelId
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     alert(result.message);
-                }} catch (error) {{
+                } catch (error) {
                     alert('Erro: ' + error.message);
-                }}
-            }}
+                }
+            }
             
             // Ver advertências de membro
-            async function viewMemberWarns() {{
+            async function viewMemberWarns() {
                 const memberId = document.getElementById('viewwarns-member').value;
                 
-                if (!memberId) {{
+                if (!memberId) {
                     document.getElementById('warns-list').style.display = 'none';
                     return;
-                }}
+                }
                 
-                try {{
+                try {
                     const response = await fetch('/api/member/warns?member_id=' + memberId);
                     const result = await response.json();
                     
                     const container = document.getElementById('warns-list');
-                    if (result.warns && result.warns.length > 0) {{
+                    if (result.warns && result.warns.length > 0) {
                         let html = '<h4>Advertências:</h4><ul>';
-                        result.warns.forEach(warn => {{
-                            html += `<li><strong>${{warn.reason}}</strong> - ${{warn.ts}}</li>`;
-                        }});
+                        result.warns.forEach(warn => {
+                            html += '<li><strong>' + warn.reason + '</strong> - ' + warn.ts + '</li>';
+                        });
                         html += '</ul>';
                         container.innerHTML = html;
-                    }} else {{
+                    } else {
                         container.innerHTML = '<p>Nenhuma advertência encontrada.</p>';
-                    }}
+                    }
                     container.style.display = 'block';
-                }} catch (error) {{
+                } catch (error) {
                     console.error('Erro:', error);
-                }}
-            }}
+                }
+            }
             
             // Carregar cargos por nível
-            async function loadLevelRoles() {{
-                try {{
+            async function loadLevelRoles() {
+                try {
                     const response = await fetch('/api/level-roles');
                     const result = await response.json();
                     
                     const container = document.getElementById('level-roles-container');
-                    if (!result.level_roles || Object.keys(result.level_roles).length === 0) {{
+                    if (!result.level_roles || Object.keys(result.level_roles).length === 0) {
                         container.innerHTML = '<p>Nenhum cargo por nível configurado.</p>';
                         return;
-                    }}
+                    }
                     
                     let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
-                    for (const [level, roleId] of Object.entries(result.level_roles)) {{
+                    for (const [level, roleId] of Object.entries(result.level_roles)) {
                         const role = guildRoles.find(r => r.id == roleId);
                         const roleName = role ? role.name : 'Cargo não encontrado';
                         html += `
                             <div style="background: #e9ecef; padding: 0.5rem 1rem; border-radius: 5px; display: flex; align-items: center; gap: 0.5rem;">
-                                <strong>Nível ${{level}}:</strong> ${{roleName}}
-                                <button onclick="removeLevelRole(${{level}})" 
+                                <strong>Nível ${level}:</strong> ${roleName}
+                                <button onclick="removeLevelRole(${level})" 
                                         style="background: #dc3545; color: white; border: none; border-radius: 3px; padding: 0.25rem 0.5rem; cursor: pointer;">
                                     ×
                                 </button>
                             </div>
                         `;
-                    }}
+                    }
                     html += '</div>';
                     container.innerHTML = html;
-                }} catch (error) {{
+                } catch (error) {
                     console.error('Erro:', error);
-                }}
-            }}
+                }
+            }
             
-            async function addLevelRole() {{
+            async function addLevelRole() {
                 const level = document.getElementById('new-level').value;
                 const roleId = document.getElementById('new-role').value;
                 
-                if (!level || !roleId) {{
+                if (!level || !roleId) {
                     showAlert('xp-alert', 'Preencha o nível e selecione um cargo', false);
                     return;
-                }}
+                }
                 
-                try {{
-                    const response = await fetch('/api/level-roles', {{
+                try {
+                    const response = await fetch('/api/level-roles', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             level: level,
                             role_id: roleId
-                        }})
-                    }});
+                        })
+                    });
                     
                     const result = await response.json();
                     showAlert('xp-alert', result.message, result.success);
                     
-                    if (result.success) {{
+                    if (result.success) {
                         document.getElementById('new-level').value = '';
                         loadLevelRoles();
-                    }}
-                }} catch (error) {{
+                    }
+                } catch (error) {
                     showAlert('xp-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
+                }
+            }
             
-            async function removeLevelRole(level) {{
+            async function removeLevelRole(level) {
                 if (!confirm('Remover cargo do nível ' + level + '?')) return;
                 
-                try {{
-                    const response = await fetch('/api/level-roles?level=' + level, {{
+                try {
+                    const response = await fetch('/api/level-roles?level=' + level, {
                         method: 'DELETE'
-                    }});
+                    });
                     
                     const result = await response.json();
                     showAlert('xp-alert', result.message, result.success);
                     if (result.success) loadLevelRoles();
-                }} catch (error) {{
+                } catch (error) {
                     showAlert('xp-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
+                }
+            }
             
             // Configuração de canais de comandos
-            async function loadCommandChannels() {{
-                try {{
+            async function loadCommandChannels() {
+                try {
                     const response = await fetch('/api/command-channels');
                     const result = await response.json();
                     
                     const container = document.getElementById('command-channels-config');
-                    if (!result.command_channels) {{
+                    if (!result.command_channels) {
                         container.innerHTML = '<p>Nenhuma configuração encontrada.</p>';
                         return;
-                    }}
+                    }
                     
                     let html = '';
-                    for (const [cmd, channels] of Object.entries(result.command_channels)) {{
+                    for (const [cmd, channels] of Object.entries(result.command_channels)) {
                         html += `
                             <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
-                                <strong>/${{cmd}}</strong>
-                                <div style="margin-top: 0.5rem;">
-                                    ${{channels.length > 0 ? 
-                                        'Canais permitidos: ' + channels.map(function(c) {{
-                                            var chan = guildChannels.find(function(gc) {{ return gc.id == c; }});
-                                            return chan ? '#' + chan.name : c;
-                                        }}).join(', ') : 
-                                        '✅ Todos os canais permitidos'}}
-                                </div>
-                            </div>
-                        `;
-                    }}
+                                <strong>/${cmd}</strong>
+                                <div style="margin-top: 0.5rem;">`;
+                        
+                        if (channels.length > 0) {
+                            const channelNames = channels.map(function(c) {
+                                const chan = guildChannels.find(function(gc) { return gc.id == c; });
+                                return chan ? '#' + chan.name : c;
+                            }).join(', ');
+                            html += 'Canais permitidos: ' + channelNames;
+                        } else {
+                            html += '✅ Todos os canais permitidos';
+                        }
+                        
+                        html += '</div></div>';
+                    }
                     container.innerHTML = html || '<p>Nenhuma configuração encontrada.</p>';
-                }} catch (error) {{
+                } catch (error) {
                     console.error('Erro:', error);
-                }}
-            }}
+                }
+            }
             
             // Funções de diagnóstico - Controles do Processador
-            async function startProcessor() {{
+            async function startProcessor() {
                 const resultDiv = document.getElementById('processor-controls-result');
                 resultDiv.innerHTML = '<p>▶️ Iniciando processador...</p>';
                 
-                try {{
-                    const response = await fetch('/api/processor/start', {{
+                try {
+                    const response = await fetch('/api/processor/start', {
                         method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}}
-                    }});
+                        headers: {'Content-Type': 'application/json'}
+                    });
                     
                     const data = await response.json();
-                    if (data.success) {{
-                        resultDiv.innerHTML = `<div class="alert-success">${data.message}</div>`;
-                    }} else {{
-                        resultDiv.innerHTML = `<div class="alert-error">${data.message}</div>`;
-                    }}
+                    if (data.success) {
+                        resultDiv.innerHTML = '<div class="alert-success">' + data.message + '</div>';
+                    } else {
+                        resultDiv.innerHTML = '<div class="alert-error">' + data.message + '</div>';
+                    }
                     
                     setTimeout(checkProcessorStatus, 2000);
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
-                }}
-            }}
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
+                }
+            }
             
-            async function stopProcessor() {{
+            async function stopProcessor() {
                 const resultDiv = document.getElementById('processor-controls-result');
                 resultDiv.innerHTML = '<p>⏹️ Parando processador...</p>';
                 
-                try {{
-                    const response = await fetch('/api/processor/stop', {{
+                try {
+                    const response = await fetch('/api/processor/stop', {
                         method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}}
-                    }});
+                        headers: {'Content-Type': 'application/json'}
+                    });
                     
                     const data = await response.json();
-                    if (data.success) {{
-                        resultDiv.innerHTML = `<div class="alert-success">${data.message}</div>`;
-                    }} else {{
-                        resultDiv.innerHTML = `<div class="alert-error">${data.message}</div>`;
-                    }}
+                    if (data.success) {
+                        resultDiv.innerHTML = '<div class="alert-success">' + data.message + '</div>';
+                    } else {
+                        resultDiv.innerHTML = '<div class="alert-error">' + data.message + '</div>';
+                    }
                     
                     setTimeout(checkProcessorStatus, 2000);
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
-                }}
-            }}
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
+                }
+            }
             
-            async function processOneAction() {{
+            async function processOneAction() {
                 const resultDiv = document.getElementById('processor-controls-result');
                 resultDiv.innerHTML = '<p>⚡ Processando uma ação...</p>';
                 
-                try {{
-                    const response = await fetch('/api/processor/process-one', {{
+                try {
+                    const response = await fetch('/api/processor/process-one', {
                         method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}}
-                    }});
+                        headers: {'Content-Type': 'application/json'}
+                    });
                     
                     const data = await response.json();
-                    if (data.success) {{
-                        resultDiv.innerHTML = `<div class="alert-success">${data.message}</div>`;
-                    }} else {{
-                        resultDiv.innerHTML = `<div class="alert-error">${data.message}</div>`;
-                    }}
+                    if (data.success) {
+                        resultDiv.innerHTML = '<div class="alert-success">' + data.message + '</div>';
+                    } else {
+                        resultDiv.innerHTML = '<div class="alert-error">' + data.message + '</div>';
+                    }
                     
                     setTimeout(checkQueue, 2000);
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
-                }}
-            }}
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
+                }
+            }
             
-            async function checkProcessorStatus() {{
+            async function checkProcessorStatus() {
                 const resultDiv = document.getElementById('processor-controls-result');
                 resultDiv.innerHTML = '<p>🔍 Verificando status...</p>';
                 
-                try {{
+                try {
                     const response = await fetch('/api/processor/status');
                     const data = await response.json();
                     
                     let html = '<h4>Status do Processador:</h4>';
-                    html += `<p><strong>Processador rodando:</strong> ${data.processor_running ? '✅ Sim' : '❌ Não'}</p>`;
-                    html += `<p><strong>Ações na fila:</strong> ${data.queue_length}</p>`;
-                    html += `<p><strong>Bot pronto:</strong> ${data.bot_ready ? '✅ Sim' : '❌ Não'}</p>`;
+                    html += '<p><strong>Processador rodando:</strong> ' + (data.processor_running ? '✅ Sim' : '❌ Não') + '</p>';
+                    html += '<p><strong>Ações na fila:</strong> ' + data.queue_length + '</p>';
+                    html += '<p><strong>Bot pronto:</strong> ' + (data.bot_ready ? '✅ Sim' : '❌ Não') + '</p>';
                     
-                    if (data.has_processor_task) {{
-                        html += `<p><strong>Task do processador:</strong></p>`;
-                        html += `<ul>`;
-                        html += `<li>Existe: ✅ Sim</li>`;
-                        html += `<li>Concluída: ${data.task_done ? '✅ Sim' : '❌ Não'}</li>`;
-                        html += `<li>Rodando: ${data.task_running ? '✅ Sim' : '❌ Não'}</li>`;
-                        html += `</ul>`;
-                    }} else {{
-                        html += `<p><strong>Task do processador:</strong> ❌ Não existe</p>`;
-                    }}
+                    if (data.has_processor_task) {
+                        html += '<p><strong>Task do processador:</strong></p>';
+                        html += '<ul>';
+                        html += '<li>Existe: ✅ Sim</li>';
+                        html += '<li>Concluída: ' + (data.task_done ? '✅ Sim' : '❌ Não') + '</li>';
+                        html += '<li>Rodando: ' + (data.task_running ? '✅ Sim' : '❌ Não') + '</li>';
+                        html += '</ul>';
+                    } else {
+                        html += '<p><strong>Task do processador:</strong> ❌ Não existe</p>';
+                    }
                     
                     resultDiv.innerHTML = html;
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro: ${error.message}</div>`;
-                }}
-            }}
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
+                }
+            }
             
             // Funções de diagnóstico antigas (mantidas para compatibilidade)
-            async function testBotConnection() {{
+            async function testBotConnection() {
                 const resultDiv = document.getElementById('bot-test-result');
                 resultDiv.innerHTML = '<p>🔍 Testando conexão...</p>';
                 
-                try {{
+                try {
                     const response = await fetch('/api/test/bot');
                     const data = await response.json();
                     
                     let html = '<h4>Resultado do Teste:</h4>';
                     
-                    if (data.success) {{
-                        html += `<p>✅ Conexão com API estabelecida</p>`;
-                        html += `<p><strong>Bot Status:</strong> ${{data.bot.ready ? '✅ Online' : '❌ Offline'}}</p>`;
-                        html += `<p><strong>Bot User:</strong> ${{data.bot.user || 'Não conectado'}}</p>`;
-                        html += `<p><strong>Guilds Conectadas:</strong> ${{data.bot.guilds.length}}</p>`;
+                    if (data.success) {
+                        html += '<p>✅ Conexão com API estabelecida</p>';
+                        html += '<p><strong>Bot Status:</strong> ' + (data.bot.ready ? '✅ Online' : '❌ Offline') + '</p>';
+                        html += '<p><strong>Bot User:</strong> ' + (data.bot.user || 'Não conectado') + '</p>';
+                        html += '<p><strong>Guilds Conectadas:</strong> ' + data.bot.guilds.length + '</p>';
                         
-                        if (data.bot.target_guild) {{
-                            html += `<p><strong>Guild Alvo:</strong> ✅ ${{data.bot.target_guild.name}}</p>`;
-                            html += `<p><strong>Canais Disponíveis:</strong> ${{data.bot.target_guild.channels.length}}</p>`;
-                            html += `<p><strong>Permissões:</strong></p>`;
-                            html += `<ul>`;
-                            html += `<li>Enviar Mensagens: ${{data.bot.target_guild.permissions.send_messages ? '✅' : '❌'}}</li>`;
-                            html += `<li>Embed Links: ${{data.bot.target_guild.permissions.embed_links ? '✅' : '❌'}}</li>`;
-                            html += `<li>Gerenciar Cargos: ${{data.bot.target_guild.permissions.manage_roles ? '✅' : '❌'}}</li>`;
-                            html += `</ul>`;
-                        }}
+                        if (data.bot.target_guild) {
+                            html += '<p><strong>Guild Alvo:</strong> ✅ ' + data.bot.target_guild.name + '</p>';
+                            html += '<p><strong>Canais Disponíveis:</strong> ' + data.bot.target_guild.channels.length + '</p>';
+                            html += '<p><strong>Permissões:</strong></p>';
+                            html += '<ul>';
+                            html += '<li>Enviar Mensagens: ' + (data.bot.target_guild.permissions.send_messages ? '✅' : '❌') + '</li>';
+                            html += '<li>Embed Links: ' + (data.bot.target_guild.permissions.embed_links ? '✅' : '❌') + '</li>';
+                            html += '<li>Gerenciar Cargos: ' + (data.bot.target_guild.permissions.manage_roles ? '✅' : '❌') + '</li>';
+                            html += '</ul>';
+                        }
                         
-                        html += `<p><strong>Ações na Fila:</strong> ${{data.queue_length}}</p>`;
+                        html += '<p><strong>Ações na Fila:</strong> ' + data.queue_length + '</p>';
                         
-                        if (data.bot.guilds && data.bot.guilds.length > 0) {{
-                            html += `<details><summary>Ver Todas as Guilds</summary><pre>${{JSON.stringify(data.bot.guilds, null, 2)}}</pre></details>`;
-                        }}
-                    }} else {{
-                        html += `<p class="error">❌ Falha na conexão com a API</p>`;
-                        html += `<p>${{data.message || 'Erro desconhecido'}}</p>`;
-                    }}
+                        if (data.bot.guilds && data.bot.guilds.length > 0) {
+                            html += '<details><summary>Ver Todas as Guilds</summary><pre>' + JSON.stringify(data.bot.guilds, null, 2) + '</pre></details>';
+                        }
+                    } else {
+                        html += '<p class="error">❌ Falha na conexão com a API</p>';
+                        html += '<p>' + (data.message || 'Erro desconhecido') + '</p>';
+                    }
                     
                     resultDiv.innerHTML = html;
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<p class="error">❌ Erro de conexão: ${{error.message}}</p>`;
-                }}
-            }}
+                } catch (error) {
+                    resultDiv.innerHTML = '<p class="error">❌ Erro de conexão: ' + error.message + '</p>';
+                }
+            }
             
-            async function checkQueue() {{
+            async function checkQueue() {
                 const resultDiv = document.getElementById('queue-result');
                 resultDiv.innerHTML = '<p>🔍 Verificando fila...</p>';
                 
-                try {{
+                try {
                     const response = await fetch('/api/debug/actions');
                     const data = await response.json();
                     
                     let html = '<h4>Estado da Fila:</h4>';
                     
-                    if (data.success) {{
-                        html += `<p><strong>Ações na fila:</strong> ${{data.queue_length}}</p>`;
-                        html += `<p><strong>Bot pronto:</strong> ${{data.bot_ready ? '✅ Sim' : '❌ Não'}}</p>`;
-                        html += `<p><strong>Processamento ativo:</strong> ${{data.processing_active ? '✅ Sim' : '❌ Não'}}</p>`;
-                        html += `<p><strong>Processador rodando:</strong> ${{data.processor_running ? '✅ Sim' : '❌ Não'}}</p>`;
+                    if (data.success) {
+                        html += '<p><strong>Ações na fila:</strong> ' + data.queue_length + '</p>';
+                        html += '<p><strong>Bot pronto:</strong> ' + (data.bot_ready ? '✅ Sim' : '❌ Não') + '</p>';
+                        html += '<p><strong>Processamento ativo:</strong> ' + (data.processing_active ? '✅ Sim' : '❌ Não') + '</p>';
+                        html += '<p><strong>Processador rodando:</strong> ' + (data.processor_running ? '✅ Sim' : '❌ Não') + '</p>';
                         
-                        if (data.queue && data.queue.length > 0) {{
+                        if (data.queue && data.queue.length > 0) {
                             html += '<h5>Próximas ações:</h5><ul>';
-                            data.queue.forEach((action, index) => {{
-                                html += `<li><strong>${{action.type}}</strong> - ${{action.timestamp}}</li>`;
-                            }});
+                            data.queue.forEach((action, index) => {
+                                html += '<li><strong>' + action.type + '</strong> - ' + action.timestamp + '</li>';
+                            });
                             html += '</ul>';
-                        }} else {{
+                        } else {
                             html += '<p>✅ Nenhuma ação pendente na fila</p>';
-                        }}
+                        }
                         
-                        html += `<details><summary>Ver Detalhes Completos</summary><pre>${{JSON.stringify(data, null, 2)}}</pre></details>`;
-                    }} else {{
-                        html += `<p class="error">❌ Erro ao verificar fila</p>`;
-                        html += `<p>${{data.message}}</p>`;
-                    }}
+                        html += '<details><summary>Ver Detalhes Completos</summary><pre>' + JSON.stringify(data, null, 2) + '</pre></details>';
+                    } else {
+                        html += '<p class="error">❌ Erro ao verificar fila</p>';
+                        html += '<p>' + data.message + '</p>';
+                    }
                     
                     resultDiv.innerHTML = html;
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<p class="error">❌ Erro: ${{error.message}}</p>`;
-                }}
-            }}
+                } catch (error) {
+                    resultDiv.innerHTML = '<p class="error">❌ Erro: ' + error.message + '</p>';
+                }
+            }
             
-            async function sendTestAction() {{
+            async function sendTestAction() {
                 const channelId = document.getElementById('test-channel').value;
-                if (!channelId) {{
+                if (!channelId) {
                     alert('Selecione um canal primeiro');
                     return;
-                }}
+                }
                 
                 const resultDiv = document.getElementById('test-result');
                 resultDiv.innerHTML = '<p>🚀 Enviando teste...</p>';
                 
-                try {{
-                    const response = await fetch('/api/command/embed', {{
+                try {
+                    const response = await fetch('/api/command/embed', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             channel_id: channelId,
                             title: "Teste do Site - Diagnóstico",
                             body: "Esta é uma mensagem de teste enviada pelo site para verificar a conexão entre o site e o bot Discord. Se esta mensagem aparecer, o sistema está funcionando corretamente! ✅",
                             admin: "Sistema de Diagnóstico"
-                        }})
-                    }});
+                        })
+                    });
                     
                     const data = await response.json();
-                    if (data.success) {{
+                    if (data.success) {
                         resultDiv.innerHTML = '<div class="alert-success">✅ Teste enviado com sucesso! A embed será criada no Discord em instantes.</div>';
-                    }} else {{
-                        resultDiv.innerHTML = `<div class="alert-error">❌ Falha: ${{data.message}}</div>`;
-                    }}
-                }} catch (error) {{
-                    resultDiv.innerHTML = `<div class="alert-error">❌ Erro de conexão: ${{error.message}}</div>`;
-                }}
-            }}
+                    } else {
+                        resultDiv.innerHTML = '<div class="alert-error">❌ Falha: ' + data.message + '</div>';
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro de conexão: ' + error.message + '</div>';
+                }
+            }
             
             // Utilitários
-            function showAlert(elementId, message, isSuccess) {{
+            function showAlert(elementId, message, isSuccess) {
                 const alertEl = document.getElementById(elementId);
                 alertEl.textContent = message;
                 alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
                 alertEl.style.display = 'block';
                 
-                setTimeout(() => {{
+                setTimeout(() => {
                     alertEl.style.display = 'none';
-                }}, 5000);
-            }}
+                }, 5000);
+            }
         </script>
     </body>
     </html>
