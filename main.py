@@ -712,7 +712,7 @@ def home():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Imune Bot - Painel de Controle</title>
+        <title>Painel de Controle</title>
         <style>
             body {{
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -776,7 +776,7 @@ def home():
     </head>
     <body>
         <div class="container">
-            <h1>🤖 Imune Bot Dashboard</h1>
+            <h1>Painel de Controle</h1>
             <div class="status {bot_class}">
                 {bot_status}
             </div>
@@ -793,7 +793,7 @@ def home():
                 </ul>
             </div>
             
-            {"<p>Faça login para configurar o bot pelo navegador</p><a href='/login' class='btn'>🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para Dashboard</a><a href="/logout" class="btn">🚪 Sair</a>'}
+            {"<p>Faça login para configurar o bot pelo navegador</p><a href='/login' class='btn'>🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para o Painel</a><a href="/logout" class="btn">🚪 Sair</a>'}
             
             <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
                 Use <code>/comando</code> no Discord ou configure pelo site!
@@ -925,7 +925,7 @@ def dashboard():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Dashboard - Imune Bot</title>
+        <title>Painel - Bot</title>
         <style>
             :root {
                 --primary: #5865F2;
@@ -1117,7 +1117,7 @@ def dashboard():
     <body>
         <header>
             <div class="header-content">
-                <h1>🤖 Imune Bot Dashboard</h1>
+                <h1>Painel de Controle</h1>
                 <div class="user-info">
                     <img src="''' + f'https://cdn.discordapp.com/avatars/{user["id"]}/{user.get("avatar", "")}.png' + '''" 
                          alt="Avatar" class="avatar"
