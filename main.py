@@ -290,16 +290,38 @@ async def execute_bot_action_internal(action):
                         print("❌ Bot não tem permissão para enviar embeds neste canal!")
                         return False
                 
+                # Processa cor da embed
+                color = discord.Color.blue()  # Default
+                if action_data.get('color'):
+                    try:
+                        # Remove o # se existir
+                        color_hex = action_data['color'].replace('#', '')
+                        color = discord.Color(int(color_hex, 16))
+                    except:
+                        print(f"⚠️ Cor inválida: {action_data.get('color')}, usando padrão")
+                
                 # Cria e envia embed
                 embed = discord.Embed(
                     title=action_data["title"],
                     description=action_data["body"],
-                    color=discord.Color.blue()
+                    color=color
                 )
+                
+                # Adiciona imagem se fornecida
+                if action_data.get('image_url'):
+                    embed.set_image(url=action_data['image_url'])
+                
                 embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
                 
+                # Processa menção
+                mention_text = ""
+                if action_data.get('mention') == 'everyone':
+                    mention_text = "@everyone"
+                elif action_data.get('mention') == 'here':
+                    mention_text = "@here"
+                
                 print("📤 Enviando embed...")
-                await channel.send(embed=embed)
+                await channel.send(content=mention_text, embed=embed)
                 print(f"✅ Embed enviada com sucesso para #{channel.name}")
                 
                 # Log no canal de logs se configurado
@@ -716,26 +738,29 @@ def home():
         <style>
             body {{
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
                 margin: 0;
                 padding: 0;
                 min-height: 100vh;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                color: #e0e0e0;
             }}
             .container {{
-                background: white;
+                background: #121212;
                 border-radius: 20px;
                 padding: 40px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
                 text-align: center;
                 max-width: 500px;
                 width: 90%;
+                border: 1px solid #333;
             }}
             h1 {{
-                color: #333;
+                color: #5865F2;
                 margin-bottom: 10px;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.5);
             }}
             .status {{
                 padding: 10px;
@@ -743,8 +768,8 @@ def home():
                 margin: 20px 0;
                 font-weight: bold;
             }}
-            .online {{ background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
-            .offline {{ background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }}
+            .online {{ background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }}
+            .offline {{ background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }}
             .btn {{
                 display: inline-block;
                 background: #5865F2;
@@ -755,22 +780,49 @@ def home():
                 font-weight: bold;
                 margin: 10px;
                 transition: all 0.3s;
+                border: none;
+                cursor: pointer;
             }}
             .btn:hover {{
                 background: #4752C4;
                 transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                box-shadow: 0 5px 15px rgba(88, 101, 242, 0.3);
             }}
             .features {{
                 text-align: left;
                 margin: 20px 0;
                 padding: 15px;
-                background: #f8f9fa;
+                background: #1a1a1a;
                 border-radius: 10px;
+                border: 1px solid #333;
+            }}
+            .features h3 {{
+                color: #5865F2;
+                margin-bottom: 10px;
             }}
             .features li {{
                 margin: 8px 0;
                 padding-left: 10px;
+                color: #b0b0b0;
+            }}
+            .features ul {{
+                list-style: none;
+                padding: 0;
+            }}
+            .features li:before {{
+                content: "✅";
+                margin-right: 10px;
+                color: #5865F2;
+            }}
+            p {{
+                color: #b0b0b0;
+            }}
+            code {{
+                background: #1a1a1a;
+                padding: 2px 6px;
+                border-radius: 4px;
+                color: #4ade80;
+                border: 1px solid #333;
             }}
         </style>
     </head>
@@ -784,18 +836,18 @@ def home():
             <div class="features">
                 <h3>✨ Funcionalidades:</h3>
                 <ul>
-                    <li>✅ Sistema de XP e Níveis</li>
-                    <li>✅ Reaction Roles</li>
-                    <li>✅ Boas-vindas Personalizadas</li>
-                    <li>✅ Sistema de Moderação</li>
-                    <li>✅ Botões de Cargos</li>
-                    <li>✅ Painel Web de Controle</li>
+                    <li>Sistema de XP e Níveis</li>
+                    <li>Reaction Roles</li>
+                    <li>Boas-vindas Personalizadas</li>
+                    <li>Sistema de Moderação</li>
+                    <li>Botões de Cargos</li>
+                    <li>Painel Web de Controle</li>
                 </ul>
             </div>
             
             {"<p>Faça login para configurar o bot pelo navegador</p><a href='/login' class='btn'>🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para o Painel</a><a href="/logout" class="btn">🚪 Sair</a>'}
             
-            <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
+            <p style="margin-top: 20px; color: #888; font-size: 0.9em;">
                 Use <code>/comando</code> no Discord ou configure pelo site!
             </p>
         </div>
@@ -865,8 +917,25 @@ def callback():
             return f'''
             <!DOCTYPE html>
             <html>
-            <head><title>Acesso Negado</title></head>
-            <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <head>
+                <title>Acesso Negado</title>
+                <style>
+                    body {{
+                        font-family: Arial;
+                        text-align: center;
+                        padding: 50px;
+                        background: #121212;
+                        color: #e0e0e0;
+                    }}
+                    h2 {{ color: #ff6b6b; }}
+                    a {{
+                        color: #5865F2;
+                        text-decoration: none;
+                    }}
+                    a:hover {{ text-decoration: underline; }}
+                </style>
+            </head>
+            <body>
                 <h2>⚠️ Acesso Restrito</h2>
                 <p>Apenas administradores do servidor podem acessar este painel.</p>
                 <p>Servidor ID: {str(GUILD_ID)}</p>
@@ -930,10 +999,14 @@ def dashboard():
             :root {
                 --primary: #5865F2;
                 --primary-dark: #4752C4;
-                --success: #28a745;
-                --danger: #dc3545;
-                --warning: #ffc107;
-                --dark: #343a40;
+                --success: #10b981;
+                --danger: #ef4444;
+                --warning: #f59e0b;
+                --dark: #1a1a1a;
+                --darker: #121212;
+                --light: #e0e0e0;
+                --gray: #333;
+                --gray-light: #444;
             }
             * {
                 margin: 0;
@@ -942,13 +1015,14 @@ def dashboard():
             }
             body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: #f5f5f5;
-                color: #333;
+                background: var(--darker);
+                color: var(--light);
             }
             header {
-                background: white;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                background: var(--dark);
+                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
                 padding: 1rem 2rem;
+                border-bottom: 1px solid var(--gray);
             }
             .header-content {
                 display: flex;
@@ -959,6 +1033,7 @@ def dashboard():
             }
             h1 {
                 color: var(--primary);
+                text-shadow: 0 2px 4px rgba(0,0,0,0.5);
             }
             .user-info {
                 display: flex;
@@ -985,7 +1060,7 @@ def dashboard():
             .btn-primary:hover { background: var(--primary-dark); }
             .btn-success { background: var(--success); color: white; }
             .btn-danger { background: var(--danger); color: white; }
-            .btn-warning { background: var(--warning); color: #333; }
+            .btn-warning { background: var(--warning); color: white; }
             
             .container {
                 max-width: 1200px;
@@ -997,16 +1072,22 @@ def dashboard():
                 display: flex;
                 gap: 0.5rem;
                 margin-bottom: 1rem;
-                border-bottom: 2px solid #ddd;
+                border-bottom: 2px solid var(--gray);
                 padding-bottom: 0.5rem;
+                flex-wrap: wrap;
             }
             .tab-btn {
                 padding: 0.75rem 1.5rem;
-                background: #e9ecef;
+                background: var(--gray);
                 border: none;
                 border-radius: 5px 5px 0 0;
                 cursor: pointer;
                 font-weight: 600;
+                color: var(--light);
+                transition: all 0.2s;
+            }
+            .tab-btn:hover {
+                background: var(--gray-light);
             }
             .tab-btn.active {
                 background: var(--primary);
@@ -1024,11 +1105,12 @@ def dashboard():
             }
             
             .card {
-                background: white;
+                background: var(--dark);
                 border-radius: 10px;
                 padding: 1.5rem;
                 margin: 1rem 0;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                border: 1px solid var(--gray);
             }
             .stats-grid {
                 display: grid;
@@ -1042,6 +1124,7 @@ def dashboard():
                 padding: 1.5rem;
                 border-radius: 10px;
                 text-align: center;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             }
             .stat-card h3 {
                 font-size: 2rem;
@@ -1055,19 +1138,30 @@ def dashboard():
                 display: block;
                 margin-bottom: 0.5rem;
                 font-weight: 600;
-                color: var(--dark);
+                color: var(--primary);
             }
             .form-control {
                 width: 100%;
                 padding: 0.75rem;
-                border: 1px solid #ddd;
+                background: var(--darker);
+                border: 1px solid var(--gray);
                 border-radius: 5px;
                 font-size: 1rem;
+                color: var(--light);
+                transition: all 0.2s;
             }
             .form-control:focus {
                 outline: none;
                 border-color: var(--primary);
-                box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
+                box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.2);
+            }
+            textarea.form-control {
+                min-height: 100px;
+                resize: vertical;
+            }
+            select.form-control {
+                background: var(--darker);
+                color: var(--light);
             }
             
             .alert {
@@ -1077,14 +1171,14 @@ def dashboard():
                 display: none;
             }
             .alert-success {
-                background: #d4edda;
-                color: #155724;
-                border: 1px solid #c3e6cb;
+                background: #1a472a;
+                color: #4ade80;
+                border: 1px solid #2ecc71;
             }
             .alert-error {
-                background: #f8d7da;
-                color: #721c24;
-                border: 1px solid #f5c6cb;
+                background: #7f1d1d;
+                color: #f87171;
+                border: 1px solid #ef4444;
             }
             
             .command-grid {
@@ -1094,10 +1188,11 @@ def dashboard():
                 margin: 1rem 0;
             }
             .command-card {
-                background: white;
+                background: var(--darker);
                 border-radius: 10px;
                 padding: 1rem;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                border: 1px solid var(--gray);
             }
             .command-header {
                 display: flex;
@@ -1105,12 +1200,49 @@ def dashboard():
                 align-items: center;
                 margin-bottom: 1rem;
                 padding-bottom: 0.5rem;
-                border-bottom: 1px solid #eee;
+                border-bottom: 1px solid var(--gray);
             }
             .command-name {
                 font-family: monospace;
                 font-size: 1.1rem;
                 color: var(--primary);
+            }
+            
+            small {
+                color: #888;
+                font-size: 0.9em;
+            }
+            
+            .color-preview {
+                width: 30px;
+                height: 30px;
+                border-radius: 5px;
+                border: 1px solid var(--gray);
+                display: inline-block;
+                vertical-align: middle;
+                margin-left: 10px;
+            }
+            
+            details {
+                background: var(--darker);
+                padding: 1rem;
+                border-radius: 5px;
+                margin: 1rem 0;
+                border: 1px solid var(--gray);
+            }
+            summary {
+                cursor: pointer;
+                color: var(--primary);
+                font-weight: 600;
+            }
+            
+            pre {
+                background: var(--dark);
+                padding: 1rem;
+                border-radius: 5px;
+                overflow: auto;
+                color: var(--light);
+                border: 1px solid var(--gray);
             }
         </style>
     </head>
@@ -1288,6 +1420,51 @@ def dashboard():
                     <p>Execute comandos do bot diretamente pelo site:</p>
                     
                     <div class="command-grid">
+                        <!-- Comando: Mensagem Personalizada -->
+                        <div class="command-card">
+                            <div class="command-header">
+                                <span class="command-name">/mensagem_personalizada</span>
+                                <span class="btn btn-primary">📢</span>
+                            </div>
+                            <p>Cria uma mensagem embed com opções avançadas</p>
+                            <div class="form-group">
+                                <label>Canal</label>
+                                <select id="embed-channel" class="form-control">
+                                    <option value="">Selecione canal</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Título</label>
+                                <input type="text" id="embed-title" class="form-control" placeholder="Título da mensagem">
+                            </div>
+                            <div class="form-group">
+                                <label>Corpo da Mensagem</label>
+                                <textarea id="embed-body" class="form-control" rows="2" placeholder="Conteúdo da mensagem"></textarea>
+                                <small>Use \n para quebra de linha</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Cor da Embed (Hexadecimal)</label>
+                                <div style="display: flex; gap: 1rem; align-items: center;">
+                                    <input type="text" id="embed-color" class="form-control" value="#5865F2" placeholder="#5865F2">
+                                    <div id="color-preview" class="color-preview" style="background-color: #5865F2;"></div>
+                                </div>
+                                <small>Cores sugeridas: #5865F2 (Discord), #FF0000 (Vermelho), #00FF00 (Verde), #FFFF00 (Amarelo)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Imagem (URL opcional)</label>
+                                <input type="url" id="embed-image" class="form-control" placeholder="https://exemplo.com/imagem.jpg">
+                            </div>
+                            <div class="form-group">
+                                <label>Menção</label>
+                                <select id="embed-mention" class="form-control">
+                                    <option value="">Nenhuma menção</option>
+                                    <option value="everyone">@everyone</option>
+                                    <option value="here">@here</option>
+                                </select>
+                            </div>
+                            <button onclick="createEmbed()" class="btn btn-primary">📝 Criar Embed</button>
+                        </div>
+                        
                         <!-- Comando: Advertir -->
                         <div class="command-card">
                             <div class="command-header">
@@ -1306,30 +1483,6 @@ def dashboard():
                                 <input type="text" id="warn-reason" class="form-control" placeholder="Motivo da advertência">
                             </div>
                             <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
-                        </div>
-                        
-                        <!-- Comando: Mensagem Personalizada -->
-                        <div class="command-card">
-                            <div class="command-header">
-                                <span class="command-name">/mensagem_personalizada</span>
-                                <span class="btn btn-primary">📢</span>
-                            </div>
-                            <p>Cria uma mensagem embed</p>
-                            <div class="form-group">
-                                <label>Canal</label>
-                                <select id="embed-channel" class="form-control">
-                                    <option value="">Selecione canal</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Título</label>
-                                <input type="text" id="embed-title" class="form-control" placeholder="Título da mensagem">
-                            </div>
-                            <div class="form-group">
-                                <label>Corpo</label>
-                                <textarea id="embed-body" class="form-control" rows="2" placeholder="Conteúdo da mensagem"></textarea>
-                            </div>
-                            <button onclick="createEmbed()" class="btn btn-primary">📝 Criar Embed</button>
                         </div>
                         
                         <!-- Comando: Limpar Advertências -->
@@ -1377,7 +1530,7 @@ def dashboard():
                         <select id="viewwarns-member" class="form-control" onchange="viewMemberWarns()">
                             <option value="">Selecione membro para ver advertências</option>
                         </select>
-                        <div id="warns-list" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px; display: none;">
+                        <div id="warns-list" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; display: none; border: 1px solid #333;">
                             <!-- Advertências serão listadas aqui -->
                         </div>
                     </div>
@@ -1405,25 +1558,25 @@ def dashboard():
                     
                     <div class="form-group">
                         <h3>⚙️ Controles do Processador</h3>
-                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
                             <button onclick="startProcessor()" class="btn btn-success">▶️ Iniciar Processador</button>
                             <button onclick="stopProcessor()" class="btn btn-danger">⏹️ Parar Processador</button>
                             <button onclick="processOneAction()" class="btn btn-primary">⚡ Processar 1 Ação</button>
                             <button onclick="checkProcessorStatus()" class="btn btn-warning">🔍 Ver Status</button>
                         </div>
-                        <div id="processor-controls-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                        <div id="processor-controls-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
                     </div>
                     
                     <div class="form-group">
                         <h3>🔄 Testar Conexão Bot</h3>
                         <button onclick="testBotConnection()" class="btn btn-primary">Testar Conexão</button>
-                        <div id="bot-test-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                        <div id="bot-test-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
                     </div>
                     
                     <div class="form-group">
                         <h3>📊 Fila de Ações</h3>
                         <button onclick="checkQueue()" class="btn btn-primary">Verificar Fila</button>
-                        <div id="queue-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                        <div id="queue-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
                     </div>
                     
                     <div class="form-group">
@@ -1433,7 +1586,7 @@ def dashboard():
                             <option value="">Selecione um canal</option>
                         </select>
                         <button onclick="sendTestAction()" class="btn btn-success" style="margin-top: 1rem;">Enviar Teste</button>
-                        <div id="test-result" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;"></div>
+                        <div id="test-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
                     </div>
                 </div>
             </div>
@@ -1464,6 +1617,15 @@ def dashboard():
             document.addEventListener('DOMContentLoaded', function() {
                 populateSelects();
                 loadMembers();
+                
+                // Preview da cor da embed
+                const colorInput = document.getElementById('embed-color');
+                const colorPreview = document.getElementById('color-preview');
+                if (colorInput && colorPreview) {
+                    colorInput.addEventListener('input', function() {
+                        colorPreview.style.backgroundColor = this.value;
+                    });
+                }
             });
             
             // Preenche todos os selects
@@ -1677,6 +1839,50 @@ def dashboard():
             }
             
             // Executar comandos
+            async function createEmbed() {
+                const channelId = document.getElementById('embed-channel').value;
+                const title = document.getElementById('embed-title').value;
+                const body = document.getElementById('embed-body').value;
+                const color = document.getElementById('embed-color').value;
+                const image = document.getElementById('embed-image').value;
+                const mention = document.getElementById('embed-mention').value;
+                
+                console.log("Criando embed:", { channelId, title, body, color, image, mention });
+                
+                if (!channelId || !title || !body) {
+                    alert('Preencha todos os campos obrigatórios (canal, título, corpo)');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/command/embed', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            channel_id: channelId,
+                            title: title,
+                            body: body,
+                            color: color,
+                            image_url: image,
+                            mention: mention
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    alert(result.message);
+                    
+                    if (result.success) {
+                        document.getElementById('embed-title').value = '';
+                        document.getElementById('embed-body').value = '';
+                        document.getElementById('embed-image').value = '';
+                        document.getElementById('embed-mention').value = '';
+                    }
+                } catch (error) {
+                    console.error("Erro ao criar embed:", error);
+                    alert('Erro: ' + error.message);
+                }
+            }
+            
             async function executeWarn() {
                 const memberId = document.getElementById('warn-member').value;
                 const reason = document.getElementById('warn-reason').value;
@@ -1706,42 +1912,6 @@ def dashboard():
                     }
                 } catch (error) {
                     console.error("Erro ao advertir:", error);
-                    alert('Erro: ' + error.message);
-                }
-            }
-            
-            async function createEmbed() {
-                const channelId = document.getElementById('embed-channel').value;
-                const title = document.getElementById('embed-title').value;
-                const body = document.getElementById('embed-body').value;
-                
-                console.log("Criando embed:", { channelId, title, body });
-                
-                if (!channelId || !title || !body) {
-                    alert('Preencha todos os campos');
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/command/embed', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            channel_id: channelId,
-                            title: title,
-                            body: body
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    alert(result.message);
-                    
-                    if (result.success) {
-                        document.getElementById('embed-title').value = '';
-                        document.getElementById('embed-body').value = '';
-                    }
-                } catch (error) {
-                    console.error("Erro ao criar embed:", error);
                     alert('Erro: ' + error.message);
                 }
             }
@@ -1851,7 +2021,7 @@ def dashboard():
                         const role = guildRoles.find(r => r.id == roleId);
                         const roleName = role ? role.name : 'Cargo não encontrado';
                         html += `
-                            <div style="background: #e9ecef; padding: 0.5rem 1rem; border-radius: 5px; display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="background: #333; padding: 0.5rem 1rem; border-radius: 5px; display: flex; align-items: center; gap: 0.5rem;">
                                 <strong>Nível ${level}:</strong> ${roleName}
                                 <button onclick="removeLevelRole(${level})" 
                                         style="background: #dc3545; color: white; border: none; border-radius: 3px; padding: 0.25rem 0.5rem; cursor: pointer;">
@@ -1931,7 +2101,7 @@ def dashboard():
                     let html = '';
                     for (const [cmd, channels] of Object.entries(result.command_channels)) {
                         html += `
-                            <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
+                            <div style="margin-bottom: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;">
                                 <strong>/${cmd}</strong>
                                 <div style="margin-top: 0.5rem;">`;
                         
@@ -2045,7 +2215,7 @@ def dashboard():
                         html += '<li>Existe: ✅ Sim</li>';
                         html += '<li>Concluída: ' + (data.task_done ? '✅ Sim' : '❌ Não') + '</li>';
                         html += '<li>Rodando: ' + (data.task_running ? '✅ Sim' : '❌ Não') + '</li>';
-                        html += '</ul>';
+                        '</ul>';
                     } else {
                         html += '<p><strong>Task do processador:</strong> ❌ Não existe</p>';
                     }
@@ -2161,6 +2331,7 @@ def dashboard():
                             channel_id: channelId,
                             title: "Teste do Site - Diagnóstico",
                             body: "Esta é uma mensagem de teste enviada pelo site para verificar a conexão entre o site e o bot Discord. Se esta mensagem aparecer, o sistema está funcionando corretamente! ✅",
+                            color: "#5865F2",
                             admin: "Sistema de Diagnóstico"
                         })
                     });
@@ -2373,7 +2544,7 @@ def api_command_clearwarns():
 
 @app.route("/api/command/embed", methods=["POST"])
 def api_command_embed():
-    """API para criar embed"""
+    """API para criar embed com todas as opções"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -2382,15 +2553,21 @@ def api_command_embed():
         channel_id = req_data.get('channel_id')
         title = req_data.get('title')
         body = req_data.get('body')
+        color = req_data.get('color', '#5865F2')
+        image_url = req_data.get('image_url')
+        mention = req_data.get('mention')
         
         if not channel_id or not title or not body:
-            return jsonify({"success": False, "message": "Preencha todos os campos"})
+            return jsonify({"success": False, "message": "Preencha todos os campos obrigatórios (canal, título, corpo)"})
         
         success = execute_bot_action(
             "create_embed",
             channel_id=channel_id,
             title=title,
             body=body,
+            color=color,
+            image_url=image_url,
+            mention=mention,
             admin=session['user']['username']
         )
         
