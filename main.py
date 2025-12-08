@@ -147,11 +147,17 @@ def xp_to_level(xp):
     return max(lvl, 1)
 
 EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
+EMOJI_NAME_RE = re.compile(r":([a-zA-Z0-9_]+):")
 
 def parse_emoji_str(emoji_str, guild: discord.Guild = None):
+    """Analisa uma string de emoji e retorna o objeto apropriado"""
     if not emoji_str:
         return None
-    m = EMOJI_RE.match(emoji_str.strip())
+    
+    emoji_str = emoji_str.strip()
+    
+    # Verifica se é um emoji personalizado (formato <:nome:id>)
+    m = EMOJI_RE.match(emoji_str)
     if m:
         name, id_str = m.groups()
         try:
@@ -163,6 +169,38 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
             return discord.PartialEmoji(name=name, id=eid)
         except Exception:
             pass
+    
+    # Verifica se é um emoji padrão (formato :nome:)
+    m2 = EMOJI_NAME_RE.match(emoji_str)
+    if m2:
+        emoji_name = m2.group(1)
+        # Procura emoji no servidor primeiro
+        if guild:
+            emoji = discord.utils.get(guild.emojis, name=emoji_name)
+            if emoji:
+                return emoji
+        
+        # Se não encontrar, retorna como string (será tratado como emoji Unicode)
+        # Para emojis padrão do Discord, podemos tentar convertê-los
+        try:
+            # Mapeamento de emojis padrão do Discord
+            standard_emojis = {
+                "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
+                "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
+                "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
+                "eyes": "👀", "smile": "😄", "sunglasses": "😎", "thinking": "🤔",
+                "partying_face": "🥳", "ok_hand": "👌", "clap": "👏", "muscle": "💪",
+                "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
+            }
+            if emoji_name.lower() in standard_emojis:
+                return standard_emojis[emoji_name.lower()]
+        except Exception:
+            pass
+        
+        # Retorna como string para processamento posterior
+        return emoji_str
+    
+    # Se não for nenhum dos formatos acima, assume que é um emoji Unicode
     return emoji_str
 
 # ========================
@@ -311,6 +349,8 @@ async def execute_bot_action_internal(action):
                 if action_data.get('image_url'):
                     embed.set_image(url=action_data['image_url'])
                 
+                embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
+                
                 # Processa menção
                 mention_text = ""
                 if action_data.get('mention') == 'everyone':
@@ -384,25 +424,58 @@ async def execute_bot_action_internal(action):
                             # Encontra o cargo
                             role = discord.utils.get(guild.roles, name=role_name)
                             if role:
-                                # Adiciona reação
+                                # Analisa o emoji
+                                parsed_emoji = parse_emoji_str(emoji_str, guild)
+                                
+                                # Tenta adicionar a reação
                                 try:
-                                    await message.add_reaction(emoji_str)
-                                    print(f"   ✅ Reação adicionada: {emoji_str}")
+                                    if isinstance(parsed_emoji, (discord.Emoji, discord.PartialEmoji)):
+                                        await message.add_reaction(parsed_emoji)
+                                        emoji_key = str(parsed_emoji.id)
+                                    else:
+                                        # É uma string (emoji Unicode ou :nome:)
+                                        emoji_to_react = parsed_emoji
+                                        # Se for formato :nome:, tenta encontrar o emoji correspondente
+                                        if emoji_str.startswith(":") and emoji_str.endswith(":"):
+                                            # Procura emoji no servidor
+                                            emoji_name = emoji_str[1:-1]
+                                            server_emoji = discord.utils.get(guild.emojis, name=emoji_name)
+                                            if server_emoji:
+                                                emoji_to_react = server_emoji
+                                                emoji_key = str(server_emoji.id)
+                                            else:
+                                                # Mapeamento de emojis padrão
+                                                standard_emojis = {
+                                                    "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
+                                                    "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
+                                                    "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
+                                                    "eyes": "👀", "smile": "😄", "sunglasses": "😎", "thinking": "🤔",
+                                                    "partying_face": "🥳", "ok_hand": "👌", "clap": "👏", "muscle": "💪",
+                                                    "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
+                                                }
+                                                if emoji_name.lower() in standard_emojis:
+                                                    emoji_to_react = standard_emojis[emoji_name.lower()]
+                                                    emoji_key = emoji_to_react
+                                                else:
+                                                    emoji_to_react = emoji_name
+                                                    emoji_key = emoji_str
+                                        else:
+                                            # É um emoji Unicode
+                                            emoji_to_react = parsed_emoji
+                                            emoji_key = str(parsed_emoji)
+                                        
+                                        await message.add_reaction(emoji_to_react)
+                                    
+                                    print(f"   ✅ Reação adicionada: {emoji_to_react}")
+                                    
+                                    # Prepara dados para salvar
+                                    reaction_roles_data[emoji_key] = str(role.id)
+                                    print(f"   ✅ Mapeamento: {emoji_key} -> {role.name}")
+                                    
                                 except Exception as e:
                                     print(f"   ❌ Erro ao adicionar reação {emoji_str}: {e}")
                                     continue
                                 
-                                # Prepara dados para salvar
-                                if emoji_str.startswith("<"):
-                                    parsed = parse_emoji_str(emoji_str, guild)
-                                    if parsed and hasattr(parsed, 'id'):
-                                        reaction_roles_data[str(parsed.id)] = str(role.id)
-                                    else:
-                                        reaction_roles_data[emoji_str] = str(role.id)
-                                else:
-                                    reaction_roles_data[emoji_str] = str(role.id)
-                                
-                                print(f"   ✅ Mapeamento: {emoji_str} -> {role.name}")
                             else:
                                 print(f"   ❌ Cargo '{role_name}' não encontrado!")
                         except Exception as e:
@@ -1242,6 +1315,31 @@ def dashboard():
                 color: var(--light);
                 border: 1px solid var(--gray);
             }
+            
+            .emoji-help {
+                background: var(--darker);
+                padding: 1rem;
+                border-radius: 5px;
+                margin: 1rem 0;
+                border: 1px solid var(--gray);
+            }
+            .emoji-help h4 {
+                color: var(--primary);
+                margin-bottom: 0.5rem;
+            }
+            .emoji-examples {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin-top: 0.5rem;
+            }
+            .emoji-example {
+                background: var(--gray);
+                padding: 0.25rem 0.5rem;
+                border-radius: 3px;
+                font-family: monospace;
+                font-size: 0.9em;
+            }
         </style>
     </head>
     <body>
@@ -1369,8 +1467,34 @@ def dashboard():
             <!-- Tab: Cargos -->
             <div id="roles" class="tab">
                 <div class="card">
-                    <h2>🎭 Gerenciar Cargos Emoji</h2>
-                    <p>Crie cargos com emoji diretamente pelo site:</p>
+                    <h2>🎭 Gerenciar Reaction Roles</h2>
+                    <p>Crie reaction roles diretamente pelo site:</p>
+                    
+                    <div class="emoji-help">
+                        <h4>📝 Formatos de Emoji Suportados:</h4>
+                        <p><strong>1. Emojis Personalizados (do seu servidor):</strong></p>
+                        <div class="emoji-examples">
+                            <span class="emoji-example">&lt;:nomedoemoji:123456789&gt;</span>
+                            <span class="emoji-example">&lt;a:nomedoemoji:123456789&gt; (animado)</span>
+                        </div>
+                        <p><strong>2. Emojis Padrão (por nome):</strong></p>
+                        <div class="emoji-examples">
+                            <span class="emoji-example">:thumbsup:</span>
+                            <span class="emoji-example">:check:</span>
+                            <span class="emoji-example">:warning:</span>
+                            <span class="emoji-example">:star:</span>
+                            <span class="emoji-example">:heart:</span>
+                        </div>
+                        <p><strong>3. Emojis Unicode:</strong></p>
+                        <div class="emoji-examples">
+                            <span class="emoji-example">👍</span>
+                            <span class="emoji-example">🎉</span>
+                            <span class="emoji-example">🔥</span>
+                            <span class="emoji-example">✅</span>
+                            <span class="emoji-example">⚠️</span>
+                        </div>
+                        <p><small>Dica: Para emojis personalizados, você pode copiar o emoji diretamente do Discord com Ctrl+C.</small></p>
+                    </div>
                     
                     <div class="form-group">
                         <label>Canal para Mensagem</label>
@@ -1384,8 +1508,8 @@ def dashboard():
                     </div>
                     <div class="form-group">
                         <label>Emoji e Cargo (emoji:cargo)</label>
-                        <input type="text" id="rr-pair" class="form-control" placeholder="🎮:Gamer,🎵:Música">
-                        <small>Separe múltiplos por vírgula</small>
+                        <input type="text" id="rr-pair" class="form-control" placeholder=":thumbsup:👍,✅:Verificado,&lt;:nomedoemoji:123456789&gt;:VIP">
+                        <small>Separe múltiplos por vírgula. Exemplo: <code>:thumbsup:👍:Moderador,✅:Verificado,&lt;:customemoji:123456789&gt;:VIP</code></small>
                     </div>
                     <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Reaction Role</button>
                     <div id="roles-alert" class="alert"></div>
