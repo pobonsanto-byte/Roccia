@@ -311,8 +311,6 @@ async def execute_bot_action_internal(action):
                 if action_data.get('image_url'):
                     embed.set_image(url=action_data['image_url'])
                 
-                embed.set_footer(text=f"Enviado por {action_data.get('admin', 'Site Admin')}")
-                
                 # Processa menção
                 mention_text = ""
                 if action_data.get('mention') == 'everyone':
@@ -1371,8 +1369,8 @@ def dashboard():
             <!-- Tab: Cargos -->
             <div id="roles" class="tab">
                 <div class="card">
-                    <h2>🎭 Gerenciar Reaction Roles</h2>
-                    <p>Crie reaction roles diretamente pelo site:</p>
+                    <h2>🎭 Gerenciar Cargos Emoji</h2>
+                    <p>Crie cargos com emoji diretamente pelo site:</p>
                     
                     <div class="form-group">
                         <label>Canal para Mensagem</label>
