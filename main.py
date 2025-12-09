@@ -405,7 +405,7 @@ async def execute_bot_action_internal(action):
                 print(f"   Tipo: {type(action_data.get('channel_id'))}")
                 return False
         
-        elif action_type == "create_reaction_role":
+                elif action_type == "create_reaction_role":
             try:
                 channel_id = int(action_data["channel_id"])
                 channel = guild.get_channel(channel_id)
@@ -434,21 +434,65 @@ async def execute_bot_action_internal(action):
                 print(f"✅ Mensagem enviada com ID: {message_id}")
                 
                 # Processa pares emoji:cargo
-                pairs = action_data.get("emoji_cargo", "").split(",")
+                pairs_str = action_data.get("emoji_cargo", "")
+                print(f"🔄 String completa: '{pairs_str}'")
+                
+                # Divide os pares de forma mais inteligente
+                pairs = []
+                current_pair = ""
+                bracket_count = 0
+                
+                # Processa caracter por caracter para lidar com emojis customizados
+                for char in pairs_str:
+                    if char == '<':
+                        bracket_count += 1
+                    elif char == '>':
+                        bracket_count -= 1
+                    
+                    if char == ',' and bracket_count == 0:
+                        if current_pair.strip():
+                            pairs.append(current_pair.strip())
+                            current_pair = ""
+                    else:
+                        current_pair += char
+                
+                # Adiciona o último par
+                if current_pair.strip():
+                    pairs.append(current_pair.strip())
+                
+                print(f"🔄 Processando {len(pairs)} pares após parsing inteligente")
+                print(f"   Pares encontrados: {pairs}")
+                
                 reaction_roles_data = {}
-                print(f"🔄 Processando {len(pairs)} pares")
                 
                 for pair in pairs:
                     pair = pair.strip()
-                    if not pair or ":" not in pair:
-                        print(f"   ⚠️ Ignorando par inválido: {pair}")
+                    if not pair:
+                        print(f"   ⚠️ Ignorando par vazio")
+                        continue
+                    
+                    # Procura o último ':' que não está dentro de < >
+                    split_index = -1
+                    bracket_depth = 0
+                    
+                    for i, char in enumerate(pair):
+                        if char == '<':
+                            bracket_depth += 1
+                        elif char == '>':
+                            bracket_depth -= 1
+                        elif char == ':' and bracket_depth == 0:
+                            # Encontra o último ':' fora de brackets
+                            split_index = i
+                    
+                    if split_index == -1:
+                        print(f"   ❌ Par sem ':' válido: {pair}")
                         continue
                     
                     try:
-                        emoji_str, role_name = pair.split(":", 1)
-                        emoji_str = emoji_str.strip()
-                        role_name = role_name.strip()
-                        print(f"   Processando: {emoji_str} -> {role_name}")
+                        emoji_str = pair[:split_index].strip()
+                        role_name = pair[split_index+1:].strip()
+                        
+                        print(f"   Processando: '{emoji_str}' -> '{role_name}'")
                         
                         # Encontra o cargo
                         role = discord.utils.get(guild.roles, name=role_name)
@@ -478,7 +522,7 @@ async def execute_bot_action_internal(action):
                             # Para emojis Unicode (strings)
                             else:
                                 # Verifica se é um emoji Unicode válido
-                                if isinstance(parsed_emoji, str) and len(parsed_emoji) <= 5:
+                                if isinstance(parsed_emoji, str) and parsed_emoji:
                                     await message.add_reaction(parsed_emoji)
                                     emoji_key = str(parsed_emoji)
                                     print(f"   ✅ Reação adicionada (Unicode): {parsed_emoji}")
