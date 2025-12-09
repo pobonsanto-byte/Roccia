@@ -375,7 +375,6 @@ async def execute_bot_action_internal(action):
                 if action_data.get('image_url'):
                     embed.set_image(url=action_data['image_url'])
                 
-                
                 # Processa menção
                 mention_text = ""
                 if action_data.get('mention') == 'everyone':
@@ -405,7 +404,7 @@ async def execute_bot_action_internal(action):
                 print(f"   Tipo: {type(action_data.get('channel_id'))}")
                 return False
         
-                elif action_type == "create_reaction_role":
+        elif action_type == "create_reaction_role":
             try:
                 channel_id = int(action_data["channel_id"])
                 channel = guild.get_channel(channel_id)
