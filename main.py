@@ -1,4 +1,3 @@
-# main.py - Imune Bot Completo (Versão Corrigida)
 import os
 import json
 import base64
@@ -156,51 +155,78 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
     
     emoji_str = emoji_str.strip()
     
-    # Verifica se é um emoji personalizado (formato <:nome:id>)
+    # Debug: mostra o que está sendo processado
+    print(f"[DEBUG EMOJI] Processando: '{emoji_str}'")
+    
+    # Verifica se é um emoji personalizado (formato <:nome:id> ou <a:nome:id>)
     m = EMOJI_RE.match(emoji_str)
     if m:
         name, id_str = m.groups()
         try:
             eid = int(id_str)
+            animated = emoji_str.startswith('<a:')
+            print(f"[DEBUG EMOJI] É emoji personalizado: nome={name}, id={eid}, animado={animated}")
+            
+            # Primeiro tenta encontrar no servidor
             if guild:
                 e = discord.utils.get(guild.emojis, id=eid)
                 if e:
+                    print(f"[DEBUG EMOJI] Encontrado no servidor: {e.name}")
                     return e
-            return discord.PartialEmoji(name=name, id=eid)
-        except Exception:
+            
+            # Se não encontrar, cria um PartialEmoji
+            print(f"[DEBUG EMOJI] Criando PartialEmoji")
+            return discord.PartialEmoji(name=name, id=eid, animated=animated)
+        except Exception as e:
+            print(f"[DEBUG EMOJI] Erro ao processar emoji personalizado: {e}")
             pass
     
     # Verifica se é um emoji padrão (formato :nome:)
     m2 = EMOJI_NAME_RE.match(emoji_str)
     if m2:
         emoji_name = m2.group(1)
+        print(f"[DEBUG EMOJI] É formato :nome:: {emoji_name}")
+        
         # Procura emoji no servidor primeiro
         if guild:
             emoji = discord.utils.get(guild.emojis, name=emoji_name)
             if emoji:
+                print(f"[DEBUG EMOJI] Encontrado no servidor por nome: {emoji.name}")
                 return emoji
         
-        # Se não encontrar, retorna como string (será tratado como emoji Unicode)
-        # Para emojis padrão do Discord, podemos tentar convertê-los
-        try:
-            # Mapeamento de emojis padrão do Discord
-            standard_emojis = {
-                "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
-                "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
-                "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
-                "eyes": "👀", "smile": "😄", "sunglasses": "😎", "thinking": "🤔",
-                "partying_face": "🥳", "ok_hand": "👌", "clap": "👏", "muscle": "💪",
-                "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
-            }
-            if emoji_name.lower() in standard_emojis:
-                return standard_emojis[emoji_name.lower()]
-        except Exception:
-            pass
+        # Mapeamento de emojis padrão do Discord
+        standard_emojis = {
+            "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
+            "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
+            "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
+            "eyes": "👀", "smile": "😄", "sunglasses": "😎", "thinking": "🤔",
+            "partying_face": "🥳", "ok_hand": "👌", "clap": "👏", "muscle": "💪",
+            "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
+        }
         
-        # Retorna como string para processamento posterior
+        emoji_name_lower = emoji_name.lower()
+        if emoji_name_lower in standard_emojis:
+            result = standard_emojis[emoji_name_lower]
+            print(f"[DEBUG EMOJI] Mapeado para emoji padrão: {result}")
+            return result
+        
+        # Se não for um emoji padrão conhecido, retorna como string
+        print(f"[DEBUG EMOJI] Retornando como string: {emoji_str}")
         return emoji_str
     
-    # Se não for nenhum dos formatos acima, assume que é um emoji Unicode
+    # Se for uma string única, pode ser um emoji Unicode
+    # Emojis Unicode são geralmente 1-2 caracteres (alguns com variação de cor podem ter mais)
+    if len(emoji_str) <= 10:  # Aumentei o limite para acomodar emojis mais complexos
+        # Verifica se tem caracteres que parecem ser emojis
+        import unicodedata
+        has_emoji_char = any('EMOJI' in unicodedata.name(c, '') for c in emoji_str)
+        
+        if has_emoji_char or any(c in emoji_str for c in ['👍', '👎', '✅', '❌', '⚠️', '❗', '❓', '⭐', '❤️', '🔥', '🚀', '🎉']):
+            print(f"[DEBUG EMOJI] É emoji Unicode: {emoji_str}")
+            return emoji_str
+    
+    print(f"[DEBUG EMOJI] Retornando string original: {emoji_str}")
+    # Se tudo falhar, retorna a string original
     return emoji_str
 
 # ========================
@@ -402,7 +428,7 @@ async def execute_bot_action_internal(action):
                         print("❌ Sem permissão para adicionar reações")
                         return False
                 
-                # Envia mensagem
+                # Envia UMA ÚNICA mensagem
                 message = await channel.send(action_data["content"])
                 message_id = str(message.id)
                 print(f"✅ Mensagem enviada com ID: {message_id}")
@@ -413,72 +439,71 @@ async def execute_bot_action_internal(action):
                 print(f"🔄 Processando {len(pairs)} pares")
                 
                 for pair in pairs:
-                    if ":" in pair:
+                    pair = pair.strip()
+                    if not pair or ":" not in pair:
+                        print(f"   ⚠️ Ignorando par inválido: {pair}")
+                        continue
+                    
+                    try:
+                        emoji_str, role_name = pair.split(":", 1)
+                        emoji_str = emoji_str.strip()
+                        role_name = role_name.strip()
+                        print(f"   Processando: {emoji_str} -> {role_name}")
+                        
+                        # Encontra o cargo
+                        role = discord.utils.get(guild.roles, name=role_name)
+                        if not role:
+                            print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                            continue
+                        
+                        # Debug: mostra informações do emoji
+                        print(f"   🔍 String do emoji: '{emoji_str}'")
+                        
+                        # Analisa o emoji
+                        parsed_emoji = parse_emoji_str(emoji_str, guild)
+                        
+                        if parsed_emoji is None:
+                            print(f"   ❌ Emoji '{emoji_str}' inválido!")
+                            continue
+                        
+                        print(f"   🔍 Emoji parseado: {parsed_emoji} (tipo: {type(parsed_emoji)})")
+                        
+                        # Tenta adicionar a reação
                         try:
-                            emoji_str, role_name = pair.split(":", 1)
-                            emoji_str = emoji_str.strip()
-                            role_name = role_name.strip()
-                            print(f"   Processando: {emoji_str} -> {role_name}")
-                            
-                            # Encontra o cargo
-                            role = discord.utils.get(guild.roles, name=role_name)
-                            if role:
-                                # Analisa o emoji
-                                parsed_emoji = parse_emoji_str(emoji_str, guild)
-                                
-                                # Tenta adicionar a reação
-                                try:
-                                    if isinstance(parsed_emoji, (discord.Emoji, discord.PartialEmoji)):
-                                        await message.add_reaction(parsed_emoji)
-                                        emoji_key = str(parsed_emoji.id)
-                                    else:
-                                        # É uma string (emoji Unicode ou :nome:)
-                                        emoji_to_react = parsed_emoji
-                                        # Se for formato :nome:, tenta encontrar o emoji correspondente
-                                        if emoji_str.startswith(":") and emoji_str.endswith(":"):
-                                            # Procura emoji no servidor
-                                            emoji_name = emoji_str[1:-1]
-                                            server_emoji = discord.utils.get(guild.emojis, name=emoji_name)
-                                            if server_emoji:
-                                                emoji_to_react = server_emoji
-                                                emoji_key = str(server_emoji.id)
-                                            else:
-                                                # Mapeamento de emojis padrão
-                                                standard_emojis = {
-                                                    "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
-                                                    "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
-                                                    "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
-                                                    "eyes": "👀", "smile": "😄", "sunglasses": "😎", "thinking": "🤔",
-                                                    "partying_face": "🥳", "ok_hand": "👌", "clap": "👏", "muscle": "💪",
-                                                    "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
-                                                }
-                                                if emoji_name.lower() in standard_emojis:
-                                                    emoji_to_react = standard_emojis[emoji_name.lower()]
-                                                    emoji_key = emoji_to_react
-                                                else:
-                                                    emoji_to_react = emoji_name
-                                                    emoji_key = emoji_str
-                                        else:
-                                            # É um emoji Unicode
-                                            emoji_to_react = parsed_emoji
-                                            emoji_key = str(parsed_emoji)
-                                        
-                                        await message.add_reaction(emoji_to_react)
-                                    
-                                    print(f"   ✅ Reação adicionada: {emoji_to_react}")
-                                    
-                                    # Prepara dados para salvar
-                                    reaction_roles_data[emoji_key] = str(role.id)
-                                    print(f"   ✅ Mapeamento: {emoji_key} -> {role.name}")
-                                    
-                                except Exception as e:
-                                    print(f"   ❌ Erro ao adicionar reação {emoji_str}: {e}")
-                                    continue
-                                
+                            # Para emojis personalizados (discord.Emoji ou discord.PartialEmoji)
+                            if isinstance(parsed_emoji, (discord.Emoji, discord.PartialEmoji)):
+                                await message.add_reaction(parsed_emoji)
+                                emoji_key = str(parsed_emoji.id)
+                                print(f"   ✅ Reação adicionada (custom): {parsed_emoji.name} (ID: {parsed_emoji.id})")
+                            # Para emojis Unicode (strings)
                             else:
-                                print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                                # Verifica se é um emoji Unicode válido
+                                if isinstance(parsed_emoji, str) and len(parsed_emoji) <= 5:
+                                    await message.add_reaction(parsed_emoji)
+                                    emoji_key = str(parsed_emoji)
+                                    print(f"   ✅ Reação adicionada (Unicode): {parsed_emoji}")
+                                else:
+                                    print(f"   ❌ Emoji inválido: {parsed_emoji}")
+                                    continue
+                            
+                            # Prepara dados para salvar
+                            reaction_roles_data[emoji_key] = str(role.id)
+                            print(f"   ✅ Mapeamento salvo: {emoji_key} -> {role.name}")
+                            
+                        except discord.HTTPException as e:
+                            print(f"   ❌ Erro Discord ao adicionar reação {emoji_str}: {e}")
+                            continue
                         except Exception as e:
-                            print(f"   ❌ Erro ao processar par {pair}: {e}")
+                            print(f"   ❌ Erro ao adicionar reação {emoji_str}: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            continue
+                        
+                    except Exception as e:
+                        print(f"   ❌ Erro ao processar par {pair}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
                 
                 # Salva no data.json se houver dados
                 if reaction_roles_data:
@@ -488,10 +513,21 @@ async def execute_bot_action_internal(action):
                     return True
                 else:
                     print("⚠️ Nenhum mapeamento válido criado")
+                    # Se nenhum mapeamento foi criado, deleta a mensagem
+                    try:
+                        await message.delete()
+                        print("🗑️ Mensagem deletada por falta de mapeamentos válidos")
+                    except:
+                        pass
                     return False
                     
             except ValueError as e:
-                print(f"❌ ERRO DE CONVERSÃO: channel_id inválido")
+                print(f"❌ ERRO DE CONVERSÃO: channel_id inválido: {e}")
+                return False
+            except Exception as e:
+                print(f"❌ ERRO inesperado em create_reaction_role: {e}")
+                import traceback
+                traceback.print_exc()
                 return False
         
         elif action_type == "create_role_buttons":
@@ -1510,7 +1546,7 @@ def dashboard():
                         <input type="text" id="rr-pair" class="form-control" placeholder=":thumbsup:👍,✅:Verificado,&lt;:nomedoemoji:123456789&gt;:VIP">
                         <small>Separe múltiplos por vírgula. Exemplo: <code>:thumbsup:👍:Moderador,✅:Verificado,&lt;:customemoji:123456789&gt;:VIP</code></small>
                     </div>
-                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Reaction Role</button>
+                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Cargo Emoji</button>
                     <div id="roles-alert" class="alert"></div>
                 </div>
                 
