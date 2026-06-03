@@ -1547,7 +1547,7 @@ def dashboard():
                         let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
                         for (const [nivel, cargoId] of Object.entries(data.cargos)) {{
                             const cargo = cargos.find(c => c.id == cargoId);
-                            html += `<div style="background: #333; padding: 0.5rem 1rem; border-radius: 5px;">Nível ${nivel}: ${cargo ? cargo.nome : 'Cargo não encontrado'} <button onclick="removerCargoNivel(${nivel})" style="background:#dc3545;color:white;border:none;border-radius:3px;padding:0.25rem 0.5rem;cursor:pointer;">×</button></div>`;
+                            html += `<div style="background: #333; padding: 0.5rem 1rem; border-radius: 5px;">Nível ${{nivel}}: ${{cargo ? cargo.nome : 'Cargo não encontrado'}} <button onclick="removerCargoNivel(${{nivel}})" style="background:#dc3545;color:white;border:none;border-radius:3px;padding:0.25rem 0.5rem;cursor:pointer;">×</button></div>`;
                         }}
                         html += '</div>';
                         container.innerHTML = html;
