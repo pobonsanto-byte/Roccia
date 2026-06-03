@@ -1856,7 +1856,7 @@ def dashboard():
                 <button class="tab-btn" onclick="mostrarAba('boas_vindas')">👋 Boas-vindas</button>
                 <button class="tab-btn" onclick="mostrarAba('xp')">⭐ Sistema XP</button>
                 <button class="tab-btn" onclick="mostrarAba('cargos')">🎭 Cargos</button>
-                <button class="tab-btn" onclick="mostrarAba('moderacao')">🛡️ Moderação</button>
+                <button class="tab-btn" onclick="mostrarAba('moderacao')">⚠️ Advertência</button>
                 <button class="tab-btn" onclick="mostrarAba('fila')">📋 Fila</button>
             </div>
             
@@ -1918,7 +1918,7 @@ def dashboard():
             
             <div id="moderacao" class="tab">
                 <div class="card">
-                    <h2>🛡️ Moderação</h2>
+                    <h2>⚠️ Advertência</h2>
                     <div class="form-group"><label>Membro</label><select id="advertir-membro" class="form-control"></select></div>
                     <div class="form-group"><label>Motivo</label><input type="text" id="advertir-motivo" class="form-control"></div>
                     <button onclick="executarAdvertir()" class="btn btn-warning">⚠️ Advertir</button>
