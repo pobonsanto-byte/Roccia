@@ -7,8 +7,7 @@ import time
 import secrets
 from io import BytesIO
 from threading import Thread
-from zoneinfo import ZoneInfo
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 import asyncio
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
@@ -87,7 +86,16 @@ data = {
 # FUNÇÕES UTILITÁRIAS
 # ========================
 def now_br():
-    return datetime.now(ZoneInfo("America/Sao_Paulo"))
+    """Retorna a data/hora atual no fuso horário de Brasília (UTC-3)"""
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-3)))
+
+# Criar um timedelta para UTC-3
+from datetime import timedelta
+UTC_MINUS_3 = timezone(timedelta(hours=-3))
+
+def now_br_alt():
+    """Alternativa usando timezone fixo UTC-3"""
+    return datetime.now(UTC_MINUS_3)
 
 def _gh_headers():
     return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -274,7 +282,7 @@ def add_to_queue(username: str, service: str, user_id: str = None):
         "username": username,
         "service": service,
         "user_id": user_id or username,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": now_br().isoformat(),
         "status": "waiting",
         "position": len(queue["entries"]) + 1
     }
@@ -292,7 +300,7 @@ def remove_from_queue(entry_id: str):
     for i, entry in enumerate(queue["entries"]):
         if entry["id"] == entry_id:
             removed = queue["entries"].pop(i)
-            removed["removed_at"] = datetime.now().isoformat()
+            removed["removed_at"] = now_br().isoformat()
             queue["history"].append(removed)
             
             if len(queue["history"]) > 100:
@@ -345,7 +353,7 @@ def complete_service(entry_id: str):
         if entry["id"] == entry_id:
             removed = queue["entries"].pop(i)
             removed["status"] = "completed"
-            removed["completed_at"] = datetime.now().isoformat()
+            removed["completed_at"] = now_br().isoformat()
             queue["history"].append(removed)
             
             update_positions(queue["entries"])
@@ -360,7 +368,7 @@ def clear_queue():
     
     for entry in queue["entries"]:
         entry["status"] = "cleared"
-        entry["cleared_at"] = datetime.now().isoformat()
+        entry["cleared_at"] = now_br().isoformat()
         queue["history"].append(entry)
     
     queue["entries"] = []
@@ -443,7 +451,7 @@ def execute_bot_action(action_type, **kwargs):
     bot_actions_queue.append({
         "type": action_type,
         "data": kwargs,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": now_br().isoformat()
     })
     print(f"🤖 [BOT ACTION] Adicionada ação: {action_type}")
     print(f"   📊 Dados: {kwargs}")
@@ -880,7 +888,7 @@ async def process_bot_actions_continuous():
                             attempts = action.get('attempts', 0)
                             if attempts < 3:
                                 action['attempts'] = attempts + 1
-                                action['retry_time'] = datetime.now().isoformat()
+                                action['retry_time'] = now_br().isoformat()
                                 bot_actions_queue.insert(0, action)
                                 print(f"[ACTION PROCESSOR] 🔄 Tentando novamente ({action['attempts']}/3)")
                             else:
@@ -1378,7 +1386,7 @@ def queue_public():
             </div>
             
             <div class="footer">
-                Atualizado automaticamente a cada 30 segundos • {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+                Atualizado automaticamente a cada 30 segundos • {now_br().strftime("%d/%m/%Y %H:%M:%S")}
             </div>
         </div>
     </body>
@@ -1953,8 +1961,12 @@ def dashboard():
                     <h3>📋 Lista de Espera</h3>
                     <div style="overflow-x: auto;">
                         <table>
-                            <thead><tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr></thead>
-                            <tbody id="queue-table-body"><tr><td colspan="5">Carregando...</td></tr></tbody>
+                            <thead>
+                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="queue-table-body">
+                                <tr><td colspan="5">Carregando...</td></tr>
+                            </tbody>
                         </table>
                     </div>
                     <div style="margin-top: 10px;">
@@ -2819,7 +2831,7 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
     entry = {
         "by": interaction.user.id,
         "reason": reason,
-        "ts": datetime.utcnow().strftime("%d/%m/%Y %H:%M")
+        "ts": now_br().strftime("%d/%m/%Y %H:%M")
     }
     data.setdefault("warns", {}).setdefault(uid, []).append(entry)
     save_data_to_github("New warn")
