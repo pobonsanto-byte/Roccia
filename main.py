@@ -102,7 +102,6 @@ def load_data_from_github():
                 raw = base64.b64decode(content_b64)
                 loaded = json.loads(raw.decode("utf-8"))
                 data.update(loaded)
-                # Garante que a estrutura da fila existe
                 if "queue" not in data:
                     data["queue"] = {
                         "name": "Fila de Serviços",
@@ -160,7 +159,6 @@ def xp_to_level(xp):
     return max(lvl, 1)
 
 def escape_html(text):
-    """Escapa caracteres HTML"""
     if not text:
         return ""
     return (text
@@ -175,16 +173,13 @@ EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
 EMOJI_NAME_RE = re.compile(r":([a-zA-Z0-9_]+):")
 
 def parse_emoji_str(emoji_str, guild: discord.Guild = None):
-    """Analisa uma string de emoji e retorna o objeto apropriado"""
     if not emoji_str:
         return None
     
     emoji_str = emoji_str.strip()
     
-    # Debug: mostra o que está sendo processado
     print(f"[DEBUG EMOJI] Processando: '{emoji_str}'")
     
-    # Verifica se é um emoji personalizado (formato <:nome:id> ou <a:nome:id>)
     m = EMOJI_RE.match(emoji_str)
     if m:
         name, id_str = m.groups()
@@ -193,34 +188,29 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
             animated = emoji_str.startswith('<a:')
             print(f"[DEBUG EMOJI] É emoji personalizado: nome={name}, id={eid}, animado={animated}")
             
-            # Primeiro tenta encontrar no servidor
             if guild:
                 e = discord.utils.get(guild.emojis, id=eid)
                 if e:
                     print(f"[DEBUG EMOJI] Encontrado no servidor: {e.name}")
                     return e
             
-            # Se não encontrar, cria um PartialEmoji
             print(f"[DEBUG EMOJI] Criando PartialEmoji")
             return discord.PartialEmoji(name=name, id=eid, animated=animated)
         except Exception as e:
             print(f"[DEBUG EMOJI] Erro ao processar emoji personalizado: {e}")
             pass
     
-    # Verifica se é um emoji padrão (formato :nome:)
     m2 = EMOJI_NAME_RE.match(emoji_str)
     if m2:
         emoji_name = m2.group(1)
         print(f"[DEBUG EMOJI] É formato :nome:: {emoji_name}")
         
-        # Procura emoji no servidor primeiro
         if guild:
             emoji = discord.utils.get(guild.emojis, name=emoji_name)
             if emoji:
                 print(f"[DEBUG EMOJI] Encontrado no servidor por nome: {emoji.name}")
                 return emoji
         
-        # Mapeamento de emojis padrão do Discord
         standard_emojis = {
             "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
             "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
@@ -236,14 +226,10 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
             print(f"[DEBUG EMOJI] Mapeado para emoji padrão: {result}")
             return result
         
-        # Se não for um emoji padrão conhecido, retorna como string
         print(f"[DEBUG EMOJI] Retornando como string: {emoji_str}")
         return emoji_str
     
-    # Se for uma string única, pode ser um emoji Unicode
-    # Emojis Unicode são geralmente 1-2 caracteres (alguns com variação de cor podem ter mais)
-    if len(emoji_str) <= 10:  # Aumentei o limite para acomodar emojis mais complexos
-        # Verifica se tem caracteres que parecem ser emojis
+    if len(emoji_str) <= 10:
         import unicodedata
         has_emoji_char = any('EMOJI' in unicodedata.name(c, '') for c in emoji_str)
         
@@ -252,7 +238,6 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
             return emoji_str
     
     print(f"[DEBUG EMOJI] Retornando string original: {emoji_str}")
-    # Se tudo falhar, retorna a string original
     return emoji_str
 
 # ========================
@@ -260,7 +245,6 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
 # ========================
 
 def get_queue_data():
-    """Retorna os dados da fila"""
     data.setdefault("queue", {
         "name": "Fila de Serviços",
         "settings": {"max_size": 50, "open": True},
@@ -270,11 +254,9 @@ def get_queue_data():
     return data["queue"]
 
 def save_queue():
-    """Salva a fila no GitHub"""
     return save_data_to_github("Queue update")
 
 def add_to_queue(username: str, service: str, user_id: str = None):
-    """Adiciona alguém à fila"""
     queue = get_queue_data()
     
     if not queue["settings"]["open"]:
@@ -283,7 +265,6 @@ def add_to_queue(username: str, service: str, user_id: str = None):
     if len(queue["entries"]) >= queue["settings"]["max_size"]:
         return False, "Fila está cheia"
     
-    # Verifica se usuário já está na fila
     for entry in queue["entries"]:
         if entry["username"].lower() == username.lower():
             return False, f"{username} já está na fila"
@@ -306,7 +287,6 @@ def add_to_queue(username: str, service: str, user_id: str = None):
     return True, entry
 
 def remove_from_queue(entry_id: str):
-    """Remove alguém da fila"""
     queue = get_queue_data()
     
     for i, entry in enumerate(queue["entries"]):
@@ -315,7 +295,6 @@ def remove_from_queue(entry_id: str):
             removed["removed_at"] = datetime.now().isoformat()
             queue["history"].append(removed)
             
-            # Mantém histórico limitado
             if len(queue["history"]) > 100:
                 queue["history"] = queue["history"][-100:]
             
@@ -327,13 +306,11 @@ def remove_from_queue(entry_id: str):
     return False, None
 
 def update_positions(entries):
-    """Atualiza as posições da fila"""
     for i, entry in enumerate(entries):
         entry["position"] = i + 1
         entry["status"] = "waiting"
 
 def move_up(entry_id: str):
-    """Move alguém uma posição para cima"""
     queue = get_queue_data()
     entries = queue["entries"]
     
@@ -348,7 +325,6 @@ def move_up(entry_id: str):
     return False, None
 
 def move_down(entry_id: str):
-    """Move alguém uma posição para baixo"""
     queue = get_queue_data()
     entries = queue["entries"]
     
@@ -363,7 +339,6 @@ def move_down(entry_id: str):
     return False, None
 
 def complete_service(entry_id: str):
-    """Completa o serviço e remove da fila"""
     queue = get_queue_data()
     
     for i, entry in enumerate(queue["entries"]):
@@ -381,10 +356,8 @@ def complete_service(entry_id: str):
     return False, None
 
 def clear_queue():
-    """Limpa toda a fila"""
     queue = get_queue_data()
     
-    # Move todos para histórico
     for entry in queue["entries"]:
         entry["status"] = "cleared"
         entry["cleared_at"] = datetime.now().isoformat()
@@ -396,7 +369,6 @@ def clear_queue():
     return True
 
 def toggle_queue(open_status: bool = None):
-    """Abre/fecha a fila"""
     queue = get_queue_data()
     
     if open_status is None:
@@ -409,14 +381,12 @@ def toggle_queue(open_status: bool = None):
     return queue["settings"]["open"]
 
 def set_max_size(size: int):
-    """Define tamanho máximo da fila"""
     queue = get_queue_data()
     queue["settings"]["max_size"] = max(1, min(size, 100))
     save_queue()
     return queue["settings"]["max_size"]
 
 def set_queue_name(name: str):
-    """Define nome da fila"""
     queue = get_queue_data()
     queue["name"] = name[:50]
     save_queue()
@@ -426,14 +396,12 @@ def set_queue_name(name: str):
 # DIAGNÓSTICO DE CONEXÃO
 # ========================
 async def check_bot_connection():
-    """Verifica se o bot está conectado corretamente"""
     await bot.wait_until_ready()
     
     print("\n" + "="*60)
     print("🔍 DIAGNÓSTICO DE CONEXÃO BOT-SITE")
     print("="*60)
     
-    # Verifica Guild
     if GUILD_ID:
         guild = bot.get_guild(int(GUILD_ID))
         if guild:
@@ -441,7 +409,6 @@ async def check_bot_connection():
             print(f"   👥 Membros: {len(guild.members)}")
             print(f"   📝 Canais: {len(guild.text_channels)}")
             
-            # Lista canais disponíveis
             print(f"   📋 Canais disponíveis:")
             for channel in guild.text_channels[:10]:
                 print(f"      #{channel.name} (ID: {channel.id})")
@@ -454,7 +421,6 @@ async def check_bot_connection():
     else:
         print("⚠️ GUILD_ID não configurado")
     
-    # Verifica permissões
     if GUILD_ID and bot.get_guild(int(GUILD_ID)):
         guild = bot.get_guild(int(GUILD_ID))
         bot_member = guild.get_member(bot.user.id)
@@ -474,7 +440,6 @@ async def check_bot_connection():
 # SISTEMA DE AÇÕES DO SITE
 # ========================
 def execute_bot_action(action_type, **kwargs):
-    """Adiciona uma ação à fila para ser executada pelo bot"""
     bot_actions_queue.append({
         "type": action_type,
         "data": kwargs,
@@ -485,7 +450,6 @@ def execute_bot_action(action_type, **kwargs):
     return True
 
 async def execute_bot_action_internal(action):
-    """Executa uma ação do bot internamente"""
     action_type = action["type"]
     action_data = action["data"]
     
@@ -495,7 +459,6 @@ async def execute_bot_action_internal(action):
     print(f"⏰ Timestamp: {action.get('timestamp')}")
     print(f"{'='*50}")
     
-    # Verifica se o bot está pronto
     if not bot.is_ready():
         print("❌ Bot não está pronto ainda!")
         return False
@@ -518,7 +481,6 @@ async def execute_bot_action_internal(action):
                 
                 if not channel:
                     print(f"⚠️ Canal {channel_id} não encontrado via get_channel")
-                    # Tenta encontrar manualmente
                     for c in guild.text_channels:
                         if c.id == channel_id:
                             channel = c
@@ -536,7 +498,6 @@ async def execute_bot_action_internal(action):
                 print(f"📝 Título: {action_data['title'][:50]}...")
                 print(f"📄 Corpo: {action_data['body'][:100]}...")
                 
-                # Verifica permissões
                 bot_member = guild.get_member(bot.user.id)
                 if bot_member:
                     permissions = channel.permissions_for(bot_member)
@@ -547,28 +508,23 @@ async def execute_bot_action_internal(action):
                         print("❌ Bot não tem permissão para enviar embeds neste canal!")
                         return False
                 
-                # Processa cor da embed
-                color = discord.Color.blue()  # Default
+                color = discord.Color.blue()
                 if action_data.get('color'):
                     try:
-                        # Remove o # se existir
                         color_hex = action_data['color'].replace('#', '')
                         color = discord.Color(int(color_hex, 16))
                     except:
                         print(f"⚠️ Cor inválida: {action_data.get('color')}, usando padrão")
                 
-                # Cria e envia embed
                 embed = discord.Embed(
                     title=action_data["title"],
                     description=action_data["body"],
                     color=color
                 )
                 
-                # Adiciona imagem se fornecida
                 if action_data.get('image_url'):
                     embed.set_image(url=action_data['image_url'])
                 
-                # Processa menção
                 mention_text = ""
                 if action_data.get('mention') == 'everyone':
                     mention_text = "@everyone"
@@ -579,7 +535,6 @@ async def execute_bot_action_internal(action):
                 await channel.send(content=mention_text, embed=embed)
                 print(f"✅ Embed enviada com sucesso para #{channel.name}")
                 
-                # Log no canal de logs se configurado
                 logs_channel_id = data.get("config", {}).get("logs_channel")
                 if logs_channel_id:
                     logs_channel = guild.get_channel(int(logs_channel_id))
@@ -609,7 +564,6 @@ async def execute_bot_action_internal(action):
                 print(f"✅ Canal: #{channel.name}")
                 print(f"📝 Conteúdo: {action_data['content'][:100]}...")
                 
-                # Verifica permissões
                 bot_member = guild.get_member(bot.user.id)
                 if bot_member:
                     permissions = channel.permissions_for(bot_member)
@@ -620,21 +574,17 @@ async def execute_bot_action_internal(action):
                         print("❌ Sem permissão para adicionar reações")
                         return False
                 
-                # Envia UMA ÚNICA mensagem
                 message = await channel.send(action_data["content"])
                 message_id = str(message.id)
                 print(f"✅ Mensagem enviada com ID: {message_id}")
                 
-                # Processa pares emoji:cargo
                 pairs_str = action_data.get("emoji_cargo", "")
                 print(f"🔄 String completa: '{pairs_str}'")
                 
-                # Divide os pares de forma mais inteligente
                 pairs = []
                 current_pair = ""
                 bracket_count = 0
                 
-                # Processa caracter por caracter para lidar com emojis customizados
                 for char in pairs_str:
                     if char == '<':
                         bracket_count += 1
@@ -648,7 +598,6 @@ async def execute_bot_action_internal(action):
                     else:
                         current_pair += char
                 
-                # Adiciona o último par
                 if current_pair.strip():
                     pairs.append(current_pair.strip())
                 
@@ -663,7 +612,6 @@ async def execute_bot_action_internal(action):
                         print(f"   ⚠️ Ignorando par vazio")
                         continue
                     
-                    # Procura o último ':' que não está dentro de < >
                     split_index = -1
                     bracket_depth = 0
                     
@@ -673,7 +621,6 @@ async def execute_bot_action_internal(action):
                         elif char == '>':
                             bracket_depth -= 1
                         elif char == ':' and bracket_depth == 0:
-                            # Encontra o último ':' fora de brackets
                             split_index = i
                     
                     if split_index == -1:
@@ -686,16 +633,13 @@ async def execute_bot_action_internal(action):
                         
                         print(f"   Processando: '{emoji_str}' -> '{role_name}'")
                         
-                        # Encontra o cargo
                         role = discord.utils.get(guild.roles, name=role_name)
                         if not role:
                             print(f"   ❌ Cargo '{role_name}' não encontrado!")
                             continue
                         
-                        # Debug: mostra informações do emoji
                         print(f"   🔍 String do emoji: '{emoji_str}'")
                         
-                        # Analisa o emoji
                         parsed_emoji = parse_emoji_str(emoji_str, guild)
                         
                         if parsed_emoji is None:
@@ -704,16 +648,12 @@ async def execute_bot_action_internal(action):
                         
                         print(f"   🔍 Emoji parseado: {parsed_emoji} (tipo: {type(parsed_emoji)})")
                         
-                        # Tenta adicionar a reação
                         try:
-                            # Para emojis personalizados (discord.Emoji ou discord.PartialEmoji)
                             if isinstance(parsed_emoji, (discord.Emoji, discord.PartialEmoji)):
                                 await message.add_reaction(parsed_emoji)
                                 emoji_key = str(parsed_emoji.id)
                                 print(f"   ✅ Reação adicionada (custom): {parsed_emoji.name} (ID: {parsed_emoji.id})")
-                            # Para emojis Unicode (strings)
                             else:
-                                # Verifica se é um emoji Unicode válido
                                 if isinstance(parsed_emoji, str) and parsed_emoji:
                                     await message.add_reaction(parsed_emoji)
                                     emoji_key = str(parsed_emoji)
@@ -722,7 +662,6 @@ async def execute_bot_action_internal(action):
                                     print(f"   ❌ Emoji inválido: {parsed_emoji}")
                                     continue
                             
-                            # Prepara dados para salvar
                             reaction_roles_data[emoji_key] = str(role.id)
                             print(f"   ✅ Mapeamento salvo: {emoji_key} -> {role.name}")
                             
@@ -741,7 +680,6 @@ async def execute_bot_action_internal(action):
                         traceback.print_exc()
                         continue
                 
-                # Salva no data.json se houver dados
                 if reaction_roles_data:
                     data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
                     save_data_to_github("Reaction role via site")
@@ -749,7 +687,6 @@ async def execute_bot_action_internal(action):
                     return True
                 else:
                     print("⚠️ Nenhum mapeamento válido criado")
-                    # Se nenhum mapeamento foi criado, deleta a mensagem
                     try:
                         await message.delete()
                         print("🗑️ Mensagem deletada por falta de mapeamentos válidos")
@@ -777,7 +714,6 @@ async def execute_bot_action_internal(action):
                 
                 print(f"✅ Canal: #{channel.name}")
                 
-                # Processa pares botão:cargo
                 pairs = action_data.get("roles", "").split(",")
                 buttons_dict = {}
                 print(f"🔄 Processando {len(pairs)} botões")
@@ -790,7 +726,6 @@ async def execute_bot_action_internal(action):
                             role_name = role_name.strip()
                             print(f"   Processando botão: {button_name} -> {role_name}")
                             
-                            # Encontra o cargo
                             role = discord.utils.get(guild.roles, name=role_name)
                             if role:
                                 buttons_dict[button_name] = role.id
@@ -801,18 +736,15 @@ async def execute_bot_action_internal(action):
                             print(f"   ❌ Erro ao processar par {pair}: {e}")
                 
                 if buttons_dict:
-                    # Cria view com botões
                     view = PersistentRoleButtonView(0, buttons_dict)
                     sent = await channel.send(action_data["content"], view=view)
                     print(f"✅ Mensagem com botões enviada: {sent.id}")
                     
-                    # Atualiza IDs
                     view.message_id = sent.id
                     for item in view.children:
                         if isinstance(item, PersistentRoleButton):
                             item.message_id = sent.id
                     
-                    # Salva no data.json
                     data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
                     save_data_to_github("Role buttons via site")
                     
@@ -838,7 +770,6 @@ async def execute_bot_action_internal(action):
                 print(f"✅ Membro: {member.display_name}")
                 print(f"📝 Motivo: {action_data['reason']}")
                 
-                # Adiciona advertência
                 entry = {
                     "by": "site_admin",
                     "reason": action_data["reason"],
@@ -848,7 +779,6 @@ async def execute_bot_action_internal(action):
                 data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
                 save_data_to_github(f"Warn via site: {member.display_name}")
                 
-                # Envia mensagem no canal de logs, se configurado
                 logs_channel_id = data.get("config", {}).get("logs_channel")
                 if logs_channel_id:
                     logs_channel = guild.get_channel(int(logs_channel_id))
@@ -889,17 +819,14 @@ async def execute_bot_action_internal(action):
         print(f"{'='*50}\n")
 
 async def process_bot_actions_continuous():
-    """Processa ações do site continuamente - VERSÃO CORRIGIDA"""
     global action_processor_running
     
     print("\n" + "="*60)
     print("🚀 PROCESSADOR DE AÇÕES DO SITE - INICIANDO")
     print("="*60)
     
-    # Marca como rodando
     action_processor_running = True
     
-    # Aguarda o bot ficar totalmente pronto
     if not bot.is_ready():
         print("⏳ Aguardando bot ficar pronto...")
         await bot.wait_until_ready()
@@ -907,7 +834,6 @@ async def process_bot_actions_continuous():
     
     print(f"✅ Bot está pronto: {bot.user}")
     
-    # Verifica a guild
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if guild:
         print(f"🎯 Guild alvo: {guild.name} (ID: {guild.id})")
@@ -928,14 +854,12 @@ async def process_bot_actions_continuous():
     try:
         while action_processor_running and not bot.is_closed():
             try:
-                # Log de status a cada 30 segundos
                 current_time = time.time()
                 if current_time - last_status_time > 30:
                     queue_len = len(bot_actions_queue)
                     print(f"[ACTION PROCESSOR] Status: Fila={queue_len} | Processadas={processed_count} | Erros={error_count}")
                     last_status_time = current_time
                 
-                # Processa ações se houver
                 if bot_actions_queue:
                     action = bot_actions_queue[0]
                     action_type = action['type']
@@ -953,7 +877,6 @@ async def process_bot_actions_continuous():
                             error_count += 1
                             print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action_type}'")
                             
-                            # Tenta novamente (máximo 3 tentativas)
                             attempts = action.get('attempts', 0)
                             if attempts < 3:
                                 action['attempts'] = attempts + 1
@@ -969,7 +892,6 @@ async def process_bot_actions_continuous():
                         import traceback
                         traceback.print_exc()
                 
-                # Aguarda antes de verificar novamente
                 await asyncio.sleep(1)
                 
             except asyncio.CancelledError:
@@ -996,7 +918,6 @@ async def process_bot_actions_continuous():
         print("="*60)
 
 def start_action_processor():
-    """Inicia o processador de ações"""
     global action_processor_task, action_processor_running
     
     if action_processor_running:
@@ -1012,7 +933,6 @@ def start_action_processor():
         return False
 
 def stop_action_processor():
-    """Para o processador de ações"""
     global action_processor_task, action_processor_running
     
     if not action_processor_running or action_processor_task is None:
@@ -1062,11 +982,10 @@ class PersistentRoleButton(ui.Button):
         add_log(f"role_button_click: user={member.id} role={role.id} message={self.message_id}")
 
 # ========================
-# ROTAS DO SITE
+# ROTAS DO SITE - PÁGINA INICIAL
 # ========================
 @app.route("/", methods=["GET"])
 def home():
-    """Página inicial"""
     bot_status = "✅ Bot Online e Funcionando" if bot.is_ready() else "❌ Bot Offline"
     bot_class = "online" if bot.is_ready() else "offline"
     
@@ -1200,7 +1119,6 @@ def home():
 
 @app.route("/login")
 def login():
-    """Login com Discord"""
     if not CLIENT_ID or not CLIENT_SECRET:
         return "Erro: CLIENT_ID ou CLIENT_SECRET não configurados.", 500
     
@@ -1215,7 +1133,6 @@ def login():
 
 @app.route("/callback")
 def callback():
-    """Callback do OAuth"""
     if not CLIENT_ID or not CLIENT_SECRET:
         return "Erro de configuração do servidor.", 500
     
@@ -1301,7 +1218,6 @@ def callback():
 
 @app.route("/logout")
 def logout():
-    """Logout"""
     session.clear()
     return redirect(url_for('home'))
 
@@ -1311,7 +1227,6 @@ def logout():
 
 @app.route("/queue")
 def queue_public():
-    """Página pública da fila (para StreamElements)"""
     queue = get_queue_data()
     
     return f'''
@@ -1472,11 +1387,10 @@ def queue_public():
 
 @app.route("/queue/embed")
 def queue_embed():
-    """Versão embed da fila para StreamElements overlay"""
     queue = get_queue_data()
     
     entries_html = ""
-    for entry in queue["entries"][:10]:  # Limita a 10 para não ficar muito grande
+    for entry in queue["entries"][:10]:
         entries_html += f'''
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
             <span style="color: #ffd93d; font-weight: bold;">#{entry["position"]}</span>
@@ -1542,7 +1456,6 @@ def queue_embed():
 
 @app.route("/queue/api")
 def queue_api():
-    """API pública da fila (JSON)"""
     queue = get_queue_data()
     return jsonify({
         "success": True,
@@ -1556,7 +1469,8 @@ def queue_api():
                     "position": e["position"],
                     "username": e["username"],
                     "service": e["service"],
-                    "timestamp": e["timestamp"]
+                    "timestamp": e["timestamp"],
+                    "id": e["id"]
                 }
                 for e in queue["entries"]
             ]
@@ -1564,12 +1478,11 @@ def queue_api():
     })
 
 # ========================
-# APIs DE CONTROLE DA FILA (SITE)
+# APIs DE CONTROLE DA FILA
 # ========================
 
 @app.route("/api/queue/add", methods=["POST"])
 def api_queue_add():
-    """Adiciona à fila"""
     req_data = request.json
     username = req_data.get("username", "").strip()
     service = req_data.get("service", "").strip()
@@ -1587,7 +1500,6 @@ def api_queue_add():
 
 @app.route("/api/queue/remove", methods=["POST"])
 def api_queue_remove():
-    """Remove da fila"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -1600,7 +1512,6 @@ def api_queue_remove():
 
 @app.route("/api/queue/move-up", methods=["POST"])
 def api_queue_move_up():
-    """Move para cima"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -1610,7 +1521,6 @@ def api_queue_move_up():
 
 @app.route("/api/queue/move-down", methods=["POST"])
 def api_queue_move_down():
-    """Move para baixo"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -1620,7 +1530,6 @@ def api_queue_move_down():
 
 @app.route("/api/queue/complete", methods=["POST"])
 def api_queue_complete():
-    """Completa serviço"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -1630,7 +1539,6 @@ def api_queue_complete():
 
 @app.route("/api/queue/clear", methods=["POST"])
 def api_queue_clear():
-    """Limpa toda fila"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -1639,7 +1547,6 @@ def api_queue_clear():
 
 @app.route("/api/queue/settings", methods=["GET", "POST"])
 def api_queue_settings():
-    """Configurações da fila"""
     if request.method == "GET":
         queue = get_queue_data()
         return jsonify({
@@ -1664,7 +1571,6 @@ def api_queue_settings():
 
 @app.route("/api/queue/history")
 def api_queue_history():
-    """Histórico da fila"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
     
@@ -1675,104 +1581,52 @@ def api_queue_history():
     })
 
 # ========================
-# APIs DO SITE (EXISTENTES)
+# APIs EXISTENTES (RESUMIDAS)
 # ========================
 @app.route("/api/config/welcome", methods=["POST"])
 def api_config_welcome():
-    """API para configurar boas-vindas"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         req_data = request.json
         config = data.setdefault("config", {})
-        
         if 'message' in req_data:
             config["welcome_message"] = req_data['message']
         if 'channel_id' in req_data:
             config["welcome_channel"] = req_data['channel_id']
         if 'image_url' in req_data:
             config["welcome_background"] = req_data['image_url']
-        
         success = save_data_to_github("Config boas-vindas via site")
         return jsonify({"success": success, "message": "Configuração salva!"})
-        
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
 
 @app.route("/api/config/xp", methods=["POST"])
 def api_config_xp():
-    """API para configurar XP"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         req_data = request.json
         config = data.setdefault("config", {})
-        
         if 'rate' in req_data:
             rate = int(req_data['rate'])
             if 1 <= rate <= 10:
                 config["xp_rate"] = rate
-        
         if 'channel_id' in req_data:
             config["levelup_channel"] = req_data['channel_id']
-        
         success = save_data_to_github("Config XP via site")
         return jsonify({"success": success, "message": "Configuração de XP salva!"})
-        
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-@app.route("/api/level-roles", methods=["GET", "POST", "DELETE"])
-def api_level_roles():
-    """API para cargos por nível"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        if request.method == "GET":
-            level_roles = data.get("level_roles", {})
-            return jsonify({"success": True, "level_roles": level_roles})
-        
-        elif request.method == "POST":
-            req_data = request.json
-            level = str(req_data.get('level'))
-            role_id = req_data.get('role_id')
-            
-            if not level or not role_id:
-                return jsonify({"success": False, "message": "Nível e cargo são obrigatórios"})
-            
-            data.setdefault("level_roles", {})[level] = role_id
-            save_data_to_github(f"Add level role {level}")
-            return jsonify({"success": True, "message": f"Cargo definido para nível {level}"})
-        
-        elif request.method == "DELETE":
-            level = request.args.get('level')
-            if not level:
-                return jsonify({"success": False, "message": "Nível é obrigatório"})
-            
-            if level in data.get("level_roles", {}):
-                del data["level_roles"][level]
-                save_data_to_github(f"Remove level role {level}")
-                return jsonify({"success": True, "message": f"Cargo removido do nível {level}"})
-            else:
-                return jsonify({"success": False, "message": "Nível não encontrado"})
-                
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
 
 @app.route("/api/guild/members")
 def api_guild_members():
-    """API para obter membros da guild"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
         if not guild:
             return jsonify({"success": False, "message": "Guild não encontrada"})
-        
         members = []
         for member in guild.members:
             if not member.bot:
@@ -1781,83 +1635,14 @@ def api_guild_members():
                     "name": member.display_name,
                     "avatar": str(member.avatar.url) if member.avatar else None
                 })
-        
         return jsonify({"success": True, "members": members[:100]})
-        
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-@app.route("/api/member/warns")
-def api_member_warns():
-    """API para ver advertências de um membro"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    member_id = request.args.get('member_id')
-    if not member_id:
-        return jsonify({"success": False, "message": "ID do membro é obrigatório"})
-    
-    warns = data.get("warns", {}).get(str(member_id), [])
-    return jsonify({"success": True, "warns": warns})
-
-@app.route("/api/command/warn", methods=["POST"])
-def api_command_warn():
-    """API para executar comando de advertência"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        req_data = request.json
-        member_id = req_data.get('member_id')
-        reason = req_data.get('reason', 'Sem motivo informado')
-        
-        if not member_id:
-            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
-        
-        success = execute_bot_action(
-            "warn_member",
-            member_id=member_id,
-            reason=reason,
-            admin=session['user']['username']
-        )
-        
-        return jsonify({
-            "success": success, 
-            "message": f"✅ Membro será advertido em instantes!\nMotivo: {reason}"
-        })
-        
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-@app.route("/api/command/clearwarns", methods=["POST"])
-def api_command_clearwarns():
-    """API para limpar advertências"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        req_data = request.json
-        member_id = str(req_data.get('member_id'))
-        
-        if not member_id:
-            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
-        
-        if member_id in data.get("warns", {}):
-            data["warns"].pop(member_id)
-            save_data_to_github(f"Clear warns via site: {member_id}")
-            return jsonify({"success": True, "message": "✅ Advertências removidas!"})
-        else:
-            return jsonify({"success": False, "message": "❌ Membro não tem advertências"})
-            
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
 @app.route("/api/command/embed", methods=["POST"])
 def api_command_embed():
-    """API para criar embed com todas as opções"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         req_data = request.json
         channel_id = req_data.get('channel_id')
@@ -1868,7 +1653,7 @@ def api_command_embed():
         mention = req_data.get('mention')
         
         if not channel_id or not title or not body:
-            return jsonify({"success": False, "message": "Preencha todos os campos obrigatórios (canal, título, corpo)"})
+            return jsonify({"success": False, "message": "Preencha todos os campos obrigatórios"})
         
         success = execute_bot_action(
             "create_embed",
@@ -1880,281 +1665,586 @@ def api_command_embed():
             mention=mention,
             admin=session['user']['username']
         )
-        
-        return jsonify({
-            "success": success, 
-            "message": f"✅ Embed '{title}' será criada em instantes!"
-        })
-        
+        return jsonify({"success": success, "message": f"✅ Embed será criada em instantes!"})
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/command/blocklinks", methods=["POST"])
-def api_command_blocklinks():
-    """API para bloquear links"""
+@app.route("/api/command/warn", methods=["POST"])
+def api_command_warn():
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         req_data = request.json
-        channel_id = req_data.get('channel_id')
-        
-        if not channel_id:
-            return jsonify({"success": False, "message": "ID do canal é obrigatório"})
-        
-        blocked = data.setdefault("blocked_links_channels", [])
-        
-        if int(channel_id) in blocked:
-            blocked.remove(int(channel_id))
-            message = "✅ Links desbloqueados neste canal"
+        member_id = req_data.get('member_id')
+        reason = req_data.get('reason', 'Sem motivo informado')
+        if not member_id:
+            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
+        success = execute_bot_action("warn_member", member_id=member_id, reason=reason, admin=session['user']['username'])
+        return jsonify({"success": success, "message": f"✅ Membro será advertido em instantes!"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+
+@app.route("/api/command/clearwarns", methods=["POST"])
+def api_command_clearwarns():
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    try:
+        req_data = request.json
+        member_id = str(req_data.get('member_id'))
+        if not member_id:
+            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
+        if member_id in data.get("warns", {}):
+            data["warns"].pop(member_id)
+            save_data_to_github(f"Clear warns via site: {member_id}")
+            return jsonify({"success": True, "message": "✅ Advertências removidas!"})
         else:
-            blocked.append(int(channel_id))
-            message = "✅ Links bloqueados neste canal"
-        
-        save_data_to_github("Toggle block links via site")
-        
-        return jsonify({"success": True, "message": message})
-        
+            return jsonify({"success": False, "message": "❌ Membro não tem advertências"})
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
 
 @app.route("/api/reactionrole/create", methods=["POST"])
 def api_reactionrole_create():
-    """API para criar reaction role"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         req_data = request.json
         channel_id = req_data.get('channel_id')
         content = req_data.get('content')
         emoji_cargo = req_data.get('emoji_cargo')
-        
         if not channel_id or not content or not emoji_cargo:
             return jsonify({"success": False, "message": "Preencha todos os campos"})
-        
-        success = execute_bot_action(
-            "create_reaction_role",
-            channel_id=channel_id,
-            content=content,
-            emoji_cargo=emoji_cargo,
-            admin=session['user']['username']
-        )
-        
-        return jsonify({
-            "success": success,
-            "message": "✅ Reaction role será criada em instantes!"
-        })
-        
+        success = execute_bot_action("create_reaction_role", channel_id=channel_id, content=content, emoji_cargo=emoji_cargo, admin=session['user']['username'])
+        return jsonify({"success": success, "message": "✅ Reaction role será criada em instantes!"})
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
 
 @app.route("/api/rolebuttons/create", methods=["POST"])
 def api_rolebuttons_create():
-    """API para criar botões de cargos"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
     try:
         req_data = request.json
         channel_id = req_data.get('channel_id')
         content = req_data.get('content')
         roles = req_data.get('roles')
-        
         if not channel_id or not content or not roles:
             return jsonify({"success": False, "message": "Preencha todos os campos"})
-        
-        success = execute_bot_action(
-            "create_role_buttons",
-            channel_id=channel_id,
-            content=content,
-            roles=roles,
-            admin=session['user']['username']
-        )
-        
-        return jsonify({
-            "success": success,
-            "message": "✅ Botões de cargo serão criados em instantes!"
-        })
-        
+        success = execute_bot_action("create_role_buttons", channel_id=channel_id, content=content, roles=roles, admin=session['user']['username'])
+        return jsonify({"success": success, "message": "✅ Botões de cargo serão criados em instantes!"})
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-@app.route("/api/command-channels")
-def api_command_channels():
-    """API para obter configuração de canais de comandos"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    command_channels = data.get("command_channels", {})
-    return jsonify({"success": True, "command_channels": command_channels})
 
 @app.route("/api/test/bot", methods=["GET"])
 def api_test_bot():
-    """API para testar conexão com o bot"""
     if 'user' not in session:
         return jsonify({"success": False, "message": "Não autenticado"}), 401
+    return jsonify({
+        "success": True,
+        "bot": {"ready": bot.is_ready(), "user": str(bot.user) if bot.user else None},
+        "queue_length": len(bot_actions_queue)
+    })
+
+# ========================
+# DASHBOARD PRINCIPAL
+# ========================
+@app.route("/dashboard")
+def dashboard():
+    if 'user' not in session:
+        return redirect(url_for('login'))
     
-    bot_status = {
-        "ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
-        "user": str(bot.user) if hasattr(bot, 'user') else None,
-        "guild_id": GUILD_ID,
-        "guilds": []
-    }
+    user = session['user']
     
-    if bot.is_ready():
-        bot_status["guilds"] = [{"id": g.id, "name": g.name, "member_count": len(g.members)} for g in bot.guilds]
+    config = data.get("config", {})
+    welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
+    xp_rate = config.get("xp_rate", 3)
+    welcome_bg = config.get("welcome_background", "")
+    welcome_chan = config.get("welcome_channel", "")
+    levelup_chan = config.get("levelup_channel", "")
+    
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    channels = []
+    roles = []
+    
+    if guild:
+        channels = [{"id": str(c.id), "name": c.name} for c in guild.text_channels]
+        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if r.name != "@everyone"]
+    
+    channels_json = json.dumps(channels, ensure_ascii=False)
+    roles_json = json.dumps(roles, ensure_ascii=False)
+    
+    queue = get_queue_data()
+    
+    return f'''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Painel - Bot</title>
+        <style>
+            :root {{
+                --primary: #5865F2;
+                --primary-dark: #4752C4;
+                --success: #10b981;
+                --danger: #ef4444;
+                --warning: #f59e0b;
+                --dark: #1a1a1a;
+                --darker: #121212;
+                --light: #e0e0e0;
+                --gray: #333;
+                --gray-light: #444;
+            }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: 'Segoe UI', sans-serif; background: var(--darker); color: var(--light); }}
+            header {{ background: var(--dark); padding: 1rem 2rem; border-bottom: 1px solid var(--gray); }}
+            .header-content {{ display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; }}
+            h1 {{ color: var(--primary); }}
+            .user-info {{ display: flex; align-items: center; gap: 1rem; }}
+            .avatar {{ width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--primary); }}
+            .btn {{ padding: 0.5rem 1rem; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.2s; }}
+            .btn-primary {{ background: var(--primary); color: white; }}
+            .btn-primary:hover {{ background: var(--primary-dark); }}
+            .btn-success {{ background: var(--success); color: white; }}
+            .btn-danger {{ background: var(--danger); color: white; }}
+            .btn-warning {{ background: var(--warning); color: white; }}
+            .container {{ max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }}
+            .tab-nav {{ display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 2px solid var(--gray); flex-wrap: wrap; }}
+            .tab-btn {{ padding: 0.75rem 1.5rem; background: var(--gray); border: none; border-radius: 5px 5px 0 0; cursor: pointer; font-weight: 600; color: var(--light); }}
+            .tab-btn:hover {{ background: var(--gray-light); }}
+            .tab-btn.active {{ background: var(--primary); color: white; }}
+            .tab {{ display: none; animation: fadeIn 0.3s; }}
+            .tab.active {{ display: block; }}
+            @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+            .card {{ background: var(--dark); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; border: 1px solid var(--gray); }}
+            .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }}
+            .stat-card {{ background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.5rem; border-radius: 10px; text-align: center; }}
+            .stat-card h3 {{ font-size: 2rem; }}
+            .form-group {{ margin-bottom: 1.5rem; }}
+            label {{ display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--primary); }}
+            .form-control {{ width: 100%; padding: 0.75rem; background: var(--darker); border: 1px solid var(--gray); border-radius: 5px; color: var(--light); }}
+            .form-control:focus {{ outline: none; border-color: var(--primary); }}
+            .alert {{ padding: 1rem; border-radius: 5px; margin: 1rem 0; display: none; }}
+            .alert-success {{ background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }}
+            .alert-error {{ background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid var(--gray); }}
+            th {{ background: var(--gray); }}
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="header-content">
+                <h1>Painel de Controle</h1>
+                <div class="user-info">
+                    <img src="https://cdn.discordapp.com/avatars/{user['id']}/{user.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <span>{user['username']}</span>
+                    <a href="/" class="btn btn-primary">🏠 Início</a>
+                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
+                </div>
+            </div>
+        </header>
         
-        if GUILD_ID:
-            guild = bot.get_guild(int(GUILD_ID))
-            if guild:
-                bot_member = guild.get_member(bot.user.id)
-                permissions = bot_member.guild_permissions if bot_member else None
+        <div class="container">
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
+                <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
+                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
+                <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
+                <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
+                <button class="tab-btn" onclick="showTab('queue')">📋 Fila</button>
+            </div>
+            
+            <div id="overview" class="tab active">
+                <div class="card">
+                    <h2>📊 Estatísticas</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card"><h3>{len(data.get("xp", {}))}</h3><p>Usuários com XP</p></div>
+                        <div class="stat-card"><h3>{sum(len(w) for w in data.get("warns", {}).values())}</h3><p>Advertências</p></div>
+                        <div class="stat-card"><h3>{len(queue["entries"])}</h3><p>Na Fila</p></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>⚡ Status</h2>
+                    <p><strong>Bot:</strong> {'✅ Online' if bot.is_ready() else '❌ Offline'}</p>
+                    <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
+                    <p><strong>Fila:</strong> {queue["settings"]["open"] and '🟢 Aberta' or '🔴 Fechada'} - {len(queue["entries"])}/{queue["settings"]["max_size"]}</p>
+                </div>
+            </div>
+            
+            <div id="welcome" class="tab">
+                <div class="card">
+                    <h2>👋 Boas-vindas</h2>
+                    <div class="form-group"><label>Canal</label><select id="welcome-channel" class="form-control"></select></div>
+                    <div class="form-group"><label>Mensagem</label><textarea id="welcome-message" class="form-control" rows="3">{welcome_msg}</textarea><small>Use {{member}} para mencionar</small></div>
+                    <div class="form-group"><label>Imagem URL</label><input type="url" id="welcome-image" class="form-control" value="{welcome_bg}"></div>
+                    <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="welcome-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <div id="xp" class="tab">
+                <div class="card">
+                    <h2>⭐ Sistema XP</h2>
+                    <div class="form-group"><label>Taxa de XP</label><input type="number" id="xp-rate" class="form-control" value="{xp_rate}" min="1" max="10"></div>
+                    <div class="form-group"><label>Canal Level Up</label><select id="levelup-channel" class="form-control"></select></div>
+                    <button onclick="saveXPConfig()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="xp-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <div id="roles" class="tab">
+                <div class="card">
+                    <h2>🎭 Reaction Role</h2>
+                    <div class="form-group"><label>Canal</label><select id="rr-channel" class="form-control"></select></div>
+                    <div class="form-group"><label>Mensagem</label><textarea id="rr-content" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea></div>
+                    <div class="form-group"><label>Emoji:Cargo</label><input type="text" id="rr-pair" class="form-control" placeholder="✅:Verificado,👍:Aprovado"></div>
+                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar</button>
+                    <div id="roles-alert" class="alert"></div>
+                </div>
+                <div class="card">
+                    <h3>🔄 Botões de Cargos</h3>
+                    <div class="form-group"><label>Canal</label><select id="btn-channel" class="form-control"></select></div>
+                    <div class="form-group"><label>Mensagem</label><textarea id="btn-content" class="form-control" rows="3"></textarea></div>
+                    <div class="form-group"><label>Botão:Cargo</label><input type="text" id="btn-pairs" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos"></div>
+                    <button onclick="createRoleButtons()" class="btn btn-success">🔄 Criar</button>
+                </div>
+            </div>
+            
+            <div id="moderation" class="tab">
+                <div class="card">
+                    <h2>🛡️ Moderação</h2>
+                    <div class="form-group"><label>Membro</label><select id="warn-member" class="form-control"></select></div>
+                    <div class="form-group"><label>Motivo</label><input type="text" id="warn-reason" class="form-control"></div>
+                    <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
+                    <button onclick="clearWarns()" class="btn btn-danger" style="margin-left: 10px;">🧹 Limpar Advertências</button>
+                    <div id="warn-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <div id="queue" class="tab">
+                <div class="card">
+                    <h2>📋 Sistema de Fila</h2>
+                </div>
                 
-                bot_status["target_guild"] = {
-                    "name": guild.name,
-                    "channels": [{"id": str(c.id), "name": c.name} for c in guild.text_channels],
-                    "permissions": {
-                        "send_messages": permissions.send_messages if permissions else False,
-                        "embed_links": permissions.embed_links if permissions else False,
-                        "manage_roles": permissions.manage_roles if permissions else False
-                    }
-                }
-    
-    return jsonify({
-        "success": True,
-        "bot": bot_status,
-        "queue_length": len(bot_actions_queue),
-        "timestamp": datetime.now().isoformat()
-    })
-
-# ========================
-# APIs DE CONTROLE DO PROCESSADOR
-# ========================
-@app.route("/api/processor/start", methods=["POST"])
-def api_processor_start():
-    """Inicia o processador manualmente"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        success = start_action_processor()
-        
-        return jsonify({
-            "success": success,
-            "message": "✅ Processador iniciado!" if success else "❌ Falha ao iniciar processador",
-            "queue_length": len(bot_actions_queue),
-            "processor_running": action_processor_running
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-@app.route("/api/processor/stop", methods=["POST"])
-def api_processor_stop():
-    """Para o processador manualmente"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        success = stop_action_processor()
-        
-        return jsonify({
-            "success": success,
-            "message": "✅ Processador parado!" if success else "❌ Falha ao parar processador",
-            "queue_length": len(bot_actions_queue),
-            "processor_running": action_processor_running
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-@app.route("/api/processor/status", methods=["GET"])
-def api_processor_status():
-    """Verifica status do processador"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    return jsonify({
-        "success": True,
-        "processor_running": action_processor_running,
-        "queue_length": len(bot_actions_queue),
-        "queue": bot_actions_queue[:5],
-        "bot_ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
-        "has_processor_task": action_processor_task is not None,
-        "task_done": action_processor_task.done() if action_processor_task else None,
-        "task_running": not action_processor_task.done() if action_processor_task else None
-    })
-
-@app.route("/api/processor/process-one", methods=["POST"])
-def api_processor_process_one():
-    """Processa uma ação manualmente"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    try:
-        if not bot_actions_queue:
-            return jsonify({
-                "success": False,
-                "message": "❌ Nenhuma ação na fila para processar"
-            })
-        
-        action = bot_actions_queue[0]
-        action_type = action['type']
-        
-        async def process_action_directly():
-            return await execute_bot_action_internal(action)
-        
-        try:
-            future = asyncio.run_coroutine_threadsafe(process_action_directly(), bot.loop)
-            success = future.result(timeout=15)
-            
-            if success:
-                bot_actions_queue.pop(0)
+                <div class="card">
+                    <h3>⚙️ Configurações</h3>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <div style="flex: 1;"><label>Nome da Fila</label><input type="text" id="queue-name" class="form-control" value="{escape_html(queue['name'])}"></div>
+                        <div style="width: 150px;"><label>Máximo</label><input type="number" id="queue-max-size" class="form-control" value="{queue['settings']['max_size']}" min="1" max="100"></div>
+                        <div style="display: flex; align-items: flex-end;"><button onclick="saveQueueSettings()" class="btn btn-primary">💾 Salvar</button></div>
+                        <div style="display: flex; align-items: flex-end;"><button onclick="toggleQueueStatus()" id="queue-toggle-btn" class="btn {'btn-success' if queue['settings']['open'] else 'btn-danger'}">{'🔓 Fechar Fila' if queue['settings']['open'] else '🔒 Abrir Fila'}</button></div>
+                    </div>
+                    <div id="queue-status-display" style="margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 5px;">
+                        Status: <strong>{'🟢 ABERTA' if queue['settings']['open'] else '🔴 FECHADA'}</strong> | Ocupação: {len(queue["entries"])} / {queue["settings"]["max_size"]}
+                    </div>
+                </div>
                 
-            return jsonify({
-                "success": success,
-                "message": f"✅ Ação '{action_type}' processada com sucesso!" if success else f"❌ Falha ao processar ação '{action_type}'",
-                "action_type": action_type,
-                "queue_remaining": len(bot_actions_queue)
-            })
+                <div class="card">
+                    <h3>➕ Adicionar</h3>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <input type="text" id="add-username" class="form-control" placeholder="Nome do jogador" style="flex: 1;">
+                        <input type="text" id="add-service" class="form-control" placeholder="Serviço" style="flex: 1;">
+                        <button onclick="addToQueue()" class="btn btn-primary">➕ Adicionar</button>
+                    </div>
+                    <div id="add-result" class="alert" style="margin-top: 10px; display: none;"></div>
+                </div>
+                
+                <div class="card">
+                    <h3>📋 Lista de Espera</h3>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead><tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr></thead>
+                            <tbody id="queue-table-body"><tr><td colspan="5">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button onclick="clearQueue()" class="btn btn-danger">🗑️ Limpar Toda Fila</button>
+                        <button onclick="refreshQueue()" class="btn btn-primary">🔄 Atualizar</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>📎 Links para StreamElements/OBS</h3>
+                    <div class="form-group"><label>URL da Lista (HTML)</label><input type="text" class="form-control" readonly value="{request.host_url}queue" onclick="this.select();"></div>
+                    <div class="form-group"><label>URL Embed (Overlay)</label><input type="text" class="form-control" readonly value="{request.host_url}queue/embed" onclick="this.select();"></div>
+                    <div class="form-group"><label>URL API (JSON)</label><input type="text" class="form-control" readonly value="{request.host_url}queue/api" onclick="this.select();"></div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            const guildChannels = {channels_json};
             
-        except asyncio.TimeoutError:
-            return jsonify({
-                "success": False,
-                "message": "⏰ Timeout ao processar ação (15 segundos)"
-            })
-        except Exception as e:
-            return jsonify({
-                "success": False,
-                "message": f"❌ Erro ao processar: {str(e)}"
-            })
+            function showTab(tabId) {{
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
+                if (tabId === 'queue') loadQueue();
+                if (tabId === 'welcome' || tabId === 'xp' || tabId === 'roles') populateSelects();
+                if (tabId === 'moderation') loadMembers();
+            }}
             
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
-
-@app.route("/api/debug/actions", methods=["GET"])
-def api_debug_actions():
-    """API para debug das ações"""
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
-    
-    processing_active = action_processor_running
-    
-    return jsonify({
-        "success": True,
-        "queue_length": len(bot_actions_queue),
-        "queue": bot_actions_queue[:5],
-        "bot_ready": bot.is_ready() if hasattr(bot, 'is_ready') else False,
-        "bot_user": str(bot.user) if hasattr(bot, 'user') else "None",
-        "guild_id": GUILD_ID,
-        "processing_active": processing_active,
-        "processor_running": action_processor_running,
-        "has_processor_task": action_processor_task is not None,
-        "task_done": action_processor_task.done() if action_processor_task else None,
-        "guilds": [g.name for g in bot.guilds] if hasattr(bot, 'guilds') else []
-    })
+            function populateSelects() {{
+                const selects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel'];
+                selects.forEach(id => {{
+                    const select = document.getElementById(id);
+                    if (select) {{
+                        select.innerHTML = '<option value="">Selecione um canal</option>';
+                        guildChannels.forEach(c => {{
+                            const option = document.createElement('option');
+                            option.value = c.id;
+                            option.textContent = '#' + c.name;
+                            select.appendChild(option);
+                        }});
+                    }}
+                }});
+                const wc = document.getElementById('welcome-channel');
+                if (wc) wc.value = '{welcome_chan}';
+                const lc = document.getElementById('levelup-channel');
+                if (lc) lc.value = '{levelup_chan}';
+            }}
+            
+            async function loadMembers() {{
+                try {{
+                    const resp = await fetch('/api/guild/members');
+                    const data = await resp.json();
+                    if (data.success) {{
+                        const select = document.getElementById('warn-member');
+                        if (select) {{
+                            select.innerHTML = '<option value="">Selecione membro</option>';
+                            data.members.forEach(m => {{
+                                const opt = document.createElement('option');
+                                opt.value = m.id;
+                                opt.textContent = m.name;
+                                select.appendChild(opt);
+                            }});
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function saveWelcomeConfig() {{
+                const data = {{
+                    message: document.getElementById('welcome-message').value,
+                    channel_id: document.getElementById('welcome-channel').value,
+                    image_url: document.getElementById('welcome-image').value
+                }};
+                try {{
+                    const resp = await fetch('/api/config/welcome', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('welcome-alert', result.message, result.success);
+                }} catch(e) {{ showAlert('welcome-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function saveXPConfig() {{
+                const data = {{rate: parseInt(document.getElementById('xp-rate').value), channel_id: document.getElementById('levelup-channel').value}};
+                try {{
+                    const resp = await fetch('/api/config/xp', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('xp-alert', result.message, result.success);
+                }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function createReactionRole() {{
+                const channelId = document.getElementById('rr-channel').value;
+                const content = document.getElementById('rr-content').value;
+                const pairs = document.getElementById('rr-pair').value;
+                if (!channelId || !content || !pairs) {{ showAlert('roles-alert', 'Preencha todos os campos', false); return; }}
+                try {{
+                    const resp = await fetch('/api/reactionrole/create', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{channel_id: channelId, content: content, emoji_cargo: pairs}})}});
+                    const result = await resp.json();
+                    showAlert('roles-alert', result.message, result.success);
+                    if (result.success) {{ document.getElementById('rr-content').value = ''; document.getElementById('rr-pair').value = ''; }}
+                }} catch(e) {{ showAlert('roles-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function createRoleButtons() {{
+                const channelId = document.getElementById('btn-channel').value;
+                const content = document.getElementById('btn-content').value;
+                const pairs = document.getElementById('btn-pairs').value;
+                if (!channelId || !content || !pairs) {{ showAlert('roles-alert', 'Preencha todos os campos', false); return; }}
+                try {{
+                    const resp = await fetch('/api/rolebuttons/create', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{channel_id: channelId, content: content, roles: pairs}})}});
+                    const result = await resp.json();
+                    showAlert('roles-alert', result.message, result.success);
+                    if (result.success) {{ document.getElementById('btn-content').value = ''; document.getElementById('btn-pairs').value = ''; }}
+                }} catch(e) {{ showAlert('roles-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function executeWarn() {{
+                const memberId = document.getElementById('warn-member').value;
+                const reason = document.getElementById('warn-reason').value;
+                if (!memberId || !reason) {{ alert('Selecione membro e motivo'); return; }}
+                try {{
+                    const resp = await fetch('/api/command/warn', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{member_id: memberId, reason: reason}})}});
+                    const result = await resp.json();
+                    alert(result.message);
+                    if (result.success) document.getElementById('warn-reason').value = '';
+                }} catch(e) {{ alert('Erro: ' + e.message); }}
+            }}
+            
+            async function clearWarns() {{
+                const memberId = document.getElementById('warn-member').value;
+                if (!memberId) {{ alert('Selecione um membro'); return; }}
+                if (!confirm('Tem certeza?')) return;
+                try {{
+                    const resp = await fetch('/api/command/clearwarns', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{member_id: memberId}})}});
+                    const result = await resp.json();
+                    alert(result.message);
+                }} catch(e) {{ alert('Erro: ' + e.message); }}
+            }}
+            
+            async function loadQueue() {{
+                try {{
+                    const resp = await fetch('/queue/api');
+                    const data = await resp.json();
+                    if (data.success) {{
+                        const queue = data.queue;
+                        const tbody = document.getElementById('queue-table-body');
+                        if (queue.entries.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="5">📭 Ninguém na fila</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = queue.entries.map(e => `
+                                <tr>
+                                    <td><strong style="color:#ffd93d;">#${{e.position}}</strong></td>
+                                    <td>${{escapeHtml(e.username)}}</td>
+                                    <td style="color:#a8e6cf;">${{escapeHtml(e.service)}}</td>
+                                    <td>${{new Date(e.timestamp).toLocaleTimeString()}}</td>
+                                    <td>
+                                        <button onclick="moveUp('${{e.id}}')" class="btn btn-primary" style="padding:4px 8px;">⬆️</button>
+                                        <button onclick="moveDown('${{e.id}}')" class="btn btn-primary" style="padding:4px 8px;">⬇️</button>
+                                        <button onclick="completeService('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
+                                        <button onclick="removeFromQueue('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                        document.getElementById('queue-status-display').innerHTML = `Status: <strong>${{queue.open ? '🟢 ABERTA' : '🔴 FECHADA'}}</strong> | Ocupação: ${{queue.count}} / ${{queue.max_size}}`;
+                        const toggleBtn = document.getElementById('queue-toggle-btn');
+                        if (toggleBtn) {{
+                            toggleBtn.className = queue.open ? 'btn btn-danger' : 'btn btn-success';
+                            toggleBtn.textContent = queue.open ? '🔓 Fechar Fila' : '🔒 Abrir Fila';
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function addToQueue() {{
+                const username = document.getElementById('add-username').value.trim();
+                const service = document.getElementById('add-service').value.trim();
+                if (!username || !service) {{ showQueueAlert('add-result', 'Preencha nome e serviço', false); return; }}
+                try {{
+                    const resp = await fetch('/api/queue/add', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{username, service}})}});
+                    const data = await resp.json();
+                    showQueueAlert('add-result', data.message, data.success);
+                    if (data.success) {{
+                        document.getElementById('add-username').value = '';
+                        document.getElementById('add-service').value = '';
+                        loadQueue();
+                    }}
+                }} catch(e) {{ showQueueAlert('add-result', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function removeFromQueue(entryId) {{
+                if (!confirm('Remover esta pessoa da fila?')) return;
+                try {{
+                    await fetch('/api/queue/remove', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
+                    loadQueue();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function moveUp(entryId) {{
+                try {{
+                    await fetch('/api/queue/move-up', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
+                    loadQueue();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function moveDown(entryId) {{
+                try {{
+                    await fetch('/api/queue/move-down', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
+                    loadQueue();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function completeService(entryId) {{
+                if (!confirm('Marcar como concluído?')) return;
+                try {{
+                    await fetch('/api/queue/complete', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
+                    loadQueue();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function clearQueue() {{
+                if (!confirm('⚠️ LIMPAR TODA A FILA? Tem certeza?')) return;
+                try {{
+                    await fetch('/api/queue/clear', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}}});
+                    loadQueue();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function saveQueueSettings() {{
+                const name = document.getElementById('queue-name').value;
+                const max_size = parseInt(document.getElementById('queue-max-size').value);
+                try {{
+                    const resp = await fetch('/api/queue/settings', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{name, max_size}})}});
+                    const data = await resp.json();
+                    if (data.success) {{
+                        showQueueAlert('add-result', 'Configurações salvas!', true);
+                        setTimeout(() => {{ document.getElementById('add-result').style.display = 'none'; }}, 2000);
+                        loadQueue();
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function toggleQueueStatus() {{
+                try {{
+                    await fetch('/api/queue/settings', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{open: null}})}});
+                    loadQueue();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function refreshQueue() {{ loadQueue(); }}
+            
+            function showAlert(id, msg, success) {{
+                const el = document.getElementById(id);
+                el.textContent = msg;
+                el.className = 'alert ' + (success ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 3000);
+            }}
+            
+            function showQueueAlert(id, msg, success) {{
+                const el = document.getElementById(id);
+                el.textContent = msg;
+                el.className = 'alert ' + (success ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 3000);
+            }}
+            
+            function escapeHtml(text) {{
+                if (!text) return '';
+                return text.replace(/[&<>]/g, function(m) {{
+                    if (m === '&') return '&amp;';
+                    if (m === '<') return '&lt;';
+                    if (m === '>') return '&gt;';
+                    return m;
+                }});
+            }}
+            
+            document.addEventListener('DOMContentLoaded', function() {{
+                populateSelects();
+                loadMembers();
+                loadQueue();
+            }});
+        </script>
+    </body>
+    </html>
+    '''
 
 # ========================
-# AUTO PING (MANTER ATIVO)
+# AUTO PING
 # ========================
 def auto_ping():
     while True:
@@ -2180,7 +2270,6 @@ async def on_ready():
     print(f"{'='*50}")
     print(f"📛 Nome: {bot.user}")
     print(f"🆔 ID: {bot.user.id}")
-    print(f"✅ Status: {'PRONTO' if bot.is_ready() else 'NÃO PRONTO'}")
     print(f"{'='*50}")
     
     print(f"🏠 GUILDS CONECTADAS ({len(bot.guilds)}):")
@@ -2188,22 +2277,12 @@ async def on_ready():
         print(f"  {i}. {guild.name} (ID: {guild.id}) - Membros: {len(guild.members)}")
     print(f"{'='*50}")
     
-    target_guild = None
     if GUILD_ID:
         target_guild = bot.get_guild(int(GUILD_ID))
         if target_guild:
-            print(f"🎯 GUILD ALVO ENCONTRADA:")
-            print(f"   Nome: {target_guild.name}")
-            print(f"   ID: {target_guild.id}")
-            print(f"   👥 Membros: {len(target_guild.members)}")
-            print(f"   📝 Canais de texto: {len(target_guild.text_channels)}")
-            print(f"   🎭 Cargos: {len(target_guild.roles)}")
+            print(f"🎯 GUILD ALVO: {target_guild.name}")
         else:
-            print(f"⚠️ AVISO CRÍTICO: Guild alvo não encontrada!")
-            print(f"   GUILD_ID configurado: {GUILD_ID}")
-            print(f"   Guilds disponíveis: {[g.id for g in bot.guilds]}")
-    else:
-        print(f"⚠️ AVISO: GUILD_ID não configurado no ambiente")
+            print(f"⚠️ Guild alvo não encontrada! ID: {GUILD_ID}")
     
     print(f"{'='*50}")
     
@@ -2214,89 +2293,25 @@ async def on_ready():
     print("⚙️ Sincronizando comandos slash...")
     try:
         if GUILD_ID:
-            gid = int(GUILD_ID)
-            guild = discord.Object(id=gid)
-            await tree.sync(guild=guild)
-            print(f"   ✅ Comandos sincronizados no servidor {gid}")
+            await tree.sync(guild=discord.Object(id=int(GUILD_ID)))
+            print(f"   ✅ Comandos sincronizados no servidor {GUILD_ID}")
         else:
             await tree.sync()
             print("   ✅ Comandos globais sincronizados")
     except Exception as e:
         print(f"   ❌ Erro ao sincronizar comandos: {e}")
 
-    print("🔄 Restaurando botões persistentes...")
-    role_buttons = data.get("role_buttons", {})
-    if role_buttons:
-        print(f"   📊 {len(role_buttons)} mensagens com botões para restaurar")
-        restored = 0
-        for msg_id_str, buttons_dict in role_buttons.items():
-            try:
-                msg_id = int(msg_id_str)
-                message = None
-                
-                for guild in bot.guilds:
-                    for channel in guild.text_channels:
-                        try:
-                            message = await channel.fetch_message(msg_id)
-                            if message:
-                                break
-                        except discord.NotFound:
-                            continue
-                        except discord.Forbidden:
-                            continue
-                        except Exception:
-                            continue
-                    if message:
-                        break
-                
-                if message:
-                    view = PersistentRoleButtonView(msg_id, buttons_dict)
-                    await message.edit(view=view)
-                    restored += 1
-                    print(f"   ✅ Botões restaurados para mensagem {msg_id}")
-                else:
-                    print(f"   ⚠️ Mensagem {msg_id} não encontrada (botões não restaurados)")
-                    
-            except Exception as e:
-                print(f"   ❌ Erro ao restaurar botões para {msg_id_str}: {e}")
-        
-        print(f"   📊 {restored}/{len(role_buttons)} mensagens restauradas com sucesso")
-    else:
-        print("   ℹ️ Nenhum botão persistente para restaurar")
-
-    print("\n" + "="*50)
-    print("🚀 CONFIGURANDO SISTEMA DE AÇÕES DO SITE")
-    print("="*50)
-    
-    await asyncio.sleep(3)
+    await asyncio.sleep(2)
     
     try:
         start_action_processor()
-        print("✅ Sistema de ações INICIADO com sucesso!")
-        
+        print("✅ Sistema de ações INICIADO!")
     except Exception as e:
         print(f"❌ Erro ao iniciar sistema de ações: {e}")
-        import traceback
-        traceback.print_exc()
     
-    print("="*50)
-    
-    print("🔍 Executando diagnóstico de conexão...")
-    await check_bot_connection()
-    
-    print(f"{'='*50}")
-    print(f"📊 ESTATÍSTICAS CARREGADAS:")
-    print(f"   📈 Usuários com XP: {len(data.get('xp', {}))}")
-    print(f"   ⚠️ Advertências: {sum(len(w) for w in data.get('warns', {}).values())}")
-    print(f"   🎭 Reaction Roles: {len(data.get('reaction_roles', {}))}")
-    print(f"   🔘 Botões de Cargo: {len(data.get('role_buttons', {}))}")
-    print(f"   📝 Logs: {len(data.get('logs', []))}")
-    print(f"   📋 Fila: {len(data.get('queue', {}).get('entries', []))} pessoas")
     print(f"{'='*50}")
     print(f"✨ BOT PRONTO PARA USO!")
     print(f"{'='*50}\n")
-    
-    add_log(f"Bot iniciado: {bot.user.name} ({bot.user.id}) em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
 @bot.event
 async def on_member_join(member: discord.Member):
@@ -2516,7 +2531,6 @@ async def on_message(message: discord.Message):
 
     blocked_channels = data.get("blocked_links_channels", [])
     if message.channel.id in blocked_channels:
-        import re
         url_pattern = r"https?://[^\s]+"
         if re.search(url_pattern, content):
             if not is_staff:
@@ -2657,14 +2671,14 @@ async def set_xp_rate(interaction: discord.Interaction, rate: int):
     data.setdefault("config", {})["xp_rate"] = rate
     save_data_to_github("Set XP rate")
 
-    await interaction.response.send_message(f"✅ Taxa de XP ajustada para **x{rate}**. Agora é **{rate}x mais difícil** subir de nível.", ephemeral=False)
+    await interaction.response.send_message(f"✅ Taxa de XP ajustada para **x{rate}**.", ephemeral=False)
 
 #/mensagem_personalizada
 @tree.command(name="mensagem_personalizada", description="Cria uma mensagem personalizada (admin)")
 @app_commands.describe(
     canal="Canal onde a mensagem será enviada",
     titulo="Título da mensagem",
-    corpo="Texto interno (use \n para quebra de linha)",
+    corpo="Texto interno (use \\n para quebra de linha)",
     imagem="Link da imagem (opcional)",
     cor="Cor em hexadecimal (ex: #5865F2)",
     mencionar="Mencionar @everyone (opcional)"
@@ -2704,116 +2718,6 @@ async def criar_embed(
     mention_text = mencionar if mencionar in ["@everyone", "@here"] else ""
     await canal.send(content=mention_text, embed=embed)
     await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
-
-#/selecionar_imagem_boas-vindas
-@tree.command(name="selecionar_imagem_boas-vindas", description="Define ou remove a imagem de fundo da mensagem de boas-vindas (admin)")
-@app_commands.describe(url="URL da imagem que será usada no fundo (deixe vazio para remover)")
-async def slash_setwelcomeimage(interaction: discord.Interaction, url: str = None):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
-        return
-
-    config = data.setdefault("config", {})
-
-    if not url:
-        if "welcome_background" in config:
-            del config["welcome_background"]
-            save_data_to_github("Unset welcome background")
-            await interaction.response.send_message("🧹 Imagem de fundo personalizada removida. Voltará a usar a padrão.", ephemeral=False)
-        else:
-            await interaction.response.send_message("ℹ️ Nenhuma imagem personalizada estava configurada.", ephemeral=True)
-        return
-
-    if not (url.startswith("http://") or url.startswith("https://")):
-        await interaction.response.send_message("❌ Forneça uma URL válida começando com http:// ou https://", ephemeral=True)
-        return
-
-    config["welcome_background"] = url
-    save_data_to_github("Set welcome background")
-    await interaction.response.send_message(f"✅ Imagem de fundo definida com sucesso!\n{url}", ephemeral=False)
-
-#/definir_canal_comando
-@tree.command(name="definir_canal_comando", description="Define canais onde um comando pode ser usado (admin)")
-@app_commands.describe(
-    command="Nome do comando (ex: rank, top, aviso)",
-    channel="Canal de texto para permitir o comando"
-)
-async def slash_setcommandchannel(interaction: discord.Interaction, command: str, channel: discord.TextChannel):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
-        return
-
-    cmd_channels = data.setdefault("command_channels", {})
-    channels = cmd_channels.setdefault(command.lower(), [])
-
-    if channel.id in channels:
-        channels.remove(channel.id)
-        msg = f"❌ O canal {channel.mention} **foi removido** da lista do comando `{command}`."
-    else:
-        channels.append(channel.id)
-        msg = f"✅ O canal {channel.mention} **foi adicionado** para o comando `{command}`."
-
-    save_data_to_github(f"Set command channel for {command}")
-    await interaction.response.send_message(msg, ephemeral=False)
-
-#/criar_reação_com_botao
-@tree.command(name="criar_reação_com_botao", description="Cria uma mensagem com botões de cargos")
-@app_commands.describe(
-    channel="Canal para enviar a mensagem",
-    content="Texto da mensagem",
-    roles="Botão:Cargo separados por vírgula (ex: Aceitar:Regra,VIP:VIP)"
-)
-async def create_role_buttons(interaction: Interaction, channel: discord.TextChannel, content: str, roles: str):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
-        return
-
-    buttons_dict = {}
-    for pair in [r.strip() for r in roles.split(",")]:
-        try:
-            button_name, role_name = pair.split(":")
-        except ValueError:
-            await interaction.response.send_message(f"Formato inválido: `{pair}`. Use Botão:Cargo", ephemeral=True)
-            return
-        
-        role = discord.utils.get(interaction.guild.roles, name=role_name.strip())
-        if not role:
-            await interaction.response.send_message(f"Cargo `{role_name}` não encontrado.", ephemeral=True)
-            return
-        
-        buttons_dict[button_name.strip()] = role.id
-
-    view = PersistentRoleButtonView(0, buttons_dict)
-    sent = await channel.send(content=content, view=view)
-
-    view.message_id = sent.id
-    for item in view.children:
-        if isinstance(item, PersistentRoleButton):
-            item.message_id = sent.id
-
-    data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
-    save_data_to_github("Create role buttons")
-
-    await interaction.response.send_message(f"Mensagem criada em {channel.mention} com {len(buttons_dict)} botões.", ephemeral=True)
-
-#/bloquear_links
-@tree.command(name="bloquear_links", description="Bloqueia ou desbloqueia links em um canal (admin)")
-@app_commands.describe(channel="Canal para bloquear/desbloqueiar links")
-async def block_links(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
-        return
-
-    data.setdefault("blocked_links_channels", [])
-    
-    if channel.id in data["blocked_links_channels"]:
-        data["blocked_links_channels"].remove(channel.id)
-        save_data_to_github("Unblock links channel")
-        await interaction.response.send_message(f"✅ Links desbloqueados no canal {channel.mention}.")
-    else:
-        data["blocked_links_channels"].append(channel.id)
-        save_data_to_github("Block links channel")
-        await interaction.response.send_message(f"✅ Links bloqueados no canal {channel.mention}.")
 
 #/perfil
 @tree.command(name="perfil", description="mostra o seu perfil")
@@ -2888,18 +2792,6 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     file = discord.File(buf, filename="rank.png")
     await interaction.followup.send(file=file)
 
-#/definir_boas-vindas
-@tree.command(name="definir_boas-vindas", description="Define a mensagem de boas-vindas (admin)")
-@app_commands.describe(message="Mensagem (use {member} para mencionar)")
-async def slash_setwelcome(interaction: discord.Interaction, message: str):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
-        return
-
-    data.setdefault("config", {})["welcome_message"] = message
-    save_data_to_github("Set welcome message")
-    await interaction.response.send_message(f"Mensagem de boas-vindas definida!\n{message}")
-
 #/rank
 @tree.command(name="rank", description="Mostra top 10 de XP")
 async def slash_top(interaction: discord.Interaction):
@@ -2934,21 +2826,6 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
     add_log(f"warn: user={uid} by={interaction.user.id} reason={reason}")
     await interaction.response.send_message(f"⚠️ {member.mention} advertido.\nMotivo: {reason}")
 
-#/lista_de_advertência
-@tree.command(name="lista_de_advertência", description="Mostra advertências de um membro")
-@app_commands.describe(member="Membro (opcional)")
-async def slash_warns(interaction: discord.Interaction, member: discord.Member = None):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão para usar este comando.", ephemeral=True)
-        return
-    target = member or interaction.user
-    arr = data.get("warns", {}).get(str(target.id), [])
-    if not arr:
-        await interaction.response.send_message(f"{target.mention} não tem advertências.", ephemeral=False)
-        return
-    text = "\n".join([f"- {w['reason']} (por <@{w['by']}>) em {w['ts']}" for w in arr])
-    await interaction.response.send_message(f"⚠️ Advertências de {target.mention}:\n{text}")
-
 #/savedata
 @tree.command(name="savedata", description="Força salvar dados no GitHub (admin)")
 async def slash_savedata(interaction: discord.Interaction):
@@ -2961,7 +2838,7 @@ async def slash_savedata(interaction: discord.Interaction):
 #/definir_canal_boas-vindas
 @tree.command(name="definir_canal_boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
 @app_commands.describe(channel="Canal de texto")
-async def slash_setwelcome_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
+async def slash_setwelcome(interaction: discord.Interaction, channel: discord.TextChannel = None):
     if not is_admin_check(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
@@ -3021,1078 +2898,13 @@ async def rr_create(interaction: discord.Interaction, channel: discord.TextChann
     save_data_to_github("reactionrole create")
     add_log(f"reactionrole created msg={sent.id} emoji={key} role={role.id}")
     await interaction.followup.send(f"Mensagem criada em {channel.mention} com ID `{sent.id}`. Reaja para receber o cargo {role.mention}.")
-    
-@reactionrole_group.command(name="multi", description="Adiciona vários emojis e cargos a uma mesma mensagem (admin)")
-@app_commands.describe(
-    message_id="ID da mensagem existente para adicionar as reações",
-    emoji_cargo="Lista de emoji:cargo separados por vírgula."
-)
-async def rr_multi(interaction: discord.Interaction, message_id: str, emoji_cargo: str):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
-        return
-
-    guild = interaction.guild
-    try:
-        msg = await guild.get_channel(interaction.channel_id).fetch_message(int(message_id))
-    except Exception:
-        await interaction.response.send_message("❌ Mensagem não encontrada. Verifique o ID.", ephemeral=True)
-        return
-
-    pairs = [x.strip() for x in emoji_cargo.split(",") if ":" in x]
-    if not pairs:
-        await interaction.response.send_message("❌ Formato inválido. Use emoji:cargo separados por vírgula.", ephemeral=True)
-        return
-
-    data.setdefault("reaction_roles", {}).setdefault(str(msg.id), {})
-
-    added = []
-    for pair in pairs:
-        emoji_str, role_name = pair.split(":", 1)
-        emoji_str, role_name = emoji_str.strip(), role_name.strip()
-
-        role = discord.utils.get(guild.roles, name=role_name)
-        if not role:
-            await interaction.followup.send(f"⚠️ Cargo `{role_name}` não encontrado.")
-            continue
-
-        parsed = parse_emoji_str(emoji_str, guild)
-        if not parsed:
-            await interaction.followup.send(f"⚠️ Emoji `{emoji_str}` inválido.")
-            continue
-
-        try:
-            await msg.add_reaction(parsed)
-            key = str(parsed.id) if isinstance(parsed, (discord.Emoji, discord.PartialEmoji)) else str(parsed)
-            data["reaction_roles"][str(msg.id)][key] = str(role.id)
-            added.append(f"{emoji_str} → {role.name}")
-        except Exception as e:
-            await interaction.followup.send(f"Erro ao adicionar {emoji_str}: {e}")
-
-    save_data_to_github("ReactionRole multi")
-    if added:
-        await interaction.response.send_message(f"✅ Adicionados:\n" + "\n".join(added))
-    else:
-        await interaction.response.send_message("Nenhum emoji/cargo válido foi adicionado.")
-
-@reactionrole_group.command(name="remover", description="Remove uma emoji com reação de uma mensagem (admin)")
-@app_commands.describe(message_id="ID da mensagem", emoji="Emoji usado quando criado")
-async def rr_remove(interaction: discord.Interaction, message_id: str, emoji: str):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
-        return
-    mapping = data.get("reaction_roles", {}).get(str(message_id), {})
-    if not mapping:
-        await interaction.response.send_message("Nenhum mapeamento encontrado para essa mensagem.", ephemeral=True)
-        return
-    
-    parsed = parse_emoji_str(emoji, guild=interaction.guild)
-    key_candidates = [str(parsed)]
-    if isinstance(parsed, (discord.Emoji, discord.PartialEmoji)):
-        key_candidates.append(str(parsed.id))
-        if parsed.name:
-            key_candidates.append(parsed.name)
-    
-    found = None
-    for k in key_candidates:
-        if k in mapping:
-            found = k
-            break
-    
-    if not found:
-        await interaction.response.send_message("Emoji não encontrado no mapeamento da mensagem.", ephemeral=True)
-        return
-    
-    del mapping[found]
-    if not mapping:
-        data["reaction_roles"].pop(str(message_id), None)
-    
-    save_data_to_github("reactionrole remove")
-    add_log(f"reactionrole removed msg={message_id} emoji={found}")
-    await interaction.response.send_message("Removido com sucesso.", ephemeral=False)
-
-@reactionrole_group.command(name="lista", description="Lista de reação de emoji configuradas")
-async def rr_list(interaction: discord.Interaction):
-    if not is_admin_check(interaction):
-        await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
-        return
-    rr = data.get("reaction_roles", {})
-    if not rr:
-        await interaction.response.send_message("Nenhuma reação com emoji configurada.", ephemeral=True)
-        return
-    
-    lines = []
-    for msgid, mapping in rr.items():
-        parts = []
-        for ekey, rid in mapping.items():
-            parts.append(f"{ekey}→<@&{rid}>")
-        lines.append(f"Msg `{msgid}`: " + ", ".join(parts))
-    
-    content = "\n".join(lines)
-    if len(content) > 1900:
-        await interaction.response.send_message("Resultado muito grande, enviando arquivo...", ephemeral=True)
-        await interaction.followup.send(file=discord.File(BytesIO(content.encode()), filename="reactionroles.txt"))
-    else:
-        await interaction.response.send_message(f"Reaction roles:\n{content}", ephemeral=False)
 
 tree.add_command(reactionrole_group)
-
-# ========================
-# DASHBOARD (VERSÃO COMPLETA COM ABA DE FILA)
-# ========================
-@app.route("/dashboard")
-def dashboard():
-    """Dashboard principal"""
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    
-    user = session['user']
-    
-    config = data.get("config", {})
-    welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
-    xp_rate = config.get("xp_rate", 3)
-    welcome_bg = config.get("welcome_background", "")
-    welcome_chan = config.get("welcome_channel", "")
-    levelup_chan = config.get("levelup_channel", "")
-    
-    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
-    channels = []
-    roles = []
-    
-    if guild:
-        channels = [{"id": str(c.id), "name": c.name} for c in guild.text_channels]
-        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if r.name != "@everyone"]
-    
-    channels_json = json.dumps(channels, ensure_ascii=False)
-    roles_json = json.dumps(roles, ensure_ascii=False)
-    
-    queue = get_queue_data()
-    
-    return f'''
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Painel - Bot</title>
-        <style>
-            :root {{
-                --primary: #5865F2;
-                --primary-dark: #4752C4;
-                --success: #10b981;
-                --danger: #ef4444;
-                --warning: #f59e0b;
-                --dark: #1a1a1a;
-                --darker: #121212;
-                --light: #e0e0e0;
-                --gray: #333;
-                --gray-light: #444;
-            }}
-            * {{
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }}
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: var(--darker);
-                color: var(--light);
-            }}
-            header {{
-                background: var(--dark);
-                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-                padding: 1rem 2rem;
-                border-bottom: 1px solid var(--gray);
-            }}
-            .header-content {{
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                max-width: 1200px;
-                margin: 0 auto;
-            }}
-            h1 {{
-                color: var(--primary);
-                text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-            }}
-            .user-info {{
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-            }}
-            .avatar {{
-                width: 40px;
-                height: 40px;
-                border-radius: 50%;
-                border: 2px solid var(--primary);
-            }}
-            .btn {{
-                padding: 0.5rem 1rem;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                font-weight: 600;
-                text-decoration: none;
-                display: inline-block;
-                transition: all 0.2s;
-            }}
-            .btn-primary {{ background: var(--primary); color: white; }}
-            .btn-primary:hover {{ background: var(--primary-dark); }}
-            .btn-success {{ background: var(--success); color: white; }}
-            .btn-danger {{ background: var(--danger); color: white; }}
-            .btn-warning {{ background: var(--warning); color: white; }}
-            
-            .container {{
-                max-width: 1200px;
-                margin: 2rem auto;
-                padding: 0 1rem;
-            }}
-            
-            .tab-nav {{
-                display: flex;
-                gap: 0.5rem;
-                margin-bottom: 1rem;
-                border-bottom: 2px solid var(--gray);
-                padding-bottom: 0.5rem;
-                flex-wrap: wrap;
-            }}
-            .tab-btn {{
-                padding: 0.75rem 1.5rem;
-                background: var(--gray);
-                border: none;
-                border-radius: 5px 5px 0 0;
-                cursor: pointer;
-                font-weight: 600;
-                color: var(--light);
-                transition: all 0.2s;
-            }}
-            .tab-btn:hover {{
-                background: var(--gray-light);
-            }}
-            .tab-btn.active {{
-                background: var(--primary);
-                color: white;
-            }}
-            .tab {{
-                display: none;
-                animation: fadeIn 0.3s;
-            }}
-            .tab.active {{ display: block; }}
-            
-            @keyframes fadeIn {{
-                from {{ opacity: 0; transform: translateY(10px); }}
-                to {{ opacity: 1; transform: translateY(0); }}
-            }}
-            
-            .card {{
-                background: var(--dark);
-                border-radius: 10px;
-                padding: 1.5rem;
-                margin: 1rem 0;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                border: 1px solid var(--gray);
-            }}
-            .stats-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 1rem;
-                margin: 1rem 0;
-            }}
-            .stat-card {{
-                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                color: white;
-                padding: 1.5rem;
-                border-radius: 10px;
-                text-align: center;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-            }}
-            .stat-card h3 {{
-                font-size: 2rem;
-                margin-bottom: 0.5rem;
-            }}
-            
-            .form-group {{
-                margin-bottom: 1.5rem;
-            }}
-            label {{
-                display: block;
-                margin-bottom: 0.5rem;
-                font-weight: 600;
-                color: var(--primary);
-            }}
-            .form-control {{
-                width: 100%;
-                padding: 0.75rem;
-                background: var(--darker);
-                border: 1px solid var(--gray);
-                border-radius: 5px;
-                font-size: 1rem;
-                color: var(--light);
-                transition: all 0.2s;
-            }}
-            .form-control:focus {{
-                outline: none;
-                border-color: var(--primary);
-                box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.2);
-            }}
-            textarea.form-control {{
-                min-height: 100px;
-                resize: vertical;
-            }}
-            select.form-control {{
-                background: var(--darker);
-                color: var(--light);
-            }}
-            
-            .alert {{
-                padding: 1rem;
-                border-radius: 5px;
-                margin: 1rem 0;
-                display: none;
-            }}
-            .alert-success {{
-                background: #1a472a;
-                color: #4ade80;
-                border: 1px solid #2ecc71;
-            }}
-            .alert-error {{
-                background: #7f1d1d;
-                color: #f87171;
-                border: 1px solid #ef4444;
-            }}
-            
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            th, td {{
-                text-align: left;
-                padding: 12px;
-                border-bottom: 1px solid var(--gray);
-            }}
-            th {{
-                background: var(--gray);
-            }}
-        </style>
-    </head>
-    <body>
-        <header>
-            <div class="header-content">
-                <h1>Painel de Controle</h1>
-                <div class="user-info">
-                    <img src="https://cdn.discordapp.com/avatars/{user['id']}/{user.get('avatar', '')}.png" 
-                         alt="Avatar" class="avatar"
-                         onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                    <span>{user['username']}</span>
-                    <a href="/" class="btn btn-primary">🏠 Início</a>
-                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-                </div>
-            </div>
-        </header>
-        
-        <div class="container">
-            <div class="tab-nav">
-                <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
-                <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
-                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
-                <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
-                <button class="tab-btn" onclick="showTab('commands')">⚡ Comandos</button>
-                <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
-                <button class="tab-btn" onclick="showTab('diagnostic')">🔧 Diagnóstico</button>
-                <button class="tab-btn" onclick="showTab('queue')">📋 Fila</button>
-            </div>
-            
-            <!-- Tab: Visão Geral -->
-            <div id="overview" class="tab active">
-                <div class="card">
-                    <h2>📊 Estatísticas do Bot</h2>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <h3>{len(data.get("xp", {}))}</h3>
-                            <p>Usuários com XP</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>{sum(len(w) for w in data.get("warns", {}).values())}</h3>
-                            <p>Advertências</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>{len(data.get("reaction_roles", {}))}</h3>
-                            <p>Reaction Roles</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>{len(data.get("role_buttons", {}))}</h3>
-                            <p>Botões de Cargos</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>{len(queue["entries"])}</h3>
-                            <p>Na Fila</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h2>⚡ Status do Sistema</h2>
-                    <p><strong>Status do Bot:</strong> <span class="{'online' if bot.is_ready() else 'offline'}">{'✅ Online' if bot.is_ready() else '❌ Offline'}</span></p>
-                    <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
-                    <p><strong>Membros:</strong> {len(guild.members) if guild else 0}</p>
-                    <p><strong>Taxa de XP atual:</strong> {xp_rate}x</p>
-                    <p><strong>Ações na fila:</strong> {len(bot_actions_queue)}</p>
-                    <p><strong>Fila de Serviços:</strong> {queue["settings"]["open"] and "🟢 Aberta" or "🔴 Fechada"} - {len(queue["entries"])}/{queue["settings"]["max_size"]}</p>
-                </div>
-            </div>
-            
-            <!-- Tab: Boas-vindas -->
-            <div id="welcome" class="tab">
-                <div class="card">
-                    <h2>👋 Configurar Boas-vindas</h2>
-                    <div class="form-group">
-                        <label>Canal de Boas-vindas</label>
-                        <select id="welcome-channel" class="form-control">
-                            <option value="">Selecione um canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Mensagem de Boas-vindas</label>
-                        <textarea id="welcome-message" class="form-control" rows="3">{welcome_msg}</textarea>
-                        <small>Use {{member}} para mencionar o novo membro</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Imagem de Fundo (URL)</label>
-                        <input type="url" id="welcome-image" class="form-control" value="{welcome_bg}" placeholder="https://exemplo.com/imagem.jpg">
-                    </div>
-                    <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
-                    <div id="welcome-alert" class="alert"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Sistema XP -->
-            <div id="xp" class="tab">
-                <div class="card">
-                    <h2>⭐ Sistema de XP</h2>
-                    <div class="form-group">
-                        <label>Taxa de XP</label>
-                        <input type="number" id="xp-rate" class="form-control" value="{xp_rate}" min="1" max="10">
-                        <small>1 = fácil, 10 = muito difícil</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Canal de Level Up</label>
-                        <select id="levelup-channel" class="form-control">
-                            <option value="">Selecione um canal</option>
-                        </select>
-                    </div>
-                    <button onclick="saveXPConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
-                    <div id="xp-alert" class="alert"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Cargos -->
-            <div id="roles" class="tab">
-                <div class="card">
-                    <h2>🎭 Gerenciar Cargo Emoji</h2>
-                    <div class="form-group">
-                        <label>Canal para Mensagem</label>
-                        <select id="rr-channel" class="form-control">
-                            <option value="">Selecione canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Conteúdo da Mensagem</label>
-                        <textarea id="rr-content" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Emoji e Cargo (emoji:cargo)</label>
-                        <input type="text" id="rr-pair" class="form-control" placeholder=":thumbsup:👍,✅:Verificado">
-                        <small>Separe múltiplos por vírgula</small>
-                    </div>
-                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Cargo Emoji</button>
-                    <div id="roles-alert" class="alert"></div>
-                </div>
-                
-                <div class="card">
-                    <h3>🔄 Botões de Cargos</h3>
-                    <div class="form-group">
-                        <label>Canal para Mensagem</label>
-                        <select id="btn-channel" class="form-control">
-                            <option value="">Selecione canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Conteúdo da Mensagem</label>
-                        <textarea id="btn-content" class="form-control" rows="3" placeholder="Clique nos botões para receber cargos!"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Botões (nome:cargo)</label>
-                        <input type="text" id="btn-pairs" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos">
-                    </div>
-                    <button onclick="createRoleButtons()" class="btn btn-success">🔄 Criar Botões</button>
-                </div>
-            </div>
-            
-            <!-- Tab: Comandos -->
-            <div id="commands" class="tab">
-                <div class="card">
-                    <h2>⚡ Executar Comandos</h2>
-                    <div class="form-group">
-                        <label>Canal</label>
-                        <select id="embed-channel" class="form-control">
-                            <option value="">Selecione canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Título</label>
-                        <input type="text" id="embed-title" class="form-control" placeholder="Título">
-                    </div>
-                    <div class="form-group">
-                        <label>Corpo</label>
-                        <textarea id="embed-body" class="form-control" rows="3" placeholder="Conteúdo"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Cor (hex)</label>
-                        <input type="text" id="embed-color" class="form-control" value="#5865F2">
-                    </div>
-                    <button onclick="createEmbed()" class="btn btn-primary">📝 Criar Embed</button>
-                </div>
-            </div>
-            
-            <!-- Tab: Moderação -->
-            <div id="moderation" class="tab">
-                <div class="card">
-                    <h2>🛡️ Ferramentas de Moderação</h2>
-                    <div class="form-group">
-                        <label>Membro</label>
-                        <select id="warn-member" class="form-control">
-                            <option value="">Selecione membro</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Motivo</label>
-                        <input type="text" id="warn-reason" class="form-control">
-                    </div>
-                    <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
-                </div>
-            </div>
-            
-            <!-- Tab: Diagnóstico -->
-            <div id="diagnostic" class="tab">
-                <div class="card">
-                    <h2>🔧 Diagnóstico</h2>
-                    <button onclick="testBotConnection()" class="btn btn-primary">Testar Conexão</button>
-                    <div id="bot-test-result" style="margin-top: 1rem;"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Fila -->
-            <div id="queue" class="tab">
-                <div class="card">
-                    <h2>📋 Sistema de Fila</h2>
-                    <p>Gerencie a fila de serviços diretamente pelo painel.</p>
-                </div>
-                
-                <div class="card">
-                    <h3>⚙️ Configurações</h3>
-                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                        <div style="flex: 1;">
-                            <label>Nome da Fila</label>
-                            <input type="text" id="queue-name" class="form-control" value="{escape_html(queue['name'])}">
-                        </div>
-                        <div style="width: 150px;">
-                            <label>Tamanho Máximo</label>
-                            <input type="number" id="queue-max-size" class="form-control" value="{queue['settings']['max_size']}" min="1" max="100">
-                        </div>
-                        <div style="display: flex; align-items: flex-end;">
-                            <button onclick="saveQueueSettings()" class="btn btn-primary">💾 Salvar</button>
-                        </div>
-                        <div style="display: flex; align-items: flex-end;">
-                            <button onclick="toggleQueueStatus()" id="queue-toggle-btn" class="btn {'btn-success' if queue['settings']['open'] else 'btn-danger'}">
-                                {queue['settings']['open'] and '🔓 Fechar Fila' or '🔒 Abrir Fila'}
-                            </button>
-                        </div>
-                    </div>
-                    <div id="queue-status-display" style="margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 5px;">
-                        Status: <strong>{'🟢 ABERTA' if queue['settings']['open'] else '🔴 FECHADA'}</strong> | 
-                        Ocupação: {len(queue['entries'])} / {queue['settings']['max_size']}
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h3>➕ Adicionar à Fila</h3>
-                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                        <input type="text" id="add-username" class="form-control" placeholder="Nome do jogador" style="flex: 1;">
-                        <input type="text" id="add-service" class="form-control" placeholder="Serviço" style="flex: 1;">
-                        <button onclick="addToQueue()" class="btn btn-primary">➕ Adicionar</button>
-                    </div>
-                    <div id="add-result" class="alert" style="margin-top: 10px; display: none;"></div>
-                </div>
-                
-                <div class="card">
-                    <h3>📋 Lista de Espera</h3>
-                    <div style="overflow-x: auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Jogador</th>
-                                    <th>Serviço</th>
-                                    <th>Entrada</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="queue-table-body">
-                                <tr><td colspan="5" style="text-align: center;">Carregando...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div style="margin-top: 10px;">
-                        <button onclick="clearQueue()" class="btn btn-danger">🗑️ Limpar Toda Fila</button>
-                        <button onclick="refreshQueue()" class="btn btn-primary">🔄 Atualizar</button>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h3>📎 Links para StreamElements/OBS</h3>
-                    <div class="form-group">
-                        <label>URL da Lista (HTML completa)</label>
-                        <input type="text" id="queue-url" class="form-control" readonly value="{request.host_url}queue" onclick="this.select();">
-                        <small>Use esta URL no Browser Source do OBS/StreamElements</small>
-                    </div>
-                    <div class="form-group">
-                        <label>URL Embed (Overlay compacto)</label>
-                        <input type="text" id="queue-embed-url" class="form-control" readonly value="{request.host_url}queue/embed" onclick="this.select();">
-                        <small>Versão mais compacta para overlay</small>
-                    </div>
-                    <div class="form-group">
-                        <label>URL API (JSON)</label>
-                        <input type="text" id="queue-api-url" class="form-control" readonly value="{request.host_url}queue/api" onclick="this.select();">
-                        <small>Para integrações personalizadas</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <script>
-            const guildChannels = {channels_json};
-            const guildRoles = {roles_json};
-            
-            function showTab(tabId) {{
-                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
-                event.target.classList.add('active');
-                
-                if (tabId === 'queue') loadQueue();
-                if (tabId === 'welcome' || tabId === 'xp' || tabId === 'roles' || tabId === 'commands') populateSelects();
-            }}
-            
-            function populateSelects() {{
-                const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 'embed-channel'];
-                channelSelects.forEach(selectId => {{
-                    const select = document.getElementById(selectId);
-                    if (select) {{
-                        select.innerHTML = '<option value="">Selecione um canal</option>';
-                        guildChannels.forEach(channel => {{
-                            const option = document.createElement('option');
-                            option.value = channel.id;
-                            option.textContent = '#' + channel.name;
-                            select.appendChild(option);
-                        }});
-                    }}
-                }});
-                
-                const welcomeChanSelect = document.getElementById('welcome-channel');
-                const levelupChanSelect = document.getElementById('levelup-channel');
-                if (welcomeChanSelect) welcomeChanSelect.value = '{welcome_chan}';
-                if (levelupChanSelect) levelupChanSelect.value = '{levelup_chan}';
-            }}
-            
-            async function saveWelcomeConfig() {{
-                const data = {{
-                    message: document.getElementById('welcome-message').value,
-                    channel_id: document.getElementById('welcome-channel').value,
-                    image_url: document.getElementById('welcome-image').value
-                }};
-                try {{
-                    const response = await fetch('/api/config/welcome', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify(data)
-                    }});
-                    const result = await response.json();
-                    showAlert('welcome-alert', result.message, result.success);
-                }} catch(error) {{
-                    showAlert('welcome-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
-            
-            async function saveXPConfig() {{
-                const data = {{
-                    rate: parseInt(document.getElementById('xp-rate').value),
-                    channel_id: document.getElementById('levelup-channel').value
-                }};
-                try {{
-                    const response = await fetch('/api/config/xp', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify(data)
-                    }});
-                    const result = await response.json();
-                    showAlert('xp-alert', result.message, result.success);
-                }} catch(error) {{
-                    showAlert('xp-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
-            
-            async function createReactionRole() {{
-                const channelId = document.getElementById('rr-channel').value;
-                const content = document.getElementById('rr-content').value;
-                const pairs = document.getElementById('rr-pair').value;
-                
-                if (!channelId || !content || !pairs) {{
-                    showAlert('roles-alert', 'Preencha todos os campos', false);
-                    return;
-                }}
-                
-                try {{
-                    const response = await fetch('/api/reactionrole/create', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ channel_id: channelId, content: content, emoji_cargo: pairs }})
-                    }});
-                    const result = await response.json();
-                    showAlert('roles-alert', result.message, result.success);
-                    if (result.success) {{
-                        document.getElementById('rr-content').value = '';
-                        document.getElementById('rr-pair').value = '';
-                    }}
-                }} catch(error) {{
-                    showAlert('roles-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
-            
-            async function createRoleButtons() {{
-                const channelId = document.getElementById('btn-channel').value;
-                const content = document.getElementById('btn-content').value;
-                const pairs = document.getElementById('btn-pairs').value;
-                
-                if (!channelId || !content || !pairs) {{
-                    showAlert('roles-alert', 'Preencha todos os campos', false);
-                    return;
-                }}
-                
-                try {{
-                    const response = await fetch('/api/rolebuttons/create', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ channel_id: channelId, content: content, roles: pairs }})
-                    }});
-                    const result = await response.json();
-                    showAlert('roles-alert', result.message, result.success);
-                    if (result.success) {{
-                        document.getElementById('btn-content').value = '';
-                        document.getElementById('btn-pairs').value = '';
-                    }}
-                }} catch(error) {{
-                    showAlert('roles-alert', 'Erro: ' + error.message, false);
-                }}
-            }}
-            
-            async function createEmbed() {{
-                const channelId = document.getElementById('embed-channel').value;
-                const title = document.getElementById('embed-title').value;
-                const body = document.getElementById('embed-body').value;
-                const color = document.getElementById('embed-color').value;
-                
-                if (!channelId || !title || !body) {{
-                    alert('Preencha todos os campos');
-                    return;
-                }}
-                
-                try {{
-                    const response = await fetch('/api/command/embed', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ channel_id: channelId, title: title, body: body, color: color }})
-                    }});
-                    const result = await response.json();
-                    alert(result.message);
-                    if (result.success) {{
-                        document.getElementById('embed-title').value = '';
-                        document.getElementById('embed-body').value = '';
-                    }}
-                }} catch(error) {{
-                    alert('Erro: ' + error.message);
-                }}
-            }}
-            
-            async function executeWarn() {{
-                const memberId = document.getElementById('warn-member').value;
-                const reason = document.getElementById('warn-reason').value;
-                
-                if (!memberId || !reason) {{
-                    alert('Selecione um membro e digite um motivo');
-                    return;
-                }}
-                
-                try {{
-                    const response = await fetch('/api/command/warn', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ member_id: memberId, reason: reason }})
-                    }});
-                    const result = await response.json();
-                    alert(result.message);
-                    if (result.success) document.getElementById('warn-reason').value = '';
-                }} catch(error) {{
-                    alert('Erro: ' + error.message);
-                }}
-            }}
-            
-            async function testBotConnection() {{
-                const resultDiv = document.getElementById('bot-test-result');
-                resultDiv.innerHTML = '<p>Testando...</p>';
-                try {{
-                    const response = await fetch('/api/test/bot');
-                    const data = await response.json();
-                    if (data.success) {{
-                        resultDiv.innerHTML = '<div class="alert-success">✅ Bot Online! Bot conectado ao servidor.</div>';
-                    }} else {{
-                        resultDiv.innerHTML = '<div class="alert-error">❌ Falha na conexão</div>';
-                    }}
-                }} catch(error) {{
-                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
-                }}
-            }}
-            
-            // Funções da Fila
-            async function loadQueue() {{
-                try {{
-                    const response = await fetch('/queue/api');
-                    const data = await response.json();
-                    
-                    if (data.success) {{
-                        const queue = data.queue;
-                        const tbody = document.getElementById('queue-table-body');
-                        
-                        if (queue.entries.length === 0) {{
-                            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">📭 Ninguém na fila</td></tr>';
-                        }} else {{
-                            tbody.innerHTML = queue.entries.map(entry => `
-                                <tr>
-                                    <td><strong style="color: #ffd93d;">#${{entry.position}}</strong></td>
-                                    <td>${{escapeHtml(entry.username)}}</td>
-                                    <td style="color: #a8e6cf;">${{escapeHtml(entry.service)}}</td>
-                                    <td>${{new Date(entry.timestamp).toLocaleTimeString()}}</td>
-                                    <td>
-                                        <button onclick="moveUp('${{entry.id}}')" class="btn btn-primary" style="padding: 4px 8px; margin-right: 5px;">⬆️</button>
-                                        <button onclick="moveDown('${{entry.id}}')" class="btn btn-primary" style="padding: 4px 8px; margin-right: 5px;">⬇️</button>
-                                        <button onclick="completeService('${{entry.id}}')" class="btn btn-success" style="padding: 4px 8px; margin-right: 5px;">✅</button>
-                                        <button onclick="removeFromQueue('${{entry.id}}')" class="btn btn-danger" style="padding: 4px 8px;">❌</button>
-                                    </td>
-                                </tr>
-                            `).join('');
-                        }}
-                        
-                        document.getElementById('queue-status-display').innerHTML = `
-                            Status: <strong>${queue.open ? '🟢 ABERTA' : '🔴 FECHADA'}</strong> | 
-                            Ocupação: ${queue.count} / ${queue.max_size} pessoas
-                        `;
-                        
-                        const toggleBtn = document.getElementById('queue-toggle-btn');
-                        if (toggleBtn) {{
-                            toggleBtn.className = queue.open ? 'btn btn-danger' : 'btn btn-success';
-                            toggleBtn.textContent = queue.open ? '🔓 Fechar Fila' : '🔒 Abrir Fila';
-                        }}
-                    }}
-                }} catch(error) {{
-                    console.error('Erro ao carregar fila:', error);
-                }}
-            }}
-            
-            async function addToQueue() {{
-                const username = document.getElementById('add-username').value.trim();
-                const service = document.getElementById('add-service').value.trim();
-                
-                if (!username || !service) {{
-                    showQueueAlert('add-result', 'Preencha nome e serviço', false);
-                    return;
-                }}
-                
-                try {{
-                    const response = await fetch('/api/queue/add', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ username, service }})
-                    }});
-                    
-                    const data = await response.json();
-                    showQueueAlert('add-result', data.message, data.success);
-                    
-                    if (data.success) {{
-                        document.getElementById('add-username').value = '';
-                        document.getElementById('add-service').value = '';
-                        loadQueue();
-                    }}
-                }} catch(error) {{
-                    showQueueAlert('add-result', 'Erro: ' + error.message, false);
-                }}
-            }}
-            
-            async function removeFromQueue(entryId) {{
-                if (!confirm('Remover esta pessoa da fila?')) return;
-                try {{
-                    const response = await fetch('/api/queue/remove', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ entry_id: entryId }})
-                    }});
-                    const data = await response.json();
-                    if (data.success) loadQueue();
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            async function moveUp(entryId) {{
-                try {{
-                    const response = await fetch('/api/queue/move-up', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ entry_id: entryId }})
-                    }});
-                    const data = await response.json();
-                    if (data.success) loadQueue();
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            async function moveDown(entryId) {{
-                try {{
-                    const response = await fetch('/api/queue/move-down', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ entry_id: entryId }})
-                    }});
-                    const data = await response.json();
-                    if (data.success) loadQueue();
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            async function completeService(entryId) {{
-                if (!confirm('Marcar como concluído e remover da fila?')) return;
-                try {{
-                    const response = await fetch('/api/queue/complete', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ entry_id: entryId }})
-                    }});
-                    const data = await response.json();
-                    if (data.success) loadQueue();
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            async function clearQueue() {{
-                if (!confirm('⚠️ ISSO REMOVERÁ TODAS AS PESSOAS DA FILA! Tem certeza?')) return;
-                try {{
-                    const response = await fetch('/api/queue/clear', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }}
-                    }});
-                    const data = await response.json();
-                    if (data.success) loadQueue();
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            async function saveQueueSettings() {{
-                const name = document.getElementById('queue-name').value;
-                const max_size = parseInt(document.getElementById('queue-max-size').value);
-                
-                try {{
-                    const response = await fetch('/api/queue/settings', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ name, max_size }})
-                    }});
-                    const data = await response.json();
-                    if (data.success) {{
-                        showQueueAlert('add-result', 'Configurações salvas!', true);
-                        setTimeout(() => {{
-                            document.getElementById('add-result').style.display = 'none';
-                        }}, 2000);
-                        loadQueue();
-                    }}
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            async function toggleQueueStatus() {{
-                try {{
-                    const response = await fetch('/api/queue/settings', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ open: null }})
-                    }});
-                    const data = await response.json();
-                    if (data.success) loadQueue();
-                }} catch(error) {{
-                    console.error('Erro:', error);
-                }}
-            }}
-            
-            function refreshQueue() {{
-                loadQueue();
-            }}
-            
-            function showAlert(elementId, message, isSuccess) {{
-                const alertEl = document.getElementById(elementId);
-                alertEl.textContent = message;
-                alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
-                alertEl.style.display = 'block';
-                setTimeout(() => {{
-                    alertEl.style.display = 'none';
-                }}, 3000);
-            }}
-            
-            function showQueueAlert(elementId, message, isSuccess) {{
-                const alertEl = document.getElementById(elementId);
-                alertEl.textContent = message;
-                alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
-                alertEl.style.display = 'block';
-                setTimeout(() => {{
-                    alertEl.style.display = 'none';
-                }}, 3000);
-            }}
-            
-            function escapeHtml(text) {{
-                if (!text) return '';
-                return text.replace(/[&<>]/g, function(m) {{
-                    if (m === '&') return '&amp;';
-                    if (m === '<') return '&lt;';
-                    if (m === '>') return '&gt;';
-                    return m;
-                }});
-            }}
-            
-            document.addEventListener('DOMContentLoaded', function() {{
-                populateSelects();
-                loadQueue();
-            }});
-        </script>
-    </body>
-    </html>
-    '''
 
 # ========================
 # START BOT AND FLASK
 # ========================
 def run_flask():
-    """Inicia o servidor Flask"""
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
