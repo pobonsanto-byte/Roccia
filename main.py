@@ -74,7 +74,13 @@ data = {
     "warns": {},
     "reaction_roles": {},
     "config": {"welcome_channel": None},
-    "logs": []
+    "logs": [],
+    "queue": {
+        "name": "Fila de Serviços",
+        "settings": {"max_size": 50, "open": True},
+        "entries": [],
+        "history": []
+    }
 }
 
 # ========================
@@ -96,6 +102,14 @@ def load_data_from_github():
                 raw = base64.b64decode(content_b64)
                 loaded = json.loads(raw.decode("utf-8"))
                 data.update(loaded)
+                # Garante que a estrutura da fila existe
+                if "queue" not in data:
+                    data["queue"] = {
+                        "name": "Fila de Serviços",
+                        "settings": {"max_size": 50, "open": True},
+                        "entries": [],
+                        "history": []
+                    }
                 print("✅ Dados carregados do GitHub.")
                 return True
         else:
@@ -144,6 +158,18 @@ def xp_for_message():
 def xp_to_level(xp):
     lvl = int((xp / 100) ** 0.6) + 1
     return max(lvl, 1)
+
+def escape_html(text):
+    """Escapa caracteres HTML"""
+    if not text:
+        return ""
+    return (text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
 EMOJI_NAME_RE = re.compile(r":([a-zA-Z0-9_]+):")
@@ -228,6 +254,173 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
     print(f"[DEBUG EMOJI] Retornando string original: {emoji_str}")
     # Se tudo falhar, retorna a string original
     return emoji_str
+
+# ========================
+# SISTEMA DE FILA
+# ========================
+
+def get_queue_data():
+    """Retorna os dados da fila"""
+    data.setdefault("queue", {
+        "name": "Fila de Serviços",
+        "settings": {"max_size": 50, "open": True},
+        "entries": [],
+        "history": []
+    })
+    return data["queue"]
+
+def save_queue():
+    """Salva a fila no GitHub"""
+    return save_data_to_github("Queue update")
+
+def add_to_queue(username: str, service: str, user_id: str = None):
+    """Adiciona alguém à fila"""
+    queue = get_queue_data()
+    
+    if not queue["settings"]["open"]:
+        return False, "Fila está fechada no momento"
+    
+    if len(queue["entries"]) >= queue["settings"]["max_size"]:
+        return False, "Fila está cheia"
+    
+    # Verifica se usuário já está na fila
+    for entry in queue["entries"]:
+        if entry["username"].lower() == username.lower():
+            return False, f"{username} já está na fila"
+    
+    entry = {
+        "id": str(int(datetime.now().timestamp() * 1000)),
+        "username": username,
+        "service": service,
+        "user_id": user_id or username,
+        "timestamp": datetime.now().isoformat(),
+        "status": "waiting",
+        "position": len(queue["entries"]) + 1
+    }
+    
+    queue["entries"].append(entry)
+    update_positions(queue["entries"])
+    save_queue()
+    
+    add_log(f"queue_add: {username} - {service}")
+    return True, entry
+
+def remove_from_queue(entry_id: str):
+    """Remove alguém da fila"""
+    queue = get_queue_data()
+    
+    for i, entry in enumerate(queue["entries"]):
+        if entry["id"] == entry_id:
+            removed = queue["entries"].pop(i)
+            removed["removed_at"] = datetime.now().isoformat()
+            queue["history"].append(removed)
+            
+            # Mantém histórico limitado
+            if len(queue["history"]) > 100:
+                queue["history"] = queue["history"][-100:]
+            
+            update_positions(queue["entries"])
+            save_queue()
+            add_log(f"queue_remove: {removed['username']} - {removed['service']}")
+            return True, removed
+    
+    return False, None
+
+def update_positions(entries):
+    """Atualiza as posições da fila"""
+    for i, entry in enumerate(entries):
+        entry["position"] = i + 1
+        entry["status"] = "waiting"
+
+def move_up(entry_id: str):
+    """Move alguém uma posição para cima"""
+    queue = get_queue_data()
+    entries = queue["entries"]
+    
+    for i, entry in enumerate(entries):
+        if entry["id"] == entry_id and i > 0:
+            entries[i], entries[i-1] = entries[i-1], entries[i]
+            update_positions(entries)
+            save_queue()
+            add_log(f"queue_move_up: {entry['username']}")
+            return True, entry
+    
+    return False, None
+
+def move_down(entry_id: str):
+    """Move alguém uma posição para baixo"""
+    queue = get_queue_data()
+    entries = queue["entries"]
+    
+    for i, entry in enumerate(entries):
+        if entry["id"] == entry_id and i < len(entries) - 1:
+            entries[i], entries[i+1] = entries[i+1], entries[i]
+            update_positions(entries)
+            save_queue()
+            add_log(f"queue_move_down: {entry['username']}")
+            return True, entry
+    
+    return False, None
+
+def complete_service(entry_id: str):
+    """Completa o serviço e remove da fila"""
+    queue = get_queue_data()
+    
+    for i, entry in enumerate(queue["entries"]):
+        if entry["id"] == entry_id:
+            removed = queue["entries"].pop(i)
+            removed["status"] = "completed"
+            removed["completed_at"] = datetime.now().isoformat()
+            queue["history"].append(removed)
+            
+            update_positions(queue["entries"])
+            save_queue()
+            add_log(f"queue_complete: {removed['username']}")
+            return True, removed
+    
+    return False, None
+
+def clear_queue():
+    """Limpa toda a fila"""
+    queue = get_queue_data()
+    
+    # Move todos para histórico
+    for entry in queue["entries"]:
+        entry["status"] = "cleared"
+        entry["cleared_at"] = datetime.now().isoformat()
+        queue["history"].append(entry)
+    
+    queue["entries"] = []
+    save_queue()
+    add_log("queue_cleared")
+    return True
+
+def toggle_queue(open_status: bool = None):
+    """Abre/fecha a fila"""
+    queue = get_queue_data()
+    
+    if open_status is None:
+        queue["settings"]["open"] = not queue["settings"]["open"]
+    else:
+        queue["settings"]["open"] = open_status
+    
+    save_queue()
+    add_log(f"queue_toggle: {'open' if queue['settings']['open'] else 'closed'}")
+    return queue["settings"]["open"]
+
+def set_max_size(size: int):
+    """Define tamanho máximo da fila"""
+    queue = get_queue_data()
+    queue["settings"]["max_size"] = max(1, min(size, 100))
+    save_queue()
+    return queue["settings"]["max_size"]
+
+def set_queue_name(name: str):
+    """Define nome da fila"""
+    queue = get_queue_data()
+    queue["name"] = name[:50]
+    save_queue()
+    return queue["name"]
 
 # ========================
 # DIAGNÓSTICO DE CONEXÃO
@@ -991,6 +1184,7 @@ def home():
                     <li>Sistema de Moderação</li>
                     <li>Botões de Cargos</li>
                     <li>Painel Web de Controle</li>
+                    <li>Sistema de Fila de Serviços</li>
                 </ul>
             </div>
             
@@ -1111,1461 +1305,377 @@ def logout():
     session.clear()
     return redirect(url_for('home'))
 
-@app.route("/dashboard")
-def dashboard():
-    """Dashboard principal"""
-    if 'user' not in session:
-        return redirect(url_for('login'))
+# ========================
+# ROTAS DO SISTEMA DE FILA (PÚBLICAS)
+# ========================
+
+@app.route("/queue")
+def queue_public():
+    """Página pública da fila (para StreamElements)"""
+    queue = get_queue_data()
     
-    user = session['user']
-    
-    config = data.get("config", {})
-    welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
-    xp_rate = config.get("xp_rate", 3)
-    welcome_bg = config.get("welcome_background", "")
-    welcome_chan = config.get("welcome_channel", "")
-    levelup_chan = config.get("levelup_channel", "")
-    
-    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
-    channels = []
-    roles = []
-    
-    if guild:
-        channels = [{"id": str(c.id), "name": c.name} for c in guild.text_channels]  # ID como string
-        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if r.name != "@everyone"]
-    
-    channels_json = json.dumps(channels, ensure_ascii=False)
-    roles_json = json.dumps(roles, ensure_ascii=False)
-    
-    return '''
+    return f'''
     <!DOCTYPE html>
-    <html lang="pt-BR">
+    <html>
     <head>
         <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="30">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Painel - Bot</title>
+        <title>{escape_html(queue["name"])} - Lista de Espera</title>
         <style>
-            :root {
-                --primary: #5865F2;
-                --primary-dark: #4752C4;
-                --success: #10b981;
-                --danger: #ef4444;
-                --warning: #f59e0b;
-                --dark: #1a1a1a;
-                --darker: #121212;
-                --light: #e0e0e0;
-                --gray: #333;
-                --gray-light: #444;
-            }
-            * {
+            * {{
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
-            }
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: var(--darker);
-                color: var(--light);
-            }
-            header {
-                background: var(--dark);
-                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-                padding: 1rem 2rem;
-                border-bottom: 1px solid var(--gray);
-            }
-            .header-content {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                max-width: 1200px;
+            }}
+            body {{
+                font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+                background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+                min-height: 100vh;
+                padding: 20px;
+                color: #fff;
+            }}
+            .container {{
+                max-width: 800px;
                 margin: 0 auto;
-            }
-            h1 {
-                color: var(--primary);
-                text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-            }
-            .user-info {
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-            }
-            .avatar {
-                width: 40px;
-                height: 40px;
-                border-radius: 50%;
-                border: 2px solid var(--primary);
-            }
-            .btn {
-                padding: 0.5rem 1rem;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                font-weight: 600;
-                text-decoration: none;
-                display: inline-block;
-                transition: all 0.2s;
-            }
-            .btn-primary { background: var(--primary); color: white; }
-            .btn-primary:hover { background: var(--primary-dark); }
-            .btn-success { background: var(--success); color: white; }
-            .btn-danger { background: var(--danger); color: white; }
-            .btn-warning { background: var(--warning); color: white; }
-            
-            .container {
-                max-width: 1200px;
-                margin: 2rem auto;
-                padding: 0 1rem;
-            }
-            
-            .tab-nav {
-                display: flex;
-                gap: 0.5rem;
-                margin-bottom: 1rem;
-                border-bottom: 2px solid var(--gray);
-                padding-bottom: 0.5rem;
-                flex-wrap: wrap;
-            }
-            .tab-btn {
-                padding: 0.75rem 1.5rem;
-                background: var(--gray);
-                border: none;
-                border-radius: 5px 5px 0 0;
-                cursor: pointer;
-                font-weight: 600;
-                color: var(--light);
-                transition: all 0.2s;
-            }
-            .tab-btn:hover {
-                background: var(--gray-light);
-            }
-            .tab-btn.active {
-                background: var(--primary);
-                color: white;
-            }
-            .tab {
-                display: none;
-                animation: fadeIn 0.3s;
-            }
-            .tab.active { display: block; }
-            
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            
-            .card {
-                background: var(--dark);
-                border-radius: 10px;
-                padding: 1.5rem;
-                margin: 1rem 0;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                border: 1px solid var(--gray);
-            }
-            .stats-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 1rem;
-                margin: 1rem 0;
-            }
-            .stat-card {
-                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                color: white;
-                padding: 1.5rem;
-                border-radius: 10px;
+            }}
+            .header {{
                 text-align: center;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-            }
-            .stat-card h3 {
+                margin-bottom: 30px;
+                padding: 20px;
+                background: rgba(0,0,0,0.5);
+                border-radius: 20px;
+                backdrop-filter: blur(10px);
+            }}
+            h1 {{
                 font-size: 2rem;
-                margin-bottom: 0.5rem;
-            }
-            
-            .form-group {
-                margin-bottom: 1.5rem;
-            }
-            label {
-                display: block;
-                margin-bottom: 0.5rem;
-                font-weight: 600;
-                color: var(--primary);
-            }
-            .form-control {
-                width: 100%;
-                padding: 0.75rem;
-                background: var(--darker);
-                border: 1px solid var(--gray);
-                border-radius: 5px;
-                font-size: 1rem;
-                color: var(--light);
-                transition: all 0.2s;
-            }
-            .form-control:focus {
-                outline: none;
-                border-color: var(--primary);
-                box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.2);
-            }
-            textarea.form-control {
-                min-height: 100px;
-                resize: vertical;
-            }
-            select.form-control {
-                background: var(--darker);
-                color: var(--light);
-            }
-            
-            .alert {
-                padding: 1rem;
-                border-radius: 5px;
-                margin: 1rem 0;
-                display: none;
-            }
-            .alert-success {
-                background: #1a472a;
-                color: #4ade80;
-                border: 1px solid #2ecc71;
-            }
-            .alert-error {
-                background: #7f1d1d;
-                color: #f87171;
-                border: 1px solid #ef4444;
-            }
-            
-            .command-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                gap: 1rem;
-                margin: 1rem 0;
-            }
-            .command-card {
-                background: var(--darker);
-                border-radius: 10px;
-                padding: 1rem;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-                border: 1px solid var(--gray);
-            }
-            .command-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 1rem;
-                padding-bottom: 0.5rem;
-                border-bottom: 1px solid var(--gray);
-            }
-            .command-name {
-                font-family: monospace;
-                font-size: 1.1rem;
-                color: var(--primary);
-            }
-            
-            small {
-                color: #888;
-                font-size: 0.9em;
-            }
-            
-            .color-preview {
-                width: 30px;
-                height: 30px;
-                border-radius: 5px;
-                border: 1px solid var(--gray);
+                margin-bottom: 10px;
+                background: linear-gradient(135deg, #ff6b6b, #ffd93d);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }}
+            .status {{
                 display: inline-block;
-                vertical-align: middle;
-                margin-left: 10px;
-            }
-            
-            details {
-                background: var(--darker);
-                padding: 1rem;
-                border-radius: 5px;
-                margin: 1rem 0;
-                border: 1px solid var(--gray);
-            }
-            summary {
-                cursor: pointer;
-                color: var(--primary);
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 0.9rem;
+                font-weight: bold;
+            }}
+            .status-open {{ background: #00b894; color: #fff; }}
+            .status-closed {{ background: #d63031; color: #fff; }}
+            .queue-info {{
+                text-align: center;
+                margin-top: 10px;
+                font-size: 0.9rem;
+                color: #bbb;
+            }}
+            .queue-list {{
+                background: rgba(0,0,0,0.4);
+                border-radius: 20px;
+                overflow: hidden;
+                backdrop-filter: blur(10px);
+            }}
+            .queue-header {{
+                display: grid;
+                grid-template-columns: 60px 1fr 1fr 80px;
+                padding: 15px;
+                background: rgba(255,255,255,0.1);
+                font-weight: bold;
+                border-bottom: 1px solid rgba(255,255,255,0.2);
+            }}
+            .queue-item {{
+                display: grid;
+                grid-template-columns: 60px 1fr 1fr 80px;
+                padding: 12px 15px;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                transition: background 0.3s;
+            }}
+            .queue-item:hover {{
+                background: rgba(255,255,255,0.05);
+            }}
+            .position {{
+                font-weight: bold;
+                color: #ffd93d;
+                font-size: 1.2rem;
+            }}
+            .username {{
                 font-weight: 600;
-            }
-            
-            pre {
-                background: var(--dark);
-                padding: 1rem;
-                border-radius: 5px;
-                overflow: auto;
-                color: var(--light);
-                border: 1px solid var(--gray);
-            }
-            
-            .emoji-help {
-                background: var(--darker);
-                padding: 1rem;
-                border-radius: 5px;
-                margin: 1rem 0;
-                border: 1px solid var(--gray);
-            }
-            .emoji-help h4 {
-                color: var(--primary);
-                margin-bottom: 0.5rem;
-            }
-            .emoji-examples {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.5rem;
-                margin-top: 0.5rem;
-            }
-            .emoji-example {
-                background: var(--gray);
-                padding: 0.25rem 0.5rem;
-                border-radius: 3px;
-                font-family: monospace;
-                font-size: 0.9em;
-            }
+            }}
+            .service {{
+                color: #a8e6cf;
+                font-size: 0.9rem;
+            }}
+            .empty-message {{
+                text-align: center;
+                padding: 40px;
+                color: #bbb;
+            }}
+            .footer {{
+                text-align: center;
+                margin-top: 20px;
+                font-size: 0.8rem;
+                color: #888;
+            }}
+            @media (max-width: 600px) {{
+                .queue-header {{
+                    font-size: 0.8rem;
+                }}
+                .queue-item {{
+                    font-size: 0.8rem;
+                }}
+                .position {{
+                    font-size: 1rem;
+                }}
+            }}
         </style>
     </head>
     <body>
-        <header>
-            <div class="header-content">
-                <h1>Painel de Controle</h1>
-                <div class="user-info">
-                    <img src="''' + f'https://cdn.discordapp.com/avatars/{user["id"]}/{user.get("avatar", "")}.png' + '''" 
-                         alt="Avatar" class="avatar"
-                         onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                    <span>''' + user['username'] + '''</span>
-                    <a href="/" class="btn btn-primary">🏠 Início</a>
-                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-                </div>
-            </div>
-        </header>
-        
         <div class="container">
-            <div class="tab-nav">
-                <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
-                <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
-                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
-                <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
-                <button class="tab-btn" onclick="showTab('commands')">⚡ Comandos</button>
-                <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
-                <button class="tab-btn" onclick="showTab('diagnostic')">🔧 Diagnóstico</button>
+            <div class="header">
+                <h1>📋 {escape_html(queue["name"])}</h1>
+                <div>
+                    <span class="status status-{'open' if queue['settings']['open'] else 'closed'}">
+                        {'🟢 ABERTA' if queue['settings']['open'] else '🔴 FECHADA'}
+                    </span>
+                </div>
+                <div class="queue-info">
+                    📊 {len(queue["entries"])} / {queue["settings"]["max_size"]} pessoas na fila
+                </div>
             </div>
             
-            <!-- Tab: Visão Geral -->
-            <div id="overview" class="tab active">
-                <div class="card">
-                    <h2>📊 Estatísticas do Bot</h2>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <h3>''' + str(len(data.get("xp", {}))) + '''</h3>
-                            <p>Usuários com XP</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>''' + str(sum(len(w) for w in data.get("warns", {}).values())) + '''</h3>
-                            <p>Advertências</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>''' + str(len(data.get("reaction_roles", {}))) + '''</h3>
-                            <p>Reaction Roles</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3>''' + str(len(data.get("role_buttons", {}))) + '''</h3>
-                            <p>Botões de Cargos</p>
-                        </div>
-                    </div>
+            <div class="queue-list">
+                <div class="queue-header">
+                    <span>#</span>
+                    <span>Jogador</span>
+                    <span>Serviço</span>
+                    <span></span>
                 </div>
                 
-                <div class="card">
-                    <h2>⚡ Status do Sistema</h2>
-                    <p><strong>Status do Bot:</strong> <span class="''' + ('online' if bot.is_ready() else 'offline') + '''">''' + ('✅ Online' if bot.is_ready() else '❌ Offline') + '''</span></p>
-                    <p><strong>Servidor:</strong> ''' + (guild.name if guild else 'Não conectado') + '''</p>
-                    <p><strong>Membros:</strong> ''' + str(len(guild.members) if guild else 0) + '''</p>
-                    <p><strong>Taxa de XP atual:</strong> ''' + str(xp_rate) + '''x</p>
-                    <p><strong>Ações na fila:</strong> ''' + str(len(bot_actions_queue)) + '''</p>
-                    <p><strong>Processador rodando:</strong> ''' + ('✅ Sim' if action_processor_running else '❌ Não') + '''</p>
+                {''.join(f'''
+                <div class="queue-item">
+                    <span class="position">{entry["position"]}</span>
+                    <span class="username">{escape_html(entry["username"])}</span>
+                    <span class="service">{escape_html(entry["service"])}</span>
+                    <span>⏳</span>
                 </div>
+                ''' for entry in queue["entries"]) or '<div class="empty-message">✨ Ninguém na fila no momento</div>'}
             </div>
             
-            <!-- Tab: Boas-vindas -->
-            <div id="welcome" class="tab">
-                <div class="card">
-                    <h2>👋 Configurar Boas-vindas</h2>
-                    <div class="form-group">
-                        <label>Canal de Boas-vindas</label>
-                        <select id="welcome-channel" class="form-control">
-                            <option value="">Selecione um canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Mensagem de Boas-vindas</label>
-                        <textarea id="welcome-message" class="form-control" rows="3">''' + welcome_msg + '''</textarea>
-                        <small>Use {member} para mencionar o novo membro</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Imagem de Fundo (URL)</label>
-                        <input type="url" id="welcome-image" class="form-control" value="''' + welcome_bg + '''" placeholder="https://exemplo.com/imagem.jpg">
-                    </div>
-                    <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
-                    <div id="welcome-alert" class="alert"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Sistema XP -->
-            <div id="xp" class="tab">
-                <div class="card">
-                    <h2>⭐ Sistema de XP</h2>
-                    <div class="form-group">
-                        <label>Taxa de XP</label>
-                        <input type="number" id="xp-rate" class="form-control" value="''' + str(xp_rate) + '''" min="1" max="10">
-                        <small>1 = fácil, 10 = muito difícil</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Canal de Level Up</label>
-                        <select id="levelup-channel" class="form-control">
-                            <option value="">Selecione um canal</option>
-                        </select>
-                    </div>
-                    <button onclick="saveXPConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
-                    <div id="xp-alert" class="alert"></div>
-                </div>
-                
-                <div class="card">
-                    <h3>🎭 Cargos por Nível</h3>
-                    <div id="level-roles-container">
-                        <p>Carregando...</p>
-                    </div>
-                    <div class="form-group">
-                        <label>Adicionar Cargo por Nível</label>
-                        <div style="display: flex; gap: 1rem;">
-                            <input type="number" id="new-level" class="form-control" placeholder="Nível" min="1">
-                            <select id="new-role" class="form-control">
-                                <option value="">Selecione cargo</option>
-                            </select>
-                            <button onclick="addLevelRole()" class="btn btn-primary">➕ Adicionar</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Tab: Cargos -->
-            <div id="roles" class="tab">
-                <div class="card">
-                    <h2>🎭 Gerenciar Cargo Emoji</h2>
-                    <p>Crie cargo emoji diretamente pelo site:</p>
-                    
-                    <div class="emoji-help">
-                        <h4>📝 Formatos de Emoji Suportados:</h4>
-                        <p><strong>1. Emojis Personalizados (do seu servidor):</strong></p>
-                        <div class="emoji-examples">
-                            <span class="emoji-example">&lt;:nomedoemoji:123456789&gt;</span>
-                            <span class="emoji-example">&lt;a:nomedoemoji:123456789&gt; (animado)</span>
-                        </div>
-                        <p><strong>2. Emojis Padrão (por nome):</strong></p>
-                        <div class="emoji-examples">
-                            <span class="emoji-example">:thumbsup:</span>
-                            <span class="emoji-example">:check:</span>
-                            <span class="emoji-example">:warning:</span>
-                            <span class="emoji-example">:star:</span>
-                            <span class="emoji-example">:heart:</span>
-                        </div>
-                        <p><strong>3. Emojis Unicode:</strong></p>
-                        <div class="emoji-examples">
-                            <span class="emoji-example">👍</span>
-                            <span class="emoji-example">🎉</span>
-                            <span class="emoji-example">🔥</span>
-                            <span class="emoji-example">✅</span>
-                            <span class="emoji-example">⚠️</span>
-                        </div>
-                        <p><small>Dica: Para emojis personalizados, você pode copiar o emoji diretamente do Discord com Ctrl+C.</small></p>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Canal para Mensagem</label>
-                        <select id="rr-channel" class="form-control">
-                            <option value="">Selecione canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Conteúdo da Mensagem</label>
-                        <textarea id="rr-content" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Emoji e Cargo (emoji:cargo)</label>
-                        <input type="text" id="rr-pair" class="form-control" placeholder=":thumbsup:👍,✅:Verificado,&lt;:nomedoemoji:123456789&gt;:VIP">
-                        <small>Separe múltiplos por vírgula. Exemplo: <code>:thumbsup:👍:Moderador,✅:Verificado,&lt;:customemoji:123456789&gt;:VIP</code></small>
-                    </div>
-                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Cargo Emoji</button>
-                    <div id="roles-alert" class="alert"></div>
-                </div>
-                
-                <div class="card">
-                    <h3>🔄 Botões de Cargos</h3>
-                    <div class="form-group">
-                        <label>Canal para Mensagem</label>
-                        <select id="btn-channel" class="form-control">
-                            <option value="">Selecione canal</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Conteúdo da Mensagem</label>
-                        <textarea id="btn-content" class="form-control" rows="3" placeholder="Clique nos botões para receber cargos!"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Botões (nome:cargo)</label>
-                        <input type="text" id="btn-pairs" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos">
-                    </div>
-                    <button onclick="createRoleButtons()" class="btn btn-success">🔄 Criar Botões</button>
-                </div>
-            </div>
-            
-            <!-- Tab: Comandos -->
-            <div id="commands" class="tab">
-                <div class="card">
-                    <h2>⚡ Executar Comandos</h2>
-                    <p>Execute comandos do bot diretamente pelo site:</p>
-                    
-                    <div class="command-grid">
-                        <!-- Comando: Mensagem Personalizada -->
-                        <div class="command-card">
-                            <div class="command-header">
-                                <span class="command-name">/mensagem_personalizada</span>
-                                <span class="btn btn-primary">📢</span>
-                            </div>
-                            <p>Cria uma mensagem embed com opções avançadas</p>
-                            <div class="form-group">
-                                <label>Canal</label>
-                                <select id="embed-channel" class="form-control">
-                                    <option value="">Selecione canal</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Título</label>
-                                <input type="text" id="embed-title" class="form-control" placeholder="Título da mensagem">
-                            </div>
-                            <div class="form-group">
-                                <label>Corpo da Mensagem</label>
-                                <textarea id="embed-body" class="form-control" rows="2" placeholder="Conteúdo da mensagem"></textarea>
-                                <small>Use \n para quebra de linha</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Cor da Embed (Hexadecimal)</label>
-                                <div style="display: flex; gap: 1rem; align-items: center;">
-                                    <input type="text" id="embed-color" class="form-control" value="#5865F2" placeholder="#5865F2">
-                                    <div id="color-preview" class="color-preview" style="background-color: #5865F2;"></div>
-                                </div>
-                                <small>Cores sugeridas: #5865F2 (Discord), #FF0000 (Vermelho), #00FF00 (Verde), #FFFF00 (Amarelo)</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Imagem (URL opcional)</label>
-                                <input type="url" id="embed-image" class="form-control" placeholder="https://exemplo.com/imagem.jpg">
-                            </div>
-                            <div class="form-group">
-                                <label>Menção</label>
-                                <select id="embed-mention" class="form-control">
-                                    <option value="">Nenhuma menção</option>
-                                    <option value="everyone">@everyone</option>
-                                    <option value="here">@here</option>
-                                </select>
-                            </div>
-                            <button onclick="createEmbed()" class="btn btn-primary">📝 Criar Embed</button>
-                        </div>
-                        
-                        <!-- Comando: Advertir -->
-                        <div class="command-card">
-                            <div class="command-header">
-                                <span class="command-name">/advertir</span>
-                                <span class="btn btn-warning">🛡️</span>
-                            </div>
-                            <p>Adverte um membro</p>
-                            <div class="form-group">
-                                <label>Membro</label>
-                                <select id="warn-member" class="form-control">
-                                    <option value="">Selecione membro</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Motivo</label>
-                                <input type="text" id="warn-reason" class="form-control" placeholder="Motivo da advertência">
-                            </div>
-                            <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
-                        </div>
-                        
-                        <!-- Comando: Limpar Advertências -->
-                        <div class="command-card">
-                            <div class="command-header">
-                                <span class="command-name">Limpar Advertências</span>
-                                <span class="btn btn-danger">🧹</span>
-                            </div>
-                            <p>Remove advertências de um membro</p>
-                            <div class="form-group">
-                                <label>Membro</label>
-                                <select id="clearwarn-member" class="form-control">
-                                    <option value="">Selecione membro</option>
-                                </select>
-                            </div>
-                            <button onclick="clearWarns()" class="btn btn-danger">🧹 Limpar Advertências</button>
-                        </div>
-                        
-                        <!-- Comando: Bloquear Links -->
-                        <div class="command-card">
-                            <div class="command-header">
-                                <span class="command-name">/bloquear_links</span>
-                                <span class="btn btn-danger">🔗</span>
-                            </div>
-                            <p>Bloqueia/desbloqueia links em um canal</p>
-                            <div class="form-group">
-                                <label>Canal</label>
-                                <select id="blocklinks-channel" class="form-control">
-                                    <option value="">Selecione canal</option>
-                                </select>
-                            </div>
-                            <button onclick="toggleBlockLinks()" class="btn btn-danger">🔗 Alternar Bloqueio</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Tab: Moderação -->
-            <div id="moderation" class="tab">
-                <div class="card">
-                    <h2>🛡️ Ferramentas de Moderação</h2>
-                    
-                    <div class="form-group">
-                        <h3>📋 Lista de Advertências</h3>
-                        <select id="viewwarns-member" class="form-control" onchange="viewMemberWarns()">
-                            <option value="">Selecione membro para ver advertências</option>
-                        </select>
-                        <div id="warns-list" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; display: none; border: 1px solid #333;">
-                            <!-- Advertências serão listadas aqui -->
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <h3>📊 Estatísticas de Moderação</h3>
-                        <p>Total de advertências: <strong>''' + str(sum(len(w) for w in data.get("warns", {}).values())) + '''</strong></p>
-                        <p>Membros advertidos: <strong>''' + str(len(data.get("warns", {}))) + '''</strong></p>
-                    </div>
-                    
-                    <div class="form-group">
-                        <h3>🔧 Configuração de Comandos</h3>
-                        <p>Defina em quais canais os comandos podem ser usados:</p>
-                        <div id="command-channels-config">
-                            <!-- Configuração será carregada aqui -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Tab: Diagnóstico -->
-            <div id="diagnostic" class="tab">
-                <div class="card">
-                    <h2>🔧 Diagnóstico do Sistema</h2>
-                    
-                    <div class="form-group">
-                        <h3>⚙️ Controles do Processador</h3>
-                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                            <button onclick="startProcessor()" class="btn btn-success">▶️ Iniciar Processador</button>
-                            <button onclick="stopProcessor()" class="btn btn-danger">⏹️ Parar Processador</button>
-                            <button onclick="processOneAction()" class="btn btn-primary">⚡ Processar 1 Ação</button>
-                            <button onclick="checkProcessorStatus()" class="btn btn-warning">🔍 Ver Status</button>
-                        </div>
-                        <div id="processor-controls-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <h3>🔄 Testar Conexão Bot</h3>
-                        <button onclick="testBotConnection()" class="btn btn-primary">Testar Conexão</button>
-                        <div id="bot-test-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <h3>📊 Fila de Ações</h3>
-                        <button onclick="checkQueue()" class="btn btn-primary">Verificar Fila</button>
-                        <div id="queue-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <h3>🚀 Testar Ação Rápida</h3>
-                        <p>Criar uma embed de teste no canal selecionado:</p>
-                        <select id="test-channel" class="form-control">
-                            <option value="">Selecione um canal</option>
-                        </select>
-                        <button onclick="sendTestAction()" class="btn btn-success" style="margin-top: 1rem;">Enviar Teste</button>
-                        <div id="test-result" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;"></div>
-                    </div>
-                </div>
+            <div class="footer">
+                Atualizado automaticamente a cada 30 segundos • {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
             </div>
         </div>
-        
-        <script>
-            // Dados da guild
-            const guildChannels = ''' + channels_json + ''';
-            const guildRoles = ''' + roles_json + ''';
-            let guildMembers = [];
-            
-            // Sistema de tabs
-            function showTab(tabId) {
-                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-                
-                document.getElementById(tabId).classList.add('active');
-                event.target.classList.add('active');
-                
-                // Carrega dados específicos
-                if (tabId === 'xp') loadLevelRoles();
-                if (tabId === 'commands' || tabId === 'moderation') loadMembers();
-                if (tabId === 'moderation') loadCommandChannels();
-                if (tabId === 'diagnostic') loadDiagnosticData();
-            }
-            
-            // Inicialização
-            document.addEventListener('DOMContentLoaded', function() {
-                populateSelects();
-                loadMembers();
-                
-                // Preview da cor da embed
-                const colorInput = document.getElementById('embed-color');
-                const colorPreview = document.getElementById('color-preview');
-                if (colorInput && colorPreview) {
-                    colorInput.addEventListener('input', function() {
-                        colorPreview.style.backgroundColor = this.value;
-                    });
-                }
-            });
-            
-            // Preenche todos os selects
-            function populateSelects() {
-                console.log("Populando selects com canais:", guildChannels);
-                
-                // Canais
-                const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 
-                                       'embed-channel', 'blocklinks-channel', 'test-channel'];
-                
-                channelSelects.forEach(selectId => {
-                    const select = document.getElementById(selectId);
-                    if (select) {
-                        // Limpa opções existentes
-                        select.innerHTML = '<option value="">Selecione um canal</option>';
-                        
-                        guildChannels.forEach(channel => {
-                            const option = document.createElement('option');
-                            option.value = channel.id;  // Já é string
-                            option.textContent = '#' + channel.name;
-                            select.appendChild(option);
-                        });
-                        
-                        // Debug: log do que foi adicionado
-                        console.log(`Select ${selectId}: ${select.options.length} opções`);
-                    }
-                });
-                
-                // Cargos
-                const roleSelect = document.getElementById('new-role');
-                if (roleSelect && guildRoles) {
-                    guildRoles.forEach(role => {
-                        const option = document.createElement('option');
-                        option.value = role.id;  // Já é string
-                        option.textContent = role.name;
-                        roleSelect.appendChild(option);
-                    });
-                }
-                
-                // Valores atuais
-                const welcomeChanSelect = document.getElementById('welcome-channel');
-                const levelupChanSelect = document.getElementById('levelup-channel');
-                
-                if (welcomeChanSelect) {
-                    const welcomeChanValue = ''' + json.dumps(welcome_chan) + ''' || '';
-                    welcomeChanSelect.value = welcomeChanValue;
-                    console.log("Valor do canal de boas-vindas:", welcomeChanValue);
-                }
-                
-                if (levelupChanSelect) {
-                    const levelupChanValue = ''' + json.dumps(levelup_chan) + ''' || '';
-                    levelupChanSelect.value = levelupChanValue;
-                    console.log("Valor do canal de level up:", levelupChanValue);
-                }
-            }
-            
-            // Carrega membros da guild
-            async function loadMembers() {
-                try {
-                    const response = await fetch('/api/guild/members');
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        guildMembers = result.members || [];
-                        
-                        // Preenche selects de membros
-                        const memberSelects = ['warn-member', 'clearwarn-member', 'viewwarns-member'];
-                        memberSelects.forEach(selectId => {
-                            const select = document.getElementById(selectId);
-                            if (select) {
-                                select.innerHTML = '<option value="">Selecione membro</option>';
-                                guildMembers.forEach(member => {
-                                    const option = document.createElement('option');
-                                    option.value = member.id;
-                                    option.textContent = member.name;
-                                    select.appendChild(option.cloneNode(true));
-                                });
-                            }
-                        });
-                    }
-                } catch (error) {
-                    console.error('Erro ao carregar membros:', error);
-                }
-            }
-            
-            // Carrega dados para diagnóstico
-            async function loadDiagnosticData() {
-                // Já preenchido por populateSelects()
-            }
-            
-            // Funções para salvar configurações
-            async function saveWelcomeConfig() {
-                const data = {
-                    message: document.getElementById('welcome-message').value,
-                    channel_id: document.getElementById('welcome-channel').value,
-                    image_url: document.getElementById('welcome-image').value
-                };
-                
-                console.log("Salvando configuração de boas-vindas:", data);
-                
-                try {
-                    const response = await fetch('/api/config/welcome', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    const result = await response.json();
-                    showAlert('welcome-alert', result.message, result.success);
-                } catch (error) {
-                    console.error("Erro ao salvar configuração:", error);
-                    showAlert('welcome-alert', 'Erro de conexão: ' + error.message, false);
-                }
-            }
-            
-            async function saveXPConfig() {
-                const data = {
-                    rate: parseInt(document.getElementById('xp-rate').value),
-                    channel_id: document.getElementById('levelup-channel').value
-                };
-                
-                console.log("Salvando configuração de XP:", data);
-                
-                try {
-                    const response = await fetch('/api/config/xp', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    const result = await response.json();
-                    showAlert('xp-alert', result.message, result.success);
-                } catch (error) {
-                    console.error("Erro ao salvar configuração XP:", error);
-                    showAlert('xp-alert', 'Erro de conexão: ' + error.message, false);
-                }
-            }
-            
-            // Reaction Roles
-            async function createReactionRole() {
-                const channelId = document.getElementById('rr-channel').value;
-                const content = document.getElementById('rr-content').value;
-                const pairs = document.getElementById('rr-pair').value;
-                
-                console.log("Criando Reaction Role:", { channelId, content, pairs });
-                
-                if (!channelId || !content || !pairs) {
-                    showAlert('roles-alert', 'Preencha todos os campos', false);
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/reactionrole/create', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            channel_id: channelId,
-                            content: content,
-                            emoji_cargo: pairs
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    showAlert('roles-alert', result.message, result.success);
-                    
-                    if (result.success) {
-                        document.getElementById('rr-content').value = '';
-                        document.getElementById('rr-pair').value = '';
-                    }
-                } catch (error) {
-                    console.error("Erro ao criar Reaction Role:", error);
-                    showAlert('roles-alert', 'Erro: ' + error.message, false);
-                }
-            }
-            
-            // Botões de cargos
-            async function createRoleButtons() {
-                const channelId = document.getElementById('btn-channel').value;
-                const content = document.getElementById('btn-content').value;
-                const pairs = document.getElementById('btn-pairs').value;
-                
-                console.log("Criando botões de cargo:", { channelId, content, pairs });
-                
-                if (!channelId || !content || !pairs) {
-                    showAlert('roles-alert', 'Preencha todos os campos', false);
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/rolebuttons/create', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            channel_id: channelId,
-                            content: content,
-                            roles: pairs
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    showAlert('roles-alert', result.message, result.success);
-                    
-                    if (result.success) {
-                        document.getElementById('btn-content').value = '';
-                        document.getElementById('btn-pairs').value = '';
-                    }
-                } catch (error) {
-                    console.error("Erro ao criar botões:", error);
-                    showAlert('roles-alert', 'Erro: ' + error.message, false);
-                }
-            }
-            
-            // Executar comandos
-            async function createEmbed() {
-                const channelId = document.getElementById('embed-channel').value;
-                const title = document.getElementById('embed-title').value;
-                const body = document.getElementById('embed-body').value;
-                const color = document.getElementById('embed-color').value;
-                const image = document.getElementById('embed-image').value;
-                const mention = document.getElementById('embed-mention').value;
-                
-                console.log("Criando embed:", { channelId, title, body, color, image, mention });
-                
-                if (!channelId || !title || !body) {
-                    alert('Preencha todos os campos obrigatórios (canal, título, corpo)');
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/command/embed', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            channel_id: channelId,
-                            title: title,
-                            body: body,
-                            color: color,
-                            image_url: image,
-                            mention: mention
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    alert(result.message);
-                    
-                    if (result.success) {
-                        document.getElementById('embed-title').value = '';
-                        document.getElementById('embed-body').value = '';
-                        document.getElementById('embed-image').value = '';
-                        document.getElementById('embed-mention').value = '';
-                    }
-                } catch (error) {
-                    console.error("Erro ao criar embed:", error);
-                    alert('Erro: ' + error.message);
-                }
-            }
-            
-            async function executeWarn() {
-                const memberId = document.getElementById('warn-member').value;
-                const reason = document.getElementById('warn-reason').value;
-                
-                console.log("Executando advertência:", { memberId, reason });
-                
-                if (!memberId || !reason) {
-                    alert('Selecione um membro e digite um motivo');
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/command/warn', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            member_id: memberId,
-                            reason: reason
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    alert(result.message);
-                    
-                    if (result.success) {
-                        document.getElementById('warn-reason').value = '';
-                    }
-                } catch (error) {
-                    console.error("Erro ao advertir:", error);
-                    alert('Erro: ' + error.message);
-                }
-            }
-            
-            async function clearWarns() {
-                const memberId = document.getElementById('clearwarn-member').value;
-                
-                console.log("Limpando advertências para:", memberId);
-                
-                if (!memberId) {
-                    alert('Selecione um membro');
-                    return;
-                }
-                
-                if (!confirm('Tem certeza que deseja limpar todas as advertências deste membro?')) {
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/command/clearwarns', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            member_id: memberId
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    alert(result.message);
-                } catch (error) {
-                    console.error("Erro ao limpar advertências:", error);
-                    alert('Erro: ' + error.message);
-                }
-            }
-            
-            async function toggleBlockLinks() {
-                const channelId = document.getElementById('blocklinks-channel').value;
-                
-                console.log("Alternando bloqueio de links para canal:", channelId);
-                
-                if (!channelId) {
-                    alert('Selecione um canal');
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/command/blocklinks', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            channel_id: channelId
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    alert(result.message);
-                } catch (error) {
-                    console.error("Erro ao alternar bloqueio de links:", error);
-                    alert('Erro: ' + error.message);
-                }
-            }
-            
-            // Ver advertências de membro
-            async function viewMemberWarns() {
-                const memberId = document.getElementById('viewwarns-member').value;
-                
-                if (!memberId) {
-                    document.getElementById('warns-list').style.display = 'none';
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/member/warns?member_id=' + memberId);
-                    const result = await response.json();
-                    
-                    const container = document.getElementById('warns-list');
-                    if (result.warns && result.warns.length > 0) {
-                        let html = '<h4>Advertências:</h4><ul>';
-                        result.warns.forEach(warn => {
-                            html += '<li><strong>' + warn.reason + '</strong> - ' + warn.ts + '</li>';
-                        });
-                        html += '</ul>';
-                        container.innerHTML = html;
-                    } else {
-                        container.innerHTML = '<p>Nenhuma advertência encontrada.</p>';
-                    }
-                    container.style.display = 'block';
-                } catch (error) {
-                    console.error('Erro:', error);
-                }
-            }
-            
-            // Carregar cargos por nível
-            async function loadLevelRoles() {
-                try {
-                    const response = await fetch('/api/level-roles');
-                    const result = await response.json();
-                    
-                    const container = document.getElementById('level-roles-container');
-                    if (!result.level_roles || Object.keys(result.level_roles).length === 0) {
-                        container.innerHTML = '<p>Nenhum cargo por nível configurado.</p>';
-                        return;
-                    }
-                    
-                    let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
-                    for (const [level, roleId] of Object.entries(result.level_roles)) {
-                        const role = guildRoles.find(r => r.id == roleId);
-                        const roleName = role ? role.name : 'Cargo não encontrado';
-                        html += `
-                            <div style="background: #333; padding: 0.5rem 1rem; border-radius: 5px; display: flex; align-items: center; gap: 0.5rem;">
-                                <strong>Nível ${level}:</strong> ${roleName}
-                                <button onclick="removeLevelRole(${level})" 
-                                        style="background: #dc3545; color: white; border: none; border-radius: 3px; padding: 0.25rem 0.5rem; cursor: pointer;">
-                                    ×
-                                </button>
-                            </div>
-                        `;
-                    }
-                    html += '</div>';
-                    container.innerHTML = html;
-                } catch (error) {
-                    console.error('Erro:', error);
-                }
-            }
-            
-            async function addLevelRole() {
-                const level = document.getElementById('new-level').value;
-                const roleId = document.getElementById('new-role').value;
-                
-                if (!level || !roleId) {
-                    showAlert('xp-alert', 'Preencha o nível e selecione um cargo', false);
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/api/level-roles', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            level: level,
-                            role_id: roleId
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    showAlert('xp-alert', result.message, result.success);
-                    
-                    if (result.success) {
-                        document.getElementById('new-level').value = '';
-                        loadLevelRoles();
-                    }
-                } catch (error) {
-                    console.error('Erro ao adicionar cargo por nível:', error);
-                    showAlert('xp-alert', 'Erro: ' + error.message, false);
-                }
-            }
-            
-            async function removeLevelRole(level) {
-                if (!confirm('Remover cargo do nível ' + level + '?')) return;
-                
-                try {
-                    const response = await fetch('/api/level-roles?level=' + level, {
-                        method: 'DELETE'
-                    });
-                    
-                    const result = await response.json();
-                    showAlert('xp-alert', result.message, result.success);
-                    if (result.success) loadLevelRoles();
-                } catch (error) {
-                    console.error('Erro ao remover cargo por nível:', error);
-                    showAlert('xp-alert', 'Erro: ' + error.message, false);
-                }
-            }
-            
-            // Configuração de canais de comandos
-            async function loadCommandChannels() {
-                try {
-                    const response = await fetch('/api/command-channels');
-                    const result = await response.json();
-                    
-                    const container = document.getElementById('command-channels-config');
-                    if (!result.command_channels) {
-                        container.innerHTML = '<p>Nenhuma configuração encontrada.</p>';
-                        return;
-                    }
-                    
-                    let html = '';
-                    for (const [cmd, channels] of Object.entries(result.command_channels)) {
-                        html += `
-                            <div style="margin-bottom: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid #333;">
-                                <strong>/${cmd}</strong>
-                                <div style="margin-top: 0.5rem;">`;
-                        
-                        if (channels.length > 0) {
-                            const channelNames = channels.map(function(c) {
-                                const chan = guildChannels.find(function(gc) { return gc.id == c; });
-                                return chan ? '#' + chan.name : c;
-                            }).join(', ');
-                            html += 'Canais permitidos: ' + channelNames;
-                        } else {
-                            html += '✅ Todos os canais permitidos';
-                        }
-                        
-                        html += '</div></div>';
-                    }
-                    container.innerHTML = html || '<p>Nenhuma configuração encontrada.</p>';
-                } catch (error) {
-                    console.error('Erro:', error);
-                }
-            }
-            
-            // Funções de diagnóstico - Controles do Processador
-            async function startProcessor() {
-                const resultDiv = document.getElementById('processor-controls-result');
-                resultDiv.innerHTML = '<p>▶️ Iniciando processador...</p>';
-                
-                try {
-                    const response = await fetch('/api/processor/start', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'}
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                        resultDiv.innerHTML = '<div class="alert-success">' + data.message + '</div>';
-                    } else {
-                        resultDiv.innerHTML = '<div class="alert-error">' + data.message + '</div>';
-                    }
-                    
-                    setTimeout(checkProcessorStatus, 2000);
-                } catch (error) {
-                    console.error('Erro ao iniciar processador:', error);
-                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
-                }
-            }
-            
-            async function stopProcessor() {
-                const resultDiv = document.getElementById('processor-controls-result');
-                resultDiv.innerHTML = '<p>⏹️ Parando processador...</p>';
-                
-                try {
-                    const response = await fetch('/api/processor/stop', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'}
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                        resultDiv.innerHTML = '<div class="alert-success">' + data.message + '</div>';
-                    } else {
-                        resultDiv.innerHTML = '<div class="alert-error">' + data.message + '</div>';
-                    }
-                    
-                    setTimeout(checkProcessorStatus, 2000);
-                } catch (error) {
-                    console.error('Erro ao parar processador:', error);
-                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
-                }
-            }
-            
-            async function processOneAction() {
-                const resultDiv = document.getElementById('processor-controls-result');
-                resultDiv.innerHTML = '<p>⚡ Processando uma ação...</p>';
-                
-                try {
-                    const response = await fetch('/api/processor/process-one', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'}
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                        resultDiv.innerHTML = '<div class="alert-success">' + data.message + '</div>';
-                    } else {
-                        resultDiv.innerHTML = '<div class="alert-error">' + data.message + '</div>';
-                    }
-                    
-                    setTimeout(checkQueue, 2000);
-                } catch (error) {
-                    console.error('Erro ao processar uma ação:', error);
-                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
-                }
-            }
-            
-            async function checkProcessorStatus() {
-                const resultDiv = document.getElementById('processor-controls-result');
-                resultDiv.innerHTML = '<p>🔍 Verificando status...</p>';
-                
-                try {
-                    const response = await fetch('/api/processor/status');
-                    const data = await response.json();
-                    
-                    let html = '<h4>Status do Processador:</h4>';
-                    html += '<p><strong>Processador rodando:</strong> ' + (data.processor_running ? '✅ Sim' : '❌ Não') + '</p>';
-                    html += '<p><strong>Ações na fila:</strong> ' + data.queue_length + '</p>';
-                    html += '<p><strong>Bot pronto:</strong> ' + (data.bot_ready ? '✅ Sim' : '❌ Não') + '</p>';
-                    
-                    if (data.has_processor_task) {
-                        html += '<p><strong>Task do processador:</strong></p>';
-                        html += '<ul>';
-                        html += '<li>Existe: ✅ Sim</li>';
-                        html += '<li>Concluída: ' + (data.task_done ? '✅ Sim' : '❌ Não') + '</li>';
-                        html += '<li>Rodando: ' + (data.task_running ? '✅ Sim' : '❌ Não') + '</li>';
-                        '</ul>';
-                    } else {
-                        html += '<p><strong>Task do processador:</strong> ❌ Não existe</p>';
-                    }
-                    
-                    resultDiv.innerHTML = html;
-                } catch (error) {
-                    console.error('Erro ao verificar status:', error);
-                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
-                }
-            }
-            
-            // Funções de diagnóstico antigas (mantidas para compatibilidade)
-            async function testBotConnection() {
-                const resultDiv = document.getElementById('bot-test-result');
-                resultDiv.innerHTML = '<p>🔍 Testando conexão...</p>';
-                
-                try {
-                    const response = await fetch('/api/test/bot');
-                    const data = await response.json();
-                    
-                    let html = '<h4>Resultado do Teste:</h4>';
-                    
-                    if (data.success) {
-                        html += '<p>✅ Conexão com API estabelecida</p>';
-                        html += '<p><strong>Bot Status:</strong> ' + (data.bot.ready ? '✅ Online' : '❌ Offline') + '</p>';
-                        html += '<p><strong>Bot User:</strong> ' + (data.bot.user || 'Não conectado') + '</p>';
-                        html += '<p><strong>Guilds Conectadas:</strong> ' + data.bot.guilds.length + '</p>';
-                        
-                        if (data.bot.target_guild) {
-                            html += '<p><strong>Guild Alvo:</strong> ✅ ' + data.bot.target_guild.name + '</p>';
-                            html += '<p><strong>Canais Disponíveis:</strong> ' + data.bot.target_guild.channels.length + '</p>';
-                            html += '<p><strong>Permissões:</strong></p>';
-                            html += '<ul>';
-                            html += '<li>Enviar Mensagens: ' + (data.bot.target_guild.permissions.send_messages ? '✅' : '❌') + '</li>';
-                            html += '<li>Embed Links: ' + (data.bot.target_guild.permissions.embed_links ? '✅' : '❌') + '</li>';
-                            html += '<li>Gerenciar Cargos: ' + (data.bot.target_guild.permissions.manage_roles ? '✅' : '❌') + '</li>';
-                            html += '</ul>';
-                        }
-                        
-                        html += '<p><strong>Ações na Fila:</strong> ' + data.queue_length + '</p>';
-                        
-                        if (data.bot.guilds && data.bot.guilds.length > 0) {
-                            html += '<details><summary>Ver Todas as Guilds</summary><pre>' + JSON.stringify(data.bot.guilds, null, 2) + '</pre></details>';
-                        }
-                    } else {
-                        html += '<p class="error">❌ Falha na conexão com a API</p>';
-                        html += '<p>' + (data.message || 'Erro desconhecido') + '</p>';
-                    }
-                    
-                    resultDiv.innerHTML = html;
-                } catch (error) {
-                    console.error('Erro no teste de conexão:', error);
-                    resultDiv.innerHTML = '<p class="error">❌ Erro de conexão: ' + error.message + '</p>';
-                }
-            }
-            
-            async function checkQueue() {
-                const resultDiv = document.getElementById('queue-result');
-                resultDiv.innerHTML = '<p>🔍 Verificando fila...</p>';
-                
-                try {
-                    const response = await fetch('/api/debug/actions');
-                    const data = await response.json();
-                    
-                    let html = '<h4>Estado da Fila:</h4>';
-                    
-                    if (data.success) {
-                        html += '<p><strong>Ações na fila:</strong> ' + data.queue_length + '</p>';
-                        html += '<p><strong>Bot pronto:</strong> ' + (data.bot_ready ? '✅ Sim' : '❌ Não') + '</p>';
-                        html += '<p><strong>Processamento ativo:</strong> ' + (data.processing_active ? '✅ Sim' : '❌ Não') + '</p>';
-                        html += '<p><strong>Processador rodando:</strong> ' + (data.processor_running ? '✅ Sim' : '❌ Não') + '</p>';
-                        
-                        if (data.queue && data.queue.length > 0) {
-                            html += '<h5>Próximas ações:</h5><ul>';
-                            data.queue.forEach((action, index) => {
-                                html += '<li><strong>' + action.type + '</strong> - ' + action.timestamp + '</li>';
-                            });
-                            html += '</ul>';
-                        } else {
-                            html += '<p>✅ Nenhuma ação pendente na fila</p>';
-                        }
-                        
-                        html += '<details><summary>Ver Detalhes Completos</summary><pre>' + JSON.stringify(data, null, 2) + '</pre></details>';
-                    } else {
-                        html += '<p class="error">❌ Erro ao verificar fila</p>';
-                        html += '<p>' + data.message + '</p>';
-                    }
-                    
-                    resultDiv.innerHTML = html;
-                } catch (error) {
-                    console.error('Erro ao verificar fila:', error);
-                    resultDiv.innerHTML = '<p class="error">❌ Erro: ' + error.message + '</p>';
-                }
-            }
-            
-            async function sendTestAction() {
-                const channelId = document.getElementById('test-channel').value;
-                console.log("Enviando teste para canal:", channelId);
-                
-                if (!channelId) {
-                    alert('Selecione um canal primeiro');
-                    return;
-                }
-                
-                const resultDiv = document.getElementById('test-result');
-                resultDiv.innerHTML = '<p>🚀 Enviando teste...</p>';
-                
-                try {
-                    const response = await fetch('/api/command/embed', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            channel_id: channelId,
-                            title: "Teste do Site - Diagnóstico",
-                            body: "Esta é uma mensagem de teste enviada pelo site para verificar a conexão entre o site e o bot Discord. Se esta mensagem aparecer, o sistema está funcionando corretamente! ✅",
-                            color: "#5865F2",
-                            admin: "Sistema de Diagnóstico"
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                        resultDiv.innerHTML = '<div class="alert-success">✅ Teste enviado com sucesso! A embed será criada no Discord em instantes.</div>';
-                    } else {
-                        resultDiv.innerHTML = '<div class="alert-error">❌ Falha: ' + data.message + '</div>';
-                    }
-                } catch (error) {
-                    console.error('Erro ao enviar teste:', error);
-                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro de conexão: ' + error.message + '</div>';
-                }
-            }
-            
-            // Utilitários
-            function showAlert(elementId, message, isSuccess) {
-                const alertEl = document.getElementById(elementId);
-                alertEl.textContent = message;
-                alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
-                alertEl.style.display = 'block';
-                
-                setTimeout(() => {
-                    alertEl.style.display = 'none';
-                }, 5000);
-            }
-        </script>
     </body>
     </html>
     '''
 
+@app.route("/queue/embed")
+def queue_embed():
+    """Versão embed da fila para StreamElements overlay"""
+    queue = get_queue_data()
+    
+    entries_html = ""
+    for entry in queue["entries"][:10]:  # Limita a 10 para não ficar muito grande
+        entries_html += f'''
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <span style="color: #ffd93d; font-weight: bold;">#{entry["position"]}</span>
+            <span>{escape_html(entry["username"])}</span>
+            <span style="color: #a8e6cf;">{escape_html(entry["service"])}</span>
+        </div>
+        '''
+    
+    if not queue["entries"]:
+        entries_html = '<div style="text-align: center; padding: 20px;">✨ Fila vazia</div>'
+    
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="15">
+        <style>
+            body {{
+                margin: 0;
+                padding: 10px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                background: transparent;
+                color: white;
+                font-size: 14px;
+            }}
+            .queue-container {{
+                background: rgba(0,0,0,0.7);
+                border-radius: 10px;
+                padding: 10px;
+                min-width: 250px;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 10px;
+                padding-bottom: 5px;
+                border-bottom: 1px solid rgba(255,255,255,0.2);
+            }}
+            .status {{
+                font-size: 11px;
+                padding: 2px 8px;
+                border-radius: 10px;
+                display: inline-block;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="queue-container">
+            <div class="header">
+                <strong>📋 {escape_html(queue["name"])}</strong>
+                <span class="status" style="background: {'#00b894' if queue['settings']['open'] else '#d63031'}">
+                    {'ABERTA' if queue['settings']['open'] else 'FECHADA'}
+                </span>
+            </div>
+            {entries_html}
+            <div style="text-align: center; margin-top: 8px; font-size: 10px; color: #888;">
+                Total: {len(queue["entries"])} pessoas
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+
+@app.route("/queue/api")
+def queue_api():
+    """API pública da fila (JSON)"""
+    queue = get_queue_data()
+    return jsonify({
+        "success": True,
+        "queue": {
+            "name": queue["name"],
+            "open": queue["settings"]["open"],
+            "max_size": queue["settings"]["max_size"],
+            "count": len(queue["entries"]),
+            "entries": [
+                {
+                    "position": e["position"],
+                    "username": e["username"],
+                    "service": e["service"],
+                    "timestamp": e["timestamp"]
+                }
+                for e in queue["entries"]
+            ]
+        }
+    })
+
 # ========================
-# APIs DO SITE
+# APIs DE CONTROLE DA FILA (SITE)
+# ========================
+
+@app.route("/api/queue/add", methods=["POST"])
+def api_queue_add():
+    """Adiciona à fila"""
+    req_data = request.json
+    username = req_data.get("username", "").strip()
+    service = req_data.get("service", "").strip()
+    user_id = req_data.get("user_id")
+    
+    if not username or not service:
+        return jsonify({"success": False, "message": "Nome e serviço são obrigatórios"})
+    
+    success, result = add_to_queue(username, service, user_id)
+    
+    if success:
+        return jsonify({"success": True, "message": f"{username} adicionado à fila!", "entry": result})
+    else:
+        return jsonify({"success": False, "message": result})
+
+@app.route("/api/queue/remove", methods=["POST"])
+def api_queue_remove():
+    """Remove da fila"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    entry_id = request.json.get("entry_id")
+    if not entry_id:
+        return jsonify({"success": False, "message": "ID da entrada é obrigatório"})
+    
+    success, result = remove_from_queue(entry_id)
+    return jsonify({"success": success, "message": "Removido da fila" if success else "Entrada não encontrada"})
+
+@app.route("/api/queue/move-up", methods=["POST"])
+def api_queue_move_up():
+    """Move para cima"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    entry_id = request.json.get("entry_id")
+    success, result = move_up(entry_id)
+    return jsonify({"success": success})
+
+@app.route("/api/queue/move-down", methods=["POST"])
+def api_queue_move_down():
+    """Move para baixo"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    entry_id = request.json.get("entry_id")
+    success, result = move_down(entry_id)
+    return jsonify({"success": success})
+
+@app.route("/api/queue/complete", methods=["POST"])
+def api_queue_complete():
+    """Completa serviço"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    entry_id = request.json.get("entry_id")
+    success, result = complete_service(entry_id)
+    return jsonify({"success": success})
+
+@app.route("/api/queue/clear", methods=["POST"])
+def api_queue_clear():
+    """Limpa toda fila"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    clear_queue()
+    return jsonify({"success": True, "message": "Fila limpa com sucesso"})
+
+@app.route("/api/queue/settings", methods=["GET", "POST"])
+def api_queue_settings():
+    """Configurações da fila"""
+    if request.method == "GET":
+        queue = get_queue_data()
+        return jsonify({
+            "success": True,
+            "settings": queue["settings"],
+            "name": queue["name"]
+        })
+    
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    req_data = request.json
+    
+    if "open" in req_data:
+        toggle_queue(req_data["open"])
+    if "max_size" in req_data:
+        set_max_size(int(req_data["max_size"]))
+    if "name" in req_data:
+        set_queue_name(req_data["name"])
+    
+    return jsonify({"success": True, "message": "Configurações salvas"})
+
+@app.route("/api/queue/history")
+def api_queue_history():
+    """Histórico da fila"""
+    if 'user' not in session:
+        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    
+    queue = get_queue_data()
+    return jsonify({
+        "success": True,
+        "history": queue["history"][-50:]
+    })
+
+# ========================
+# APIs DO SITE (EXISTENTES)
 # ========================
 @app.route("/api/config/welcome", methods=["POST"])
 def api_config_welcome():
@@ -3181,6 +2291,7 @@ async def on_ready():
     print(f"   🎭 Reaction Roles: {len(data.get('reaction_roles', {}))}")
     print(f"   🔘 Botões de Cargo: {len(data.get('role_buttons', {}))}")
     print(f"   📝 Logs: {len(data.get('logs', []))}")
+    print(f"   📋 Fila: {len(data.get('queue', {}).get('entries', []))} pessoas")
     print(f"{'='*50}")
     print(f"✨ BOT PRONTO PARA USO!")
     print(f"{'='*50}\n")
@@ -3850,7 +2961,7 @@ async def slash_savedata(interaction: discord.Interaction):
 #/definir_canal_boas-vindas
 @tree.command(name="definir_canal_boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
 @app_commands.describe(channel="Canal de texto")
-async def slash_setwelcome(interaction: discord.Interaction, channel: discord.TextChannel = None):
+async def slash_setwelcome_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
     if not is_admin_check(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
@@ -4025,6 +3136,957 @@ async def rr_list(interaction: discord.Interaction):
         await interaction.response.send_message(f"Reaction roles:\n{content}", ephemeral=False)
 
 tree.add_command(reactionrole_group)
+
+# ========================
+# DASHBOARD (VERSÃO COMPLETA COM ABA DE FILA)
+# ========================
+@app.route("/dashboard")
+def dashboard():
+    """Dashboard principal"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    user = session['user']
+    
+    config = data.get("config", {})
+    welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
+    xp_rate = config.get("xp_rate", 3)
+    welcome_bg = config.get("welcome_background", "")
+    welcome_chan = config.get("welcome_channel", "")
+    levelup_chan = config.get("levelup_channel", "")
+    
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    channels = []
+    roles = []
+    
+    if guild:
+        channels = [{"id": str(c.id), "name": c.name} for c in guild.text_channels]
+        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if r.name != "@everyone"]
+    
+    channels_json = json.dumps(channels, ensure_ascii=False)
+    roles_json = json.dumps(roles, ensure_ascii=False)
+    
+    queue = get_queue_data()
+    
+    return f'''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Painel - Bot</title>
+        <style>
+            :root {{
+                --primary: #5865F2;
+                --primary-dark: #4752C4;
+                --success: #10b981;
+                --danger: #ef4444;
+                --warning: #f59e0b;
+                --dark: #1a1a1a;
+                --darker: #121212;
+                --light: #e0e0e0;
+                --gray: #333;
+                --gray-light: #444;
+            }}
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: var(--darker);
+                color: var(--light);
+            }}
+            header {{
+                background: var(--dark);
+                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                padding: 1rem 2rem;
+                border-bottom: 1px solid var(--gray);
+            }}
+            .header-content {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                max-width: 1200px;
+                margin: 0 auto;
+            }}
+            h1 {{
+                color: var(--primary);
+                text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            }}
+            .user-info {{
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }}
+            .avatar {{
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                border: 2px solid var(--primary);
+            }}
+            .btn {{
+                padding: 0.5rem 1rem;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 600;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+            }}
+            .btn-primary {{ background: var(--primary); color: white; }}
+            .btn-primary:hover {{ background: var(--primary-dark); }}
+            .btn-success {{ background: var(--success); color: white; }}
+            .btn-danger {{ background: var(--danger); color: white; }}
+            .btn-warning {{ background: var(--warning); color: white; }}
+            
+            .container {{
+                max-width: 1200px;
+                margin: 2rem auto;
+                padding: 0 1rem;
+            }}
+            
+            .tab-nav {{
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 1rem;
+                border-bottom: 2px solid var(--gray);
+                padding-bottom: 0.5rem;
+                flex-wrap: wrap;
+            }}
+            .tab-btn {{
+                padding: 0.75rem 1.5rem;
+                background: var(--gray);
+                border: none;
+                border-radius: 5px 5px 0 0;
+                cursor: pointer;
+                font-weight: 600;
+                color: var(--light);
+                transition: all 0.2s;
+            }}
+            .tab-btn:hover {{
+                background: var(--gray-light);
+            }}
+            .tab-btn.active {{
+                background: var(--primary);
+                color: white;
+            }}
+            .tab {{
+                display: none;
+                animation: fadeIn 0.3s;
+            }}
+            .tab.active {{ display: block; }}
+            
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: translateY(10px); }}
+                to {{ opacity: 1; transform: translateY(0); }}
+            }}
+            
+            .card {{
+                background: var(--dark);
+                border-radius: 10px;
+                padding: 1.5rem;
+                margin: 1rem 0;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                border: 1px solid var(--gray);
+            }}
+            .stats-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1rem;
+                margin: 1rem 0;
+            }}
+            .stat-card {{
+                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+                color: white;
+                padding: 1.5rem;
+                border-radius: 10px;
+                text-align: center;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            }}
+            .stat-card h3 {{
+                font-size: 2rem;
+                margin-bottom: 0.5rem;
+            }}
+            
+            .form-group {{
+                margin-bottom: 1.5rem;
+            }}
+            label {{
+                display: block;
+                margin-bottom: 0.5rem;
+                font-weight: 600;
+                color: var(--primary);
+            }}
+            .form-control {{
+                width: 100%;
+                padding: 0.75rem;
+                background: var(--darker);
+                border: 1px solid var(--gray);
+                border-radius: 5px;
+                font-size: 1rem;
+                color: var(--light);
+                transition: all 0.2s;
+            }}
+            .form-control:focus {{
+                outline: none;
+                border-color: var(--primary);
+                box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.2);
+            }}
+            textarea.form-control {{
+                min-height: 100px;
+                resize: vertical;
+            }}
+            select.form-control {{
+                background: var(--darker);
+                color: var(--light);
+            }}
+            
+            .alert {{
+                padding: 1rem;
+                border-radius: 5px;
+                margin: 1rem 0;
+                display: none;
+            }}
+            .alert-success {{
+                background: #1a472a;
+                color: #4ade80;
+                border: 1px solid #2ecc71;
+            }}
+            .alert-error {{
+                background: #7f1d1d;
+                color: #f87171;
+                border: 1px solid #ef4444;
+            }}
+            
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            th, td {{
+                text-align: left;
+                padding: 12px;
+                border-bottom: 1px solid var(--gray);
+            }}
+            th {{
+                background: var(--gray);
+            }}
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="header-content">
+                <h1>Painel de Controle</h1>
+                <div class="user-info">
+                    <img src="https://cdn.discordapp.com/avatars/{user['id']}/{user.get('avatar', '')}.png" 
+                         alt="Avatar" class="avatar"
+                         onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <span>{user['username']}</span>
+                    <a href="/" class="btn btn-primary">🏠 Início</a>
+                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
+                </div>
+            </div>
+        </header>
+        
+        <div class="container">
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
+                <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
+                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
+                <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
+                <button class="tab-btn" onclick="showTab('commands')">⚡ Comandos</button>
+                <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
+                <button class="tab-btn" onclick="showTab('diagnostic')">🔧 Diagnóstico</button>
+                <button class="tab-btn" onclick="showTab('queue')">📋 Fila</button>
+            </div>
+            
+            <!-- Tab: Visão Geral -->
+            <div id="overview" class="tab active">
+                <div class="card">
+                    <h2>📊 Estatísticas do Bot</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>{len(data.get("xp", {}))}</h3>
+                            <p>Usuários com XP</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{sum(len(w) for w in data.get("warns", {}).values())}</h3>
+                            <p>Advertências</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{len(data.get("reaction_roles", {}))}</h3>
+                            <p>Reaction Roles</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{len(data.get("role_buttons", {}))}</h3>
+                            <p>Botões de Cargos</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{len(queue["entries"])}</h3>
+                            <p>Na Fila</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>⚡ Status do Sistema</h2>
+                    <p><strong>Status do Bot:</strong> <span class="{'online' if bot.is_ready() else 'offline'}">{'✅ Online' if bot.is_ready() else '❌ Offline'}</span></p>
+                    <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
+                    <p><strong>Membros:</strong> {len(guild.members) if guild else 0}</p>
+                    <p><strong>Taxa de XP atual:</strong> {xp_rate}x</p>
+                    <p><strong>Ações na fila:</strong> {len(bot_actions_queue)}</p>
+                    <p><strong>Fila de Serviços:</strong> {queue["settings"]["open"] and "🟢 Aberta" or "🔴 Fechada"} - {len(queue["entries"])}/{queue["settings"]["max_size"]}</p>
+                </div>
+            </div>
+            
+            <!-- Tab: Boas-vindas -->
+            <div id="welcome" class="tab">
+                <div class="card">
+                    <h2>👋 Configurar Boas-vindas</h2>
+                    <div class="form-group">
+                        <label>Canal de Boas-vindas</label>
+                        <select id="welcome-channel" class="form-control">
+                            <option value="">Selecione um canal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Mensagem de Boas-vindas</label>
+                        <textarea id="welcome-message" class="form-control" rows="3">{welcome_msg}</textarea>
+                        <small>Use {{member}} para mencionar o novo membro</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Imagem de Fundo (URL)</label>
+                        <input type="url" id="welcome-image" class="form-control" value="{welcome_bg}" placeholder="https://exemplo.com/imagem.jpg">
+                    </div>
+                    <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
+                    <div id="welcome-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Tab: Sistema XP -->
+            <div id="xp" class="tab">
+                <div class="card">
+                    <h2>⭐ Sistema de XP</h2>
+                    <div class="form-group">
+                        <label>Taxa de XP</label>
+                        <input type="number" id="xp-rate" class="form-control" value="{xp_rate}" min="1" max="10">
+                        <small>1 = fácil, 10 = muito difícil</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Canal de Level Up</label>
+                        <select id="levelup-channel" class="form-control">
+                            <option value="">Selecione um canal</option>
+                        </select>
+                    </div>
+                    <button onclick="saveXPConfig()" class="btn btn-primary">💾 Salvar Configurações</button>
+                    <div id="xp-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Tab: Cargos -->
+            <div id="roles" class="tab">
+                <div class="card">
+                    <h2>🎭 Gerenciar Cargo Emoji</h2>
+                    <div class="form-group">
+                        <label>Canal para Mensagem</label>
+                        <select id="rr-channel" class="form-control">
+                            <option value="">Selecione canal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Conteúdo da Mensagem</label>
+                        <textarea id="rr-content" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Emoji e Cargo (emoji:cargo)</label>
+                        <input type="text" id="rr-pair" class="form-control" placeholder=":thumbsup:👍,✅:Verificado">
+                        <small>Separe múltiplos por vírgula</small>
+                    </div>
+                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar Cargo Emoji</button>
+                    <div id="roles-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h3>🔄 Botões de Cargos</h3>
+                    <div class="form-group">
+                        <label>Canal para Mensagem</label>
+                        <select id="btn-channel" class="form-control">
+                            <option value="">Selecione canal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Conteúdo da Mensagem</label>
+                        <textarea id="btn-content" class="form-control" rows="3" placeholder="Clique nos botões para receber cargos!"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Botões (nome:cargo)</label>
+                        <input type="text" id="btn-pairs" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos">
+                    </div>
+                    <button onclick="createRoleButtons()" class="btn btn-success">🔄 Criar Botões</button>
+                </div>
+            </div>
+            
+            <!-- Tab: Comandos -->
+            <div id="commands" class="tab">
+                <div class="card">
+                    <h2>⚡ Executar Comandos</h2>
+                    <div class="form-group">
+                        <label>Canal</label>
+                        <select id="embed-channel" class="form-control">
+                            <option value="">Selecione canal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Título</label>
+                        <input type="text" id="embed-title" class="form-control" placeholder="Título">
+                    </div>
+                    <div class="form-group">
+                        <label>Corpo</label>
+                        <textarea id="embed-body" class="form-control" rows="3" placeholder="Conteúdo"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Cor (hex)</label>
+                        <input type="text" id="embed-color" class="form-control" value="#5865F2">
+                    </div>
+                    <button onclick="createEmbed()" class="btn btn-primary">📝 Criar Embed</button>
+                </div>
+            </div>
+            
+            <!-- Tab: Moderação -->
+            <div id="moderation" class="tab">
+                <div class="card">
+                    <h2>🛡️ Ferramentas de Moderação</h2>
+                    <div class="form-group">
+                        <label>Membro</label>
+                        <select id="warn-member" class="form-control">
+                            <option value="">Selecione membro</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Motivo</label>
+                        <input type="text" id="warn-reason" class="form-control">
+                    </div>
+                    <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
+                </div>
+            </div>
+            
+            <!-- Tab: Diagnóstico -->
+            <div id="diagnostic" class="tab">
+                <div class="card">
+                    <h2>🔧 Diagnóstico</h2>
+                    <button onclick="testBotConnection()" class="btn btn-primary">Testar Conexão</button>
+                    <div id="bot-test-result" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+            
+            <!-- Tab: Fila -->
+            <div id="queue" class="tab">
+                <div class="card">
+                    <h2>📋 Sistema de Fila</h2>
+                    <p>Gerencie a fila de serviços diretamente pelo painel.</p>
+                </div>
+                
+                <div class="card">
+                    <h3>⚙️ Configurações</h3>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <div style="flex: 1;">
+                            <label>Nome da Fila</label>
+                            <input type="text" id="queue-name" class="form-control" value="{escape_html(queue['name'])}">
+                        </div>
+                        <div style="width: 150px;">
+                            <label>Tamanho Máximo</label>
+                            <input type="number" id="queue-max-size" class="form-control" value="{queue['settings']['max_size']}" min="1" max="100">
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button onclick="saveQueueSettings()" class="btn btn-primary">💾 Salvar</button>
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button onclick="toggleQueueStatus()" id="queue-toggle-btn" class="btn {'btn-success' if queue['settings']['open'] else 'btn-danger'}">
+                                {queue['settings']['open'] and '🔓 Fechar Fila' or '🔒 Abrir Fila'}
+                            </button>
+                        </div>
+                    </div>
+                    <div id="queue-status-display" style="margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 5px;">
+                        Status: <strong>{'🟢 ABERTA' if queue['settings']['open'] else '🔴 FECHADA'}</strong> | 
+                        Ocupação: {len(queue['entries'])} / {queue['settings']['max_size']}
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>➕ Adicionar à Fila</h3>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <input type="text" id="add-username" class="form-control" placeholder="Nome do jogador" style="flex: 1;">
+                        <input type="text" id="add-service" class="form-control" placeholder="Serviço" style="flex: 1;">
+                        <button onclick="addToQueue()" class="btn btn-primary">➕ Adicionar</button>
+                    </div>
+                    <div id="add-result" class="alert" style="margin-top: 10px; display: none;"></div>
+                </div>
+                
+                <div class="card">
+                    <h3>📋 Lista de Espera</h3>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Jogador</th>
+                                    <th>Serviço</th>
+                                    <th>Entrada</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="queue-table-body">
+                                <tr><td colspan="5" style="text-align: center;">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button onclick="clearQueue()" class="btn btn-danger">🗑️ Limpar Toda Fila</button>
+                        <button onclick="refreshQueue()" class="btn btn-primary">🔄 Atualizar</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>📎 Links para StreamElements/OBS</h3>
+                    <div class="form-group">
+                        <label>URL da Lista (HTML completa)</label>
+                        <input type="text" id="queue-url" class="form-control" readonly value="{request.host_url}queue" onclick="this.select();">
+                        <small>Use esta URL no Browser Source do OBS/StreamElements</small>
+                    </div>
+                    <div class="form-group">
+                        <label>URL Embed (Overlay compacto)</label>
+                        <input type="text" id="queue-embed-url" class="form-control" readonly value="{request.host_url}queue/embed" onclick="this.select();">
+                        <small>Versão mais compacta para overlay</small>
+                    </div>
+                    <div class="form-group">
+                        <label>URL API (JSON)</label>
+                        <input type="text" id="queue-api-url" class="form-control" readonly value="{request.host_url}queue/api" onclick="this.select();">
+                        <small>Para integrações personalizadas</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            const guildChannels = {channels_json};
+            const guildRoles = {roles_json};
+            
+            function showTab(tabId) {{
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
+                
+                if (tabId === 'queue') loadQueue();
+                if (tabId === 'welcome' || tabId === 'xp' || tabId === 'roles' || tabId === 'commands') populateSelects();
+            }}
+            
+            function populateSelects() {{
+                const channelSelects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel', 'embed-channel'];
+                channelSelects.forEach(selectId => {{
+                    const select = document.getElementById(selectId);
+                    if (select) {{
+                        select.innerHTML = '<option value="">Selecione um canal</option>';
+                        guildChannels.forEach(channel => {{
+                            const option = document.createElement('option');
+                            option.value = channel.id;
+                            option.textContent = '#' + channel.name;
+                            select.appendChild(option);
+                        }});
+                    }}
+                }});
+                
+                const welcomeChanSelect = document.getElementById('welcome-channel');
+                const levelupChanSelect = document.getElementById('levelup-channel');
+                if (welcomeChanSelect) welcomeChanSelect.value = '{welcome_chan}';
+                if (levelupChanSelect) levelupChanSelect.value = '{levelup_chan}';
+            }}
+            
+            async function saveWelcomeConfig() {{
+                const data = {{
+                    message: document.getElementById('welcome-message').value,
+                    channel_id: document.getElementById('welcome-channel').value,
+                    image_url: document.getElementById('welcome-image').value
+                }};
+                try {{
+                    const response = await fetch('/api/config/welcome', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(data)
+                    }});
+                    const result = await response.json();
+                    showAlert('welcome-alert', result.message, result.success);
+                }} catch(error) {{
+                    showAlert('welcome-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
+            
+            async function saveXPConfig() {{
+                const data = {{
+                    rate: parseInt(document.getElementById('xp-rate').value),
+                    channel_id: document.getElementById('levelup-channel').value
+                }};
+                try {{
+                    const response = await fetch('/api/config/xp', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(data)
+                    }});
+                    const result = await response.json();
+                    showAlert('xp-alert', result.message, result.success);
+                }} catch(error) {{
+                    showAlert('xp-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
+            
+            async function createReactionRole() {{
+                const channelId = document.getElementById('rr-channel').value;
+                const content = document.getElementById('rr-content').value;
+                const pairs = document.getElementById('rr-pair').value;
+                
+                if (!channelId || !content || !pairs) {{
+                    showAlert('roles-alert', 'Preencha todos os campos', false);
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/reactionrole/create', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ channel_id: channelId, content: content, emoji_cargo: pairs }})
+                    }});
+                    const result = await response.json();
+                    showAlert('roles-alert', result.message, result.success);
+                    if (result.success) {{
+                        document.getElementById('rr-content').value = '';
+                        document.getElementById('rr-pair').value = '';
+                    }}
+                }} catch(error) {{
+                    showAlert('roles-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
+            
+            async function createRoleButtons() {{
+                const channelId = document.getElementById('btn-channel').value;
+                const content = document.getElementById('btn-content').value;
+                const pairs = document.getElementById('btn-pairs').value;
+                
+                if (!channelId || !content || !pairs) {{
+                    showAlert('roles-alert', 'Preencha todos os campos', false);
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/rolebuttons/create', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ channel_id: channelId, content: content, roles: pairs }})
+                    }});
+                    const result = await response.json();
+                    showAlert('roles-alert', result.message, result.success);
+                    if (result.success) {{
+                        document.getElementById('btn-content').value = '';
+                        document.getElementById('btn-pairs').value = '';
+                    }}
+                }} catch(error) {{
+                    showAlert('roles-alert', 'Erro: ' + error.message, false);
+                }}
+            }}
+            
+            async function createEmbed() {{
+                const channelId = document.getElementById('embed-channel').value;
+                const title = document.getElementById('embed-title').value;
+                const body = document.getElementById('embed-body').value;
+                const color = document.getElementById('embed-color').value;
+                
+                if (!channelId || !title || !body) {{
+                    alert('Preencha todos os campos');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/command/embed', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ channel_id: channelId, title: title, body: body, color: color }})
+                    }});
+                    const result = await response.json();
+                    alert(result.message);
+                    if (result.success) {{
+                        document.getElementById('embed-title').value = '';
+                        document.getElementById('embed-body').value = '';
+                    }}
+                }} catch(error) {{
+                    alert('Erro: ' + error.message);
+                }}
+            }}
+            
+            async function executeWarn() {{
+                const memberId = document.getElementById('warn-member').value;
+                const reason = document.getElementById('warn-reason').value;
+                
+                if (!memberId || !reason) {{
+                    alert('Selecione um membro e digite um motivo');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/command/warn', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ member_id: memberId, reason: reason }})
+                    }});
+                    const result = await response.json();
+                    alert(result.message);
+                    if (result.success) document.getElementById('warn-reason').value = '';
+                }} catch(error) {{
+                    alert('Erro: ' + error.message);
+                }}
+            }}
+            
+            async function testBotConnection() {{
+                const resultDiv = document.getElementById('bot-test-result');
+                resultDiv.innerHTML = '<p>Testando...</p>';
+                try {{
+                    const response = await fetch('/api/test/bot');
+                    const data = await response.json();
+                    if (data.success) {{
+                        resultDiv.innerHTML = '<div class="alert-success">✅ Bot Online! Bot conectado ao servidor.</div>';
+                    }} else {{
+                        resultDiv.innerHTML = '<div class="alert-error">❌ Falha na conexão</div>';
+                    }}
+                }} catch(error) {{
+                    resultDiv.innerHTML = '<div class="alert-error">❌ Erro: ' + error.message + '</div>';
+                }}
+            }}
+            
+            // Funções da Fila
+            async function loadQueue() {{
+                try {{
+                    const response = await fetch('/queue/api');
+                    const data = await response.json();
+                    
+                    if (data.success) {{
+                        const queue = data.queue;
+                        const tbody = document.getElementById('queue-table-body');
+                        
+                        if (queue.entries.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">📭 Ninguém na fila</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = queue.entries.map(entry => `
+                                <tr>
+                                    <td><strong style="color: #ffd93d;">#${{entry.position}}</strong></td>
+                                    <td>${{escapeHtml(entry.username)}}</td>
+                                    <td style="color: #a8e6cf;">${{escapeHtml(entry.service)}}</td>
+                                    <td>${{new Date(entry.timestamp).toLocaleTimeString()}}</td>
+                                    <td>
+                                        <button onclick="moveUp('${{entry.id}}')" class="btn btn-primary" style="padding: 4px 8px; margin-right: 5px;">⬆️</button>
+                                        <button onclick="moveDown('${{entry.id}}')" class="btn btn-primary" style="padding: 4px 8px; margin-right: 5px;">⬇️</button>
+                                        <button onclick="completeService('${{entry.id}}')" class="btn btn-success" style="padding: 4px 8px; margin-right: 5px;">✅</button>
+                                        <button onclick="removeFromQueue('${{entry.id}}')" class="btn btn-danger" style="padding: 4px 8px;">❌</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                        
+                        document.getElementById('queue-status-display').innerHTML = `
+                            Status: <strong>${queue.open ? '🟢 ABERTA' : '🔴 FECHADA'}</strong> | 
+                            Ocupação: ${queue.count} / ${queue.max_size} pessoas
+                        `;
+                        
+                        const toggleBtn = document.getElementById('queue-toggle-btn');
+                        if (toggleBtn) {{
+                            toggleBtn.className = queue.open ? 'btn btn-danger' : 'btn btn-success';
+                            toggleBtn.textContent = queue.open ? '🔓 Fechar Fila' : '🔒 Abrir Fila';
+                        }}
+                    }}
+                }} catch(error) {{
+                    console.error('Erro ao carregar fila:', error);
+                }}
+            }}
+            
+            async function addToQueue() {{
+                const username = document.getElementById('add-username').value.trim();
+                const service = document.getElementById('add-service').value.trim();
+                
+                if (!username || !service) {{
+                    showQueueAlert('add-result', 'Preencha nome e serviço', false);
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/queue/add', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ username, service }})
+                    }});
+                    
+                    const data = await response.json();
+                    showQueueAlert('add-result', data.message, data.success);
+                    
+                    if (data.success) {{
+                        document.getElementById('add-username').value = '';
+                        document.getElementById('add-service').value = '';
+                        loadQueue();
+                    }}
+                }} catch(error) {{
+                    showQueueAlert('add-result', 'Erro: ' + error.message, false);
+                }}
+            }}
+            
+            async function removeFromQueue(entryId) {{
+                if (!confirm('Remover esta pessoa da fila?')) return;
+                try {{
+                    const response = await fetch('/api/queue/remove', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ entry_id: entryId }})
+                    }});
+                    const data = await response.json();
+                    if (data.success) loadQueue();
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            async function moveUp(entryId) {{
+                try {{
+                    const response = await fetch('/api/queue/move-up', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ entry_id: entryId }})
+                    }});
+                    const data = await response.json();
+                    if (data.success) loadQueue();
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            async function moveDown(entryId) {{
+                try {{
+                    const response = await fetch('/api/queue/move-down', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ entry_id: entryId }})
+                    }});
+                    const data = await response.json();
+                    if (data.success) loadQueue();
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            async function completeService(entryId) {{
+                if (!confirm('Marcar como concluído e remover da fila?')) return;
+                try {{
+                    const response = await fetch('/api/queue/complete', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ entry_id: entryId }})
+                    }});
+                    const data = await response.json();
+                    if (data.success) loadQueue();
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            async function clearQueue() {{
+                if (!confirm('⚠️ ISSO REMOVERÁ TODAS AS PESSOAS DA FILA! Tem certeza?')) return;
+                try {{
+                    const response = await fetch('/api/queue/clear', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }}
+                    }});
+                    const data = await response.json();
+                    if (data.success) loadQueue();
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            async function saveQueueSettings() {{
+                const name = document.getElementById('queue-name').value;
+                const max_size = parseInt(document.getElementById('queue-max-size').value);
+                
+                try {{
+                    const response = await fetch('/api/queue/settings', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ name, max_size }})
+                    }});
+                    const data = await response.json();
+                    if (data.success) {{
+                        showQueueAlert('add-result', 'Configurações salvas!', true);
+                        setTimeout(() => {{
+                            document.getElementById('add-result').style.display = 'none';
+                        }}, 2000);
+                        loadQueue();
+                    }}
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            async function toggleQueueStatus() {{
+                try {{
+                    const response = await fetch('/api/queue/settings', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ open: null }})
+                    }});
+                    const data = await response.json();
+                    if (data.success) loadQueue();
+                }} catch(error) {{
+                    console.error('Erro:', error);
+                }}
+            }}
+            
+            function refreshQueue() {{
+                loadQueue();
+            }}
+            
+            function showAlert(elementId, message, isSuccess) {{
+                const alertEl = document.getElementById(elementId);
+                alertEl.textContent = message;
+                alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
+                alertEl.style.display = 'block';
+                setTimeout(() => {{
+                    alertEl.style.display = 'none';
+                }}, 3000);
+            }}
+            
+            function showQueueAlert(elementId, message, isSuccess) {{
+                const alertEl = document.getElementById(elementId);
+                alertEl.textContent = message;
+                alertEl.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
+                alertEl.style.display = 'block';
+                setTimeout(() => {{
+                    alertEl.style.display = 'none';
+                }}, 3000);
+            }}
+            
+            function escapeHtml(text) {{
+                if (!text) return '';
+                return text.replace(/[&<>]/g, function(m) {{
+                    if (m === '&') return '&amp;';
+                    if (m === '<') return '&lt;';
+                    if (m === '>') return '&gt;';
+                    return m;
+                }});
+            }}
+            
+            document.addEventListener('DOMContentLoaded', function() {{
+                populateSelects();
+                loadQueue();
+            }});
+        </script>
+    </body>
+    </html>
+    '''
 
 # ========================
 # START BOT AND FLASK
