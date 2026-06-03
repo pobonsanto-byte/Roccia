@@ -74,7 +74,7 @@ dados = {
     "reacoes_cargos": {},
     "config": {
         "canal_boas_vindas": None,
-        "mensagem_boas_vindas": "Olá {member}, seja bem-vindo(a)!",
+        "mensagem": config.get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!"),
         "fundo_boas_vindas": "",
         "taxa_xp": 3,
         "canal_levelup": None,
@@ -1214,7 +1214,7 @@ def dashboard():
                     <div class="form-group">
                         <label>Mensagem de Boas-vindas</label>
                         <textarea id="welcome-mensagem" class="form-control" rows="3"></textarea>
-                        <small>Use {member} para mencionar o membro</small>
+                        <small>Use {{member}} para mencionar o membro</small>
                     </div>
                     <div class="form-group">
                         <label>Imagem de Fundo (URL)</label>
@@ -1980,7 +1980,7 @@ async def on_member_join(member: discord.Member):
     if not canal:
         return
     
-    msg = dados.get("config", {}).get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!")
+    msg = dados.get("config", {}).get("mensagem_boas_vindas", "Olá {{member}}, seja bem-vindo(a)!")
     msg = msg.replace("{member}", member.mention)
     
     fundo_url = dados.get("config", {}).get("fundo_boas_vindas", "")
