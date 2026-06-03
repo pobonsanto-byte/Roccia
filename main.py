@@ -7,7 +7,7 @@ import time
 import secrets
 from io import BytesIO
 from threading import Thread
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 import asyncio
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
@@ -43,9 +43,9 @@ GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/
 # ========================
 # Sistema de ações
 # ========================
-bot_actions_queue = []
-action_processor_task = None
-action_processor_running = False
+acoes_fila_bot = []
+processador_acoes_task = None
+processador_acoes_rodando = False
 
 # ========================
 # FLASK APP
@@ -67,55 +67,53 @@ tree = bot.tree
 # ========================
 # ESTRUTURA DE DADOS
 # ========================
-data = {
+dados = {
     "xp": {},
-    "level": {},
-    "warns": {},
-    "reaction_roles": {},
-    "config": {"welcome_channel": None},
+    "nivel": {},
+    "advertencias": {},
+    "reacoes_cargos": {},
+    "config": {"canal_boas_vindas": None},
     "logs": [],
-    "queue": {
-        "name": "Fila de Serviços",
-        "settings": {"max_size": 50, "open": True},
-        "entries": [],
-        "history": []
+    "fila": {
+        "nome": "Fila de Serviços",
+        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
+        "entradas": [],
+        "historico": []
     }
 }
 
 # ========================
 # FUNÇÕES UTILITÁRIAS
 # ========================
-def now_br():
+def agora_br():
     """Retorna a data/hora atual no fuso horário de Brasília (UTC-3)"""
     return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-3)))
 
-# Criar um timedelta para UTC-3
-from datetime import timedelta
-UTC_MINUS_3 = timezone(timedelta(hours=-3))
+UTC_MENOS_3 = timezone(timedelta(hours=-3))
 
-def now_br_alt():
+def agora_br_alternativo():
     """Alternativa usando timezone fixo UTC-3"""
-    return datetime.now(UTC_MINUS_3)
+    return datetime.now(UTC_MENOS_3)
 
 def _gh_headers():
     return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 
-def load_data_from_github():
+def carregar_dados_github():
     try:
         r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
         if r.status_code == 200:
             js = r.json()
-            content_b64 = js.get("content", "")
-            if content_b64:
-                raw = base64.b64decode(content_b64)
-                loaded = json.loads(raw.decode("utf-8"))
-                data.update(loaded)
-                if "queue" not in data:
-                    data["queue"] = {
-                        "name": "Fila de Serviços",
-                        "settings": {"max_size": 50, "open": True},
-                        "entries": [],
-                        "history": []
+            conteudo_b64 = js.get("content", "")
+            if conteudo_b64:
+                raw = base64.b64decode(conteudo_b64)
+                carregado = json.loads(raw.decode("utf-8"))
+                dados.update(carregado)
+                if "fila" not in dados:
+                    dados["fila"] = {
+                        "nome": "Fila de Serviços",
+                        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
+                        "entradas": [],
+                        "historico": []
                     }
                 print("✅ Dados carregados do GitHub.")
                 return True
@@ -125,17 +123,17 @@ def load_data_from_github():
         print(f"❌ Erro ao carregar dados do GitHub: {e}")
     return False
 
-def save_data_to_github(message="Bot update"):
+def salvar_dados_github(mensagem="Atualização do bot"):
     try:
         r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
         sha = None
         if r.status_code == 200:
             sha = r.json().get("sha")
 
-        content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        conteudo = json.dumps(dados, ensure_ascii=False, indent=2).encode("utf-8")
         payload = {
-            "message": f"{message} @ {now_br().isoformat()}",
-            "content": base64.b64encode(content).decode("utf-8"),
+            "mensagem": f"{mensagem} @ {agora_br().isoformat()}",
+            "conteudo": base64.b64encode(conteudo).decode("utf-8"),
             "branch": BRANCH
         }
         if sha:
@@ -151,25 +149,25 @@ def save_data_to_github(message="Bot update"):
         print(f"❌ Exception saving to GitHub: {e}")
     return False
 
-def add_log(entry):
-    ts = now_br().isoformat()
-    data.setdefault("logs", []).append({"ts": ts, "entry": entry})
+def adicionar_log(entrada):
+    ts = agora_br().isoformat()
+    dados.setdefault("logs", []).append({"ts": ts, "entrada": entrada})
     try:
-        save_data_to_github(f"log: {entry}")
+        salvar_dados_github(f"log: {entrada}")
     except Exception:
         pass
 
-def xp_for_message():
+def xp_por_mensagem():
     return 15
 
-def xp_to_level(xp):
-    lvl = int((xp / 100) ** 0.6) + 1
-    return max(lvl, 1)
+def xp_para_nivel(xp):
+    nivel = int((xp / 100) ** 0.6) + 1
+    return max(nivel, 1)
 
-def escape_html(text):
-    if not text:
+def escape_html(texto):
+    if not texto:
         return ""
-    return (text
+    return (texto
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
@@ -178,9 +176,9 @@ def escape_html(text):
     )
 
 EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
-EMOJI_NAME_RE = re.compile(r":([a-zA-Z0-9_]+):")
+EMOJI_NOME_RE = re.compile(r":([a-zA-Z0-9_]+):")
 
-def parse_emoji_str(emoji_str, guild: discord.Guild = None):
+def processar_emoji_str(emoji_str, guild: discord.Guild = None):
     if not emoji_str:
         return None
     
@@ -190,11 +188,11 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
     
     m = EMOJI_RE.match(emoji_str)
     if m:
-        name, id_str = m.groups()
+        nome, id_str = m.groups()
         try:
             eid = int(id_str)
-            animated = emoji_str.startswith('<a:')
-            print(f"[DEBUG EMOJI] É emoji personalizado: nome={name}, id={eid}, animado={animated}")
+            animado = emoji_str.startswith('<a:')
+            print(f"[DEBUG EMOJI] É emoji personalizado: nome={nome}, id={eid}, animado={animado}")
             
             if guild:
                 e = discord.utils.get(guild.emojis, id=eid)
@@ -203,23 +201,23 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
                     return e
             
             print(f"[DEBUG EMOJI] Criando PartialEmoji")
-            return discord.PartialEmoji(name=name, id=eid, animated=animated)
+            return discord.PartialEmoji(name=nome, id=eid, animated=animado)
         except Exception as e:
             print(f"[DEBUG EMOJI] Erro ao processar emoji personalizado: {e}")
             pass
     
-    m2 = EMOJI_NAME_RE.match(emoji_str)
+    m2 = EMOJI_NOME_RE.match(emoji_str)
     if m2:
-        emoji_name = m2.group(1)
-        print(f"[DEBUG EMOJI] É formato :nome:: {emoji_name}")
+        nome_emoji = m2.group(1)
+        print(f"[DEBUG EMOJI] É formato :nome:: {nome_emoji}")
         
         if guild:
-            emoji = discord.utils.get(guild.emojis, name=emoji_name)
+            emoji = discord.utils.get(guild.emojis, name=nome_emoji)
             if emoji:
                 print(f"[DEBUG EMOJI] Encontrado no servidor por nome: {emoji.name}")
                 return emoji
         
-        standard_emojis = {
+        emojis_padrao = {
             "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
             "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
             "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
@@ -228,20 +226,20 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
             "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
         }
         
-        emoji_name_lower = emoji_name.lower()
-        if emoji_name_lower in standard_emojis:
-            result = standard_emojis[emoji_name_lower]
-            print(f"[DEBUG EMOJI] Mapeado para emoji padrão: {result}")
-            return result
+        nome_emoji_lower = nome_emoji.lower()
+        if nome_emoji_lower in emojis_padrao:
+            resultado = emojis_padrao[nome_emoji_lower]
+            print(f"[DEBUG EMOJI] Mapeado para emoji padrão: {resultado}")
+            return resultado
         
         print(f"[DEBUG EMOJI] Retornando como string: {emoji_str}")
         return emoji_str
     
     if len(emoji_str) <= 10:
         import unicodedata
-        has_emoji_char = any('EMOJI' in unicodedata.name(c, '') for c in emoji_str)
+        tem_caractere_emoji = any('EMOJI' in unicodedata.name(c, '') for c in emoji_str)
         
-        if has_emoji_char or any(c in emoji_str for c in ['👍', '👎', '✅', '❌', '⚠️', '❗', '❓', '⭐', '❤️', '🔥', '🚀', '🎉']):
+        if tem_caractere_emoji or any(c in emoji_str for c in ['👍', '👎', '✅', '❌', '⚠️', '❗', '❓', '⭐', '❤️', '🔥', '🚀', '🎉']):
             print(f"[DEBUG EMOJI] É emoji Unicode: {emoji_str}")
             return emoji_str
     
@@ -252,158 +250,158 @@ def parse_emoji_str(emoji_str, guild: discord.Guild = None):
 # SISTEMA DE FILA
 # ========================
 
-def get_queue_data():
-    data.setdefault("queue", {
-        "name": "Fila de Serviços",
-        "settings": {"max_size": 50, "open": True},
-        "entries": [],
-        "history": []
+def obter_dados_fila():
+    dados.setdefault("fila", {
+        "nome": "Fila de Serviços",
+        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
+        "entradas": [],
+        "historico": []
     })
-    return data["queue"]
+    return dados["fila"]
 
-def save_queue():
-    return save_data_to_github("Queue update")
+def salvar_fila():
+    return salvar_dados_github("Atualização da fila")
 
-def add_to_queue(username: str, service: str, user_id: str = None):
-    queue = get_queue_data()
+def adicionar_fila(nome_usuario: str, servico: str, usuario_id: str = None):
+    fila = obter_dados_fila()
     
-    if not queue["settings"]["open"]:
+    if not fila["configuracoes"]["aberta"]:
         return False, "Fila está fechada no momento"
     
-    if len(queue["entries"]) >= queue["settings"]["max_size"]:
+    if len(fila["entradas"]) >= fila["configuracoes"]["tamanho_maximo"]:
         return False, "Fila está cheia"
     
-    for entry in queue["entries"]:
-        if entry["username"].lower() == username.lower():
-            return False, f"{username} já está na fila"
+    for entrada in fila["entradas"]:
+        if entrada["nome_usuario"].lower() == nome_usuario.lower():
+            return False, f"{nome_usuario} já está na fila"
     
-    entry = {
+    entrada = {
         "id": str(int(datetime.now().timestamp() * 1000)),
-        "username": username,
-        "service": service,
-        "user_id": user_id or username,
-        "timestamp": now_br().isoformat(),
-        "status": "waiting",
-        "position": len(queue["entries"]) + 1
+        "nome_usuario": nome_usuario,
+        "servico": servico,
+        "usuario_id": usuario_id or nome_usuario,
+        "timestamp": agora_br().isoformat(),
+        "status": "aguardando",
+        "posicao": len(fila["entradas"]) + 1
     }
     
-    queue["entries"].append(entry)
-    update_positions(queue["entries"])
-    save_queue()
+    fila["entradas"].append(entrada)
+    atualizar_posicoes(fila["entradas"])
+    salvar_fila()
     
-    add_log(f"queue_add: {username} - {service}")
-    return True, entry
+    adicionar_log(f"fila_adicionar: {nome_usuario} - {servico}")
+    return True, entrada
 
-def remove_from_queue(entry_id: str):
-    queue = get_queue_data()
+def remover_fila(entrada_id: str):
+    fila = obter_dados_fila()
     
-    for i, entry in enumerate(queue["entries"]):
-        if entry["id"] == entry_id:
-            removed = queue["entries"].pop(i)
-            removed["removed_at"] = now_br().isoformat()
-            queue["history"].append(removed)
+    for i, entrada in enumerate(fila["entradas"]):
+        if entrada["id"] == entrada_id:
+            removido = fila["entradas"].pop(i)
+            removido["removido_em"] = agora_br().isoformat()
+            fila["historico"].append(removido)
             
-            if len(queue["history"]) > 100:
-                queue["history"] = queue["history"][-100:]
+            if len(fila["historico"]) > 100:
+                fila["historico"] = fila["historico"][-100:]
             
-            update_positions(queue["entries"])
-            save_queue()
-            add_log(f"queue_remove: {removed['username']} - {removed['service']}")
-            return True, removed
+            atualizar_posicoes(fila["entradas"])
+            salvar_fila()
+            adicionar_log(f"fila_remover: {removido['nome_usuario']} - {removido['servico']}")
+            return True, removido
     
     return False, None
 
-def update_positions(entries):
-    for i, entry in enumerate(entries):
-        entry["position"] = i + 1
-        entry["status"] = "waiting"
+def atualizar_posicoes(entradas):
+    for i, entrada in enumerate(entradas):
+        entrada["posicao"] = i + 1
+        entrada["status"] = "aguardando"
 
-def move_up(entry_id: str):
-    queue = get_queue_data()
-    entries = queue["entries"]
+def mover_cima(entrada_id: str):
+    fila = obter_dados_fila()
+    entradas = fila["entradas"]
     
-    for i, entry in enumerate(entries):
-        if entry["id"] == entry_id and i > 0:
-            entries[i], entries[i-1] = entries[i-1], entries[i]
-            update_positions(entries)
-            save_queue()
-            add_log(f"queue_move_up: {entry['username']}")
-            return True, entry
+    for i, entrada in enumerate(entradas):
+        if entrada["id"] == entrada_id and i > 0:
+            entradas[i], entradas[i-1] = entradas[i-1], entradas[i]
+            atualizar_posicoes(entradas)
+            salvar_fila()
+            adicionar_log(f"fila_mover_cima: {entrada['nome_usuario']}")
+            return True, entrada
     
     return False, None
 
-def move_down(entry_id: str):
-    queue = get_queue_data()
-    entries = queue["entries"]
+def mover_baixo(entrada_id: str):
+    fila = obter_dados_fila()
+    entradas = fila["entradas"]
     
-    for i, entry in enumerate(entries):
-        if entry["id"] == entry_id and i < len(entries) - 1:
-            entries[i], entries[i+1] = entries[i+1], entries[i]
-            update_positions(entries)
-            save_queue()
-            add_log(f"queue_move_down: {entry['username']}")
-            return True, entry
+    for i, entrada in enumerate(entradas):
+        if entrada["id"] == entrada_id and i < len(entradas) - 1:
+            entradas[i], entradas[i+1] = entradas[i+1], entradas[i]
+            atualizar_posicoes(entradas)
+            salvar_fila()
+            adicionar_log(f"fila_mover_baixo: {entrada['nome_usuario']}")
+            return True, entrada
     
     return False, None
 
-def complete_service(entry_id: str):
-    queue = get_queue_data()
+def concluir_servico(entrada_id: str):
+    fila = obter_dados_fila()
     
-    for i, entry in enumerate(queue["entries"]):
-        if entry["id"] == entry_id:
-            removed = queue["entries"].pop(i)
-            removed["status"] = "completed"
-            removed["completed_at"] = now_br().isoformat()
-            queue["history"].append(removed)
+    for i, entrada in enumerate(fila["entradas"]):
+        if entrada["id"] == entrada_id:
+            removido = fila["entradas"].pop(i)
+            removido["status"] = "concluido"
+            removido["concluido_em"] = agora_br().isoformat()
+            fila["historico"].append(removido)
             
-            update_positions(queue["entries"])
-            save_queue()
-            add_log(f"queue_complete: {removed['username']}")
-            return True, removed
+            atualizar_posicoes(fila["entradas"])
+            salvar_fila()
+            adicionar_log(f"fila_concluir: {removido['nome_usuario']}")
+            return True, removido
     
     return False, None
 
-def clear_queue():
-    queue = get_queue_data()
+def limpar_fila():
+    fila = obter_dados_fila()
     
-    for entry in queue["entries"]:
-        entry["status"] = "cleared"
-        entry["cleared_at"] = now_br().isoformat()
-        queue["history"].append(entry)
+    for entrada in fila["entradas"]:
+        entrada["status"] = "limpo"
+        entrada["limpo_em"] = agora_br().isoformat()
+        fila["historico"].append(entrada)
     
-    queue["entries"] = []
-    save_queue()
-    add_log("queue_cleared")
+    fila["entradas"] = []
+    salvar_fila()
+    adicionar_log("fila_limpa")
     return True
 
-def toggle_queue(open_status: bool = None):
-    queue = get_queue_data()
+def alternar_fila(aberto: bool = None):
+    fila = obter_dados_fila()
     
-    if open_status is None:
-        queue["settings"]["open"] = not queue["settings"]["open"]
+    if aberto is None:
+        fila["configuracoes"]["aberta"] = not fila["configuracoes"]["aberta"]
     else:
-        queue["settings"]["open"] = open_status
+        fila["configuracoes"]["aberta"] = aberto
     
-    save_queue()
-    add_log(f"queue_toggle: {'open' if queue['settings']['open'] else 'closed'}")
-    return queue["settings"]["open"]
+    salvar_fila()
+    adicionar_log(f"fila_alternar: {'aberta' if fila['configuracoes']['aberta'] else 'fechada'}")
+    return fila["configuracoes"]["aberta"]
 
-def set_max_size(size: int):
-    queue = get_queue_data()
-    queue["settings"]["max_size"] = max(1, min(size, 100))
-    save_queue()
-    return queue["settings"]["max_size"]
+def definir_tamanho_maximo(tamanho: int):
+    fila = obter_dados_fila()
+    fila["configuracoes"]["tamanho_maximo"] = max(1, min(tamanho, 100))
+    salvar_fila()
+    return fila["configuracoes"]["tamanho_maximo"]
 
-def set_queue_name(name: str):
-    queue = get_queue_data()
-    queue["name"] = name[:50]
-    save_queue()
-    return queue["name"]
+def definir_nome_fila(nome: str):
+    fila = obter_dados_fila()
+    fila["nome"] = nome[:50]
+    salvar_fila()
+    return fila["nome"]
 
 # ========================
 # DIAGNÓSTICO DE CONEXÃO
 # ========================
-async def check_bot_connection():
+async def verificar_conexao_bot():
     await bot.wait_until_ready()
     
     print("\n" + "="*60)
@@ -413,7 +411,7 @@ async def check_bot_connection():
     if GUILD_ID:
         guild = bot.get_guild(int(GUILD_ID))
         if guild:
-            print(f"✅ Guild encontrada: {guild.name} (ID: {guild.id})")
+            print(f"✅ Servidor encontrado: {guild.name} (ID: {guild.id})")
             print(f"   👥 Membros: {len(guild.members)}")
             print(f"   📝 Canais: {len(guild.text_channels)}")
             
@@ -424,8 +422,8 @@ async def check_bot_connection():
             if len(guild.text_channels) > 10:
                 print(f"      ... e mais {len(guild.text_channels) - 10} canais")
         else:
-            print(f"❌ Guild NÃO encontrada! ID: {GUILD_ID}")
-            print(f"   Guilds disponíveis: {[f'{g.name} ({g.id})' for g in bot.guilds]}")
+            print(f"❌ Servidor NÃO encontrado! ID: {GUILD_ID}")
+            print(f"   Servidores disponíveis: {[f'{g.name} ({g.id})' for g in bot.guilds]}")
     else:
         print("⚠️ GUILD_ID não configurado")
     
@@ -433,38 +431,38 @@ async def check_bot_connection():
         guild = bot.get_guild(int(GUILD_ID))
         bot_member = guild.get_member(bot.user.id)
         if bot_member:
-            permissions = bot_member.guild_permissions
+            permissoes = bot_member.guild_permissions
             print(f"🔑 Permissões do bot em {guild.name}:")
-            print(f"   📝 Enviar mensagens: {'✅' if permissions.send_messages else '❌'}")
-            print(f"   📋 Gerenciar mensagens: {'✅' if permissions.manage_messages else '❌'}")
-            print(f"   🎭 Gerenciar cargos: {'✅' if permissions.manage_roles else '❌'}")
-            print(f"   📢 Menções @everyone: {'✅' if permissions.mention_everyone else '❌'}")
-            print(f"   🔗 Embed links: {'✅' if permissions.embed_links else '❌'}")
-            print(f"   🎨 Adicionar reações: {'✅' if permissions.add_reactions else '❌'}")
+            print(f"   📝 Enviar mensagens: {'✅' if permissoes.send_messages else '❌'}")
+            print(f"   📋 Gerenciar mensagens: {'✅' if permissoes.manage_messages else '❌'}")
+            print(f"   🎭 Gerenciar cargos: {'✅' if permissoes.manage_roles else '❌'}")
+            print(f"   📢 Menções @everyone: {'✅' if permissoes.mention_everyone else '❌'}")
+            print(f"   🔗 Embed links: {'✅' if permissoes.embed_links else '❌'}")
+            print(f"   🎨 Adicionar reações: {'✅' if permissoes.add_reactions else '❌'}")
     
     print("="*60 + "\n")
 
 # ========================
 # SISTEMA DE AÇÕES DO SITE
 # ========================
-def execute_bot_action(action_type, **kwargs):
-    bot_actions_queue.append({
-        "type": action_type,
-        "data": kwargs,
-        "timestamp": now_br().isoformat()
+def executar_acao_bot(tipo_acao, **kwargs):
+    acoes_fila_bot.append({
+        "tipo": tipo_acao,
+        "dados": kwargs,
+        "timestamp": agora_br().isoformat()
     })
-    print(f"🤖 [BOT ACTION] Adicionada ação: {action_type}")
+    print(f"🤖 [AÇÃO BOT] Adicionada ação: {tipo_acao}")
     print(f"   📊 Dados: {kwargs}")
     return True
 
-async def execute_bot_action_internal(action):
-    action_type = action["type"]
-    action_data = action["data"]
+async def executar_acao_bot_interno(acao):
+    tipo_acao = acao["tipo"]
+    dados_acao = acao["dados"]
     
     print(f"\n{'='*50}")
-    print(f"🤖 EXECUTANDO AÇÃO DO SITE: {action_type}")
-    print(f"📊 Dados: {action_data}")
-    print(f"⏰ Timestamp: {action.get('timestamp')}")
+    print(f"🤖 EXECUTANDO AÇÃO DO SITE: {tipo_acao}")
+    print(f"📊 Dados: {dados_acao}")
+    print(f"⏰ Timestamp: {acao.get('timestamp')}")
     print(f"{'='*50}")
     
     if not bot.is_ready():
@@ -473,205 +471,205 @@ async def execute_bot_action_internal(action):
     
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if not guild:
-        print(f"❌ Guild {GUILD_ID} não encontrada!")
-        print(f"   Guilds disponíveis: {[g.id for g in bot.guilds]}")
+        print(f"❌ Servidor {GUILD_ID} não encontrado!")
+        print(f"   Servidores disponíveis: {[g.id for g in bot.guilds]}")
         return False
     
-    print(f"✅ Guild: {guild.name}")
+    print(f"✅ Servidor: {guild.name}")
     
     try:
-        if action_type == "create_embed":
+        if tipo_acao == "criar_embed":
             try:
-                channel_id = int(action_data["channel_id"])
-                print(f"🔍 Procurando canal ID: {channel_id} ({type(channel_id)})")
+                canal_id = int(dados_acao["canal_id"])
+                print(f"🔍 Procurando canal ID: {canal_id} ({type(canal_id)})")
                 
-                channel = guild.get_channel(channel_id)
+                canal = guild.get_channel(canal_id)
                 
-                if not channel:
-                    print(f"⚠️ Canal {channel_id} não encontrado via get_channel")
+                if not canal:
+                    print(f"⚠️ Canal {canal_id} não encontrado via get_channel")
                     for c in guild.text_channels:
-                        if c.id == channel_id:
-                            channel = c
+                        if c.id == canal_id:
+                            canal = c
                             print(f"✅ Encontrado na iteração: #{c.name}")
                             break
                     
-                    if not channel:
+                    if not canal:
                         print("❌ Canal realmente não encontrado após iteração completa")
                         print("📋 Canais disponíveis:")
                         for c in guild.text_channels[:20]:
                             print(f"   {c.id}: #{c.name}")
                         return False
                 
-                print(f"✅ Canal encontrado: #{channel.name} ({channel.id})")
-                print(f"📝 Título: {action_data['title'][:50]}...")
-                print(f"📄 Corpo: {action_data['body'][:100]}...")
+                print(f"✅ Canal encontrado: #{canal.name} ({canal.id})")
+                print(f"📝 Título: {dados_acao['titulo'][:50]}...")
+                print(f"📄 Corpo: {dados_acao['corpo'][:100]}...")
                 
                 bot_member = guild.get_member(bot.user.id)
                 if bot_member:
-                    permissions = channel.permissions_for(bot_member)
-                    if not permissions.send_messages:
+                    permissoes = canal.permissions_for(bot_member)
+                    if not permissoes.send_messages:
                         print("❌ Bot não tem permissão para enviar mensagens neste canal!")
                         return False
-                    if not permissions.embed_links:
+                    if not permissoes.embed_links:
                         print("❌ Bot não tem permissão para enviar embeds neste canal!")
                         return False
                 
-                color = discord.Color.blue()
-                if action_data.get('color'):
+                cor = discord.Color.blue()
+                if dados_acao.get('cor'):
                     try:
-                        color_hex = action_data['color'].replace('#', '')
-                        color = discord.Color(int(color_hex, 16))
+                        cor_hex = dados_acao['cor'].replace('#', '')
+                        cor = discord.Color(int(cor_hex, 16))
                     except:
-                        print(f"⚠️ Cor inválida: {action_data.get('color')}, usando padrão")
+                        print(f"⚠️ Cor inválida: {dados_acao.get('cor')}, usando padrão")
                 
                 embed = discord.Embed(
-                    title=action_data["title"],
-                    description=action_data["body"],
-                    color=color
+                    title=dados_acao["titulo"],
+                    description=dados_acao["corpo"],
+                    color=cor
                 )
                 
-                if action_data.get('image_url'):
-                    embed.set_image(url=action_data['image_url'])
+                if dados_acao.get('url_imagem'):
+                    embed.set_image(url=dados_acao['url_imagem'])
                 
-                mention_text = ""
-                if action_data.get('mention') == 'everyone':
-                    mention_text = "@everyone"
-                elif action_data.get('mention') == 'here':
-                    mention_text = "@here"
+                texto_menção = ""
+                if dados_acao.get('menção') == 'everyone':
+                    texto_menção = "@everyone"
+                elif dados_acao.get('menção') == 'here':
+                    texto_menção = "@here"
                 
                 print("📤 Enviando embed...")
-                await channel.send(content=mention_text, embed=embed)
-                print(f"✅ Embed enviada com sucesso para #{channel.name}")
+                await canal.send(content=texto_menção, embed=embed)
+                print(f"✅ Embed enviada com sucesso para #{canal.name}")
                 
-                logs_channel_id = data.get("config", {}).get("logs_channel")
-                if logs_channel_id:
-                    logs_channel = guild.get_channel(int(logs_channel_id))
-                    if logs_channel:
-                        await logs_channel.send(
-                            f"📝 Embed criada por {action_data.get('admin', 'Site Admin')} em #{channel.name}\n"
-                            f"Título: {action_data['title'][:100]}"
+                canal_logs_id = dados.get("config", {}).get("canal_logs")
+                if canal_logs_id:
+                    canal_logs = guild.get_channel(int(canal_logs_id))
+                    if canal_logs:
+                        await canal_logs.send(
+                            f"📝 Embed criada por {dados_acao.get('admin', 'Admin do Site')} em #{canal.name}\n"
+                            f"Título: {dados_acao['titulo'][:100]}"
                         )
                 
                 return True
                 
             except ValueError as e:
-                print(f"❌ ERRO DE CONVERSÃO: Não foi possível converter channel_id para inteiro")
-                print(f"   channel_id recebido: {action_data.get('channel_id')}")
-                print(f"   Tipo: {type(action_data.get('channel_id'))}")
+                print(f"❌ ERRO DE CONVERSÃO: Não foi possível converter canal_id para inteiro")
+                print(f"   canal_id recebido: {dados_acao.get('canal_id')}")
+                print(f"   Tipo: {type(dados_acao.get('canal_id'))}")
                 return False
         
-        elif action_type == "create_reaction_role":
+        elif tipo_acao == "criar_reacao_cargo":
             try:
-                channel_id = int(action_data["channel_id"])
-                channel = guild.get_channel(channel_id)
+                canal_id = int(dados_acao["canal_id"])
+                canal = guild.get_channel(canal_id)
                 
-                if not channel:
-                    print(f"❌ Canal {channel_id} não encontrado!")
+                if not canal:
+                    print(f"❌ Canal {canal_id} não encontrado!")
                     return False
                 
-                print(f"✅ Canal: #{channel.name}")
-                print(f"📝 Conteúdo: {action_data['content'][:100]}...")
+                print(f"✅ Canal: #{canal.name}")
+                print(f"📝 Conteúdo: {dados_acao['conteudo'][:100]}...")
                 
                 bot_member = guild.get_member(bot.user.id)
                 if bot_member:
-                    permissions = channel.permissions_for(bot_member)
-                    if not permissions.send_messages:
+                    permissoes = canal.permissions_for(bot_member)
+                    if not permissoes.send_messages:
                         print("❌ Sem permissão para enviar mensagens")
                         return False
-                    if not permissions.add_reactions:
+                    if not permissoes.add_reactions:
                         print("❌ Sem permissão para adicionar reações")
                         return False
                 
-                message = await channel.send(action_data["content"])
-                message_id = str(message.id)
-                print(f"✅ Mensagem enviada com ID: {message_id}")
+                mensagem = await canal.send(dados_acao["conteudo"])
+                mensagem_id = str(mensagem.id)
+                print(f"✅ Mensagem enviada com ID: {mensagem_id}")
                 
-                pairs_str = action_data.get("emoji_cargo", "")
-                print(f"🔄 String completa: '{pairs_str}'")
+                pares_str = dados_acao.get("emoji_cargo", "")
+                print(f"🔄 String completa: '{pares_str}'")
                 
-                pairs = []
-                current_pair = ""
-                bracket_count = 0
+                pares = []
+                par_atual = ""
+                contador_chaves = 0
                 
-                for char in pairs_str:
+                for char in pares_str:
                     if char == '<':
-                        bracket_count += 1
+                        contador_chaves += 1
                     elif char == '>':
-                        bracket_count -= 1
+                        contador_chaves -= 1
                     
-                    if char == ',' and bracket_count == 0:
-                        if current_pair.strip():
-                            pairs.append(current_pair.strip())
-                            current_pair = ""
+                    if char == ',' and contador_chaves == 0:
+                        if par_atual.strip():
+                            pares.append(par_atual.strip())
+                            par_atual = ""
                     else:
-                        current_pair += char
+                        par_atual += char
                 
-                if current_pair.strip():
-                    pairs.append(current_pair.strip())
+                if par_atual.strip():
+                    pares.append(par_atual.strip())
                 
-                print(f"🔄 Processando {len(pairs)} pares após parsing inteligente")
-                print(f"   Pares encontrados: {pairs}")
+                print(f"🔄 Processando {len(pares)} pares após parsing inteligente")
+                print(f"   Pares encontrados: {pares}")
                 
-                reaction_roles_data = {}
+                dados_reacoes_cargos = {}
                 
-                for pair in pairs:
-                    pair = pair.strip()
-                    if not pair:
+                for par in pares:
+                    par = par.strip()
+                    if not par:
                         print(f"   ⚠️ Ignorando par vazio")
                         continue
                     
-                    split_index = -1
-                    bracket_depth = 0
+                    indice_divisao = -1
+                    profundidade_chaves = 0
                     
-                    for i, char in enumerate(pair):
+                    for i, char in enumerate(par):
                         if char == '<':
-                            bracket_depth += 1
+                            profundidade_chaves += 1
                         elif char == '>':
-                            bracket_depth -= 1
-                        elif char == ':' and bracket_depth == 0:
-                            split_index = i
+                            profundidade_chaves -= 1
+                        elif char == ':' and profundidade_chaves == 0:
+                            indice_divisao = i
                     
-                    if split_index == -1:
-                        print(f"   ❌ Par sem ':' válido: {pair}")
+                    if indice_divisao == -1:
+                        print(f"   ❌ Par sem ':' válido: {par}")
                         continue
                     
                     try:
-                        emoji_str = pair[:split_index].strip()
-                        role_name = pair[split_index+1:].strip()
+                        emoji_str = par[:indice_divisao].strip()
+                        nome_cargo = par[indice_divisao+1:].strip()
                         
-                        print(f"   Processando: '{emoji_str}' -> '{role_name}'")
+                        print(f"   Processando: '{emoji_str}' -> '{nome_cargo}'")
                         
-                        role = discord.utils.get(guild.roles, name=role_name)
-                        if not role:
-                            print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                        cargo = discord.utils.get(guild.roles, name=nome_cargo)
+                        if not cargo:
+                            print(f"   ❌ Cargo '{nome_cargo}' não encontrado!")
                             continue
                         
                         print(f"   🔍 String do emoji: '{emoji_str}'")
                         
-                        parsed_emoji = parse_emoji_str(emoji_str, guild)
+                        emoji_processado = processar_emoji_str(emoji_str, guild)
                         
-                        if parsed_emoji is None:
+                        if emoji_processado is None:
                             print(f"   ❌ Emoji '{emoji_str}' inválido!")
                             continue
                         
-                        print(f"   🔍 Emoji parseado: {parsed_emoji} (tipo: {type(parsed_emoji)})")
+                        print(f"   🔍 Emoji processado: {emoji_processado} (tipo: {type(emoji_processado)})")
                         
                         try:
-                            if isinstance(parsed_emoji, (discord.Emoji, discord.PartialEmoji)):
-                                await message.add_reaction(parsed_emoji)
-                                emoji_key = str(parsed_emoji.id)
-                                print(f"   ✅ Reação adicionada (custom): {parsed_emoji.name} (ID: {parsed_emoji.id})")
+                            if isinstance(emoji_processado, (discord.Emoji, discord.PartialEmoji)):
+                                await mensagem.add_reaction(emoji_processado)
+                                chave_emoji = str(emoji_processado.id)
+                                print(f"   ✅ Reação adicionada (custom): {emoji_processado.name} (ID: {emoji_processado.id})")
                             else:
-                                if isinstance(parsed_emoji, str) and parsed_emoji:
-                                    await message.add_reaction(parsed_emoji)
-                                    emoji_key = str(parsed_emoji)
-                                    print(f"   ✅ Reação adicionada (Unicode): {parsed_emoji}")
+                                if isinstance(emoji_processado, str) and emoji_processado:
+                                    await mensagem.add_reaction(emoji_processado)
+                                    chave_emoji = str(emoji_processado)
+                                    print(f"   ✅ Reação adicionada (Unicode): {emoji_processado}")
                                 else:
-                                    print(f"   ❌ Emoji inválido: {parsed_emoji}")
+                                    print(f"   ❌ Emoji inválido: {emoji_processado}")
                                     continue
                             
-                            reaction_roles_data[emoji_key] = str(role.id)
-                            print(f"   ✅ Mapeamento salvo: {emoji_key} -> {role.name}")
+                            dados_reacoes_cargos[chave_emoji] = str(cargo.id)
+                            print(f"   ✅ Mapeamento salvo: {chave_emoji} -> {cargo.name}")
                             
                         except discord.HTTPException as e:
                             print(f"   ❌ Erro Discord ao adicionar reação {emoji_str}: {e}")
@@ -683,129 +681,129 @@ async def execute_bot_action_internal(action):
                             continue
                         
                     except Exception as e:
-                        print(f"   ❌ Erro ao processar par {pair}: {e}")
+                        print(f"   ❌ Erro ao processar par {par}: {e}")
                         import traceback
                         traceback.print_exc()
                         continue
                 
-                if reaction_roles_data:
-                    data.setdefault("reaction_roles", {})[message_id] = reaction_roles_data
-                    save_data_to_github("Reaction role via site")
-                    print(f"✅ Reaction role salva: {message_id}")
+                if dados_reacoes_cargos:
+                    dados.setdefault("reacoes_cargos", {})[mensagem_id] = dados_reacoes_cargos
+                    salvar_dados_github("Reação cargo via site")
+                    print(f"✅ Reação cargo salva: {mensagem_id}")
                     return True
                 else:
                     print("⚠️ Nenhum mapeamento válido criado")
                     try:
-                        await message.delete()
+                        await mensagem.delete()
                         print("🗑️ Mensagem deletada por falta de mapeamentos válidos")
                     except:
                         pass
                     return False
                     
             except ValueError as e:
-                print(f"❌ ERRO DE CONVERSÃO: channel_id inválido: {e}")
+                print(f"❌ ERRO DE CONVERSÃO: canal_id inválido: {e}")
                 return False
             except Exception as e:
-                print(f"❌ ERRO inesperado em create_reaction_role: {e}")
+                print(f"❌ ERRO inesperado em criar_reacao_cargo: {e}")
                 import traceback
                 traceback.print_exc()
                 return False
         
-        elif action_type == "create_role_buttons":
+        elif tipo_acao == "criar_botoes_cargo":
             try:
-                channel_id = int(action_data["channel_id"])
-                channel = guild.get_channel(channel_id)
+                canal_id = int(dados_acao["canal_id"])
+                canal = guild.get_channel(canal_id)
                 
-                if not channel:
-                    print(f"❌ Canal {channel_id} não encontrado!")
+                if not canal:
+                    print(f"❌ Canal {canal_id} não encontrado!")
                     return False
                 
-                print(f"✅ Canal: #{channel.name}")
+                print(f"✅ Canal: #{canal.name}")
                 
-                pairs = action_data.get("roles", "").split(",")
-                buttons_dict = {}
-                print(f"🔄 Processando {len(pairs)} botões")
+                pares = dados_acao.get("cargos", "").split(",")
+                dicionario_botoes = {}
+                print(f"🔄 Processando {len(pares)} botões")
                 
-                for pair in pairs:
-                    if ":" in pair:
+                for par in pares:
+                    if ":" in par:
                         try:
-                            button_name, role_name = pair.split(":", 1)
-                            button_name = button_name.strip()
-                            role_name = role_name.strip()
-                            print(f"   Processando botão: {button_name} -> {role_name}")
+                            nome_botao, nome_cargo = par.split(":", 1)
+                            nome_botao = nome_botao.strip()
+                            nome_cargo = nome_cargo.strip()
+                            print(f"   Processando botão: {nome_botao} -> {nome_cargo}")
                             
-                            role = discord.utils.get(guild.roles, name=role_name)
-                            if role:
-                                buttons_dict[button_name] = role.id
-                                print(f"   ✅ Botão mapeado: {button_name} -> {role.name}")
+                            cargo = discord.utils.get(guild.roles, name=nome_cargo)
+                            if cargo:
+                                dicionario_botoes[nome_botao] = cargo.id
+                                print(f"   ✅ Botão mapeado: {nome_botao} -> {cargo.name}")
                             else:
-                                print(f"   ❌ Cargo '{role_name}' não encontrado!")
+                                print(f"   ❌ Cargo '{nome_cargo}' não encontrado!")
                         except Exception as e:
-                            print(f"   ❌ Erro ao processar par {pair}: {e}")
+                            print(f"   ❌ Erro ao processar par {par}: {e}")
                 
-                if buttons_dict:
-                    view = PersistentRoleButtonView(0, buttons_dict)
-                    sent = await channel.send(action_data["content"], view=view)
-                    print(f"✅ Mensagem com botões enviada: {sent.id}")
+                if dicionario_botoes:
+                    view = PersistentRoleButtonView(0, dicionario_botoes)
+                    enviado = await canal.send(dados_acao["conteudo"], view=view)
+                    print(f"✅ Mensagem com botões enviada: {enviado.id}")
                     
-                    view.message_id = sent.id
+                    view.mensagem_id = enviado.id
                     for item in view.children:
                         if isinstance(item, PersistentRoleButton):
-                            item.message_id = sent.id
+                            item.mensagem_id = enviado.id
                     
-                    data.setdefault("role_buttons", {})[str(sent.id)] = buttons_dict
-                    save_data_to_github("Role buttons via site")
+                    dados.setdefault("botoes_cargos", {})[str(enviado.id)] = dicionario_botoes
+                    salvar_dados_github("Botões de cargo via site")
                     
-                    print(f"✅ Botões de cargo criados em #{channel.name}")
+                    print(f"✅ Botões de cargo criados em #{canal.name}")
                     return True
                 else:
                     print("⚠️ Nenhum botão válido criado")
                     return False
                     
             except ValueError as e:
-                print(f"❌ ERRO DE CONVERSÃO: channel_id inválido")
+                print(f"❌ ERRO DE CONVERSÃO: canal_id inválido")
                 return False
         
-        elif action_type == "warn_member":
+        elif tipo_acao == "advertir_membro":
             try:
-                member_id = int(action_data["member_id"])
-                member = guild.get_member(member_id)
+                membro_id = int(dados_acao["membro_id"])
+                membro = guild.get_member(membro_id)
                 
-                if not member:
-                    print(f"❌ Membro {member_id} não encontrado!")
+                if not membro:
+                    print(f"❌ Membro {membro_id} não encontrado!")
                     return False
                 
-                print(f"✅ Membro: {member.display_name}")
-                print(f"📝 Motivo: {action_data['reason']}")
+                print(f"✅ Membro: {membro.display_name}")
+                print(f"📝 Motivo: {dados_acao['motivo']}")
                 
-                entry = {
-                    "by": "site_admin",
-                    "reason": action_data["reason"],
-                    "ts": now_br().strftime("%d/%m/%Y %H:%M"),
-                    "admin": action_data.get('admin', 'Site Admin')
+                entrada = {
+                    "por": "admin_site",
+                    "motivo": dados_acao["motivo"],
+                    "ts": agora_br().strftime("%d/%m/%Y %H:%M"),
+                    "admin": dados_acao.get('admin', 'Admin do Site')
                 }
-                data.setdefault("warns", {}).setdefault(str(member.id), []).append(entry)
-                save_data_to_github(f"Warn via site: {member.display_name}")
+                dados.setdefault("advertencias", {}).setdefault(str(membro.id), []).append(entrada)
+                salvar_dados_github(f"Advertência via site: {membro.display_name}")
                 
-                logs_channel_id = data.get("config", {}).get("logs_channel")
-                if logs_channel_id:
-                    logs_channel = guild.get_channel(int(logs_channel_id))
-                    if logs_channel:
-                        await logs_channel.send(
-                            f"⚠️ {member.mention} foi advertido por {action_data.get('admin', 'Site Admin')}.\n"
-                            f"Motivo: {action_data['reason']}"
+                canal_logs_id = dados.get("config", {}).get("canal_logs")
+                if canal_logs_id:
+                    canal_logs = guild.get_channel(int(canal_logs_id))
+                    if canal_logs:
+                        await canal_logs.send(
+                            f"⚠️ {membro.mention} foi advertido por {dados_acao.get('admin', 'Admin do Site')}.\n"
+                            f"Motivo: {dados_acao['motivo']}"
                         )
-                        print(f"📝 Log enviado para #{logs_channel.name}")
+                        print(f"📝 Log enviado para #{canal_logs.name}")
                 
-                print(f"✅ Membro advertido: {member.display_name}")
+                print(f"✅ Membro advertido: {membro.display_name}")
                 return True
                 
             except ValueError as e:
-                print(f"❌ ERRO DE CONVERSÃO: member_id inválido")
+                print(f"❌ ERRO DE CONVERSÃO: membro_id inválido")
                 return False
         
         else:
-            print(f"❌ Tipo de ação desconhecida: {action_type}")
+            print(f"❌ Tipo de ação desconhecida: {tipo_acao}")
             return False
     
     except discord.Forbidden as e:
@@ -818,7 +816,7 @@ async def execute_bot_action_internal(action):
         return False
         
     except Exception as e:
-        print(f"❌ Erro ao executar ação {action_type}: {e}")
+        print(f"❌ Erro ao executar ação {tipo_acao}: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -826,14 +824,14 @@ async def execute_bot_action_internal(action):
     finally:
         print(f"{'='*50}\n")
 
-async def process_bot_actions_continuous():
-    global action_processor_running
+async def processar_acoes_bot_continuo():
+    global processador_acoes_rodando
     
     print("\n" + "="*60)
     print("🚀 PROCESSADOR DE AÇÕES DO SITE - INICIANDO")
     print("="*60)
     
-    action_processor_running = True
+    processador_acoes_rodando = True
     
     if not bot.is_ready():
         print("⏳ Aguardando bot ficar pronto...")
@@ -844,112 +842,112 @@ async def process_bot_actions_continuous():
     
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if guild:
-        print(f"🎯 Guild alvo: {guild.name} (ID: {guild.id})")
+        print(f"🎯 Servidor alvo: {guild.name} (ID: {guild.id})")
         print(f"   📍 Canais: {len(guild.text_channels)}")
         print(f"   👥 Membros: {len(guild.members)}")
     else:
-        print(f"⚠️ AVISO: Guild alvo não encontrada! ID: {GUILD_ID}")
-        print(f"   Guilds disponíveis: {[g.name for g in bot.guilds]}")
+        print(f"⚠️ AVISO: Servidor alvo não encontrado! ID: {GUILD_ID}")
+        print(f"   Servidores disponíveis: {[g.name for g in bot.guilds]}")
     
     print("="*60)
     print("🔄 Iniciando loop principal de processamento...")
     print("="*60)
     
-    processed_count = 0
-    error_count = 0
-    last_status_time = time.time()
+    contador_processadas = 0
+    contador_erros = 0
+    ultimo_status_tempo = time.time()
     
     try:
-        while action_processor_running and not bot.is_closed():
+        while processador_acoes_rodando and not bot.is_closed():
             try:
-                current_time = time.time()
-                if current_time - last_status_time > 30:
-                    queue_len = len(bot_actions_queue)
-                    print(f"[ACTION PROCESSOR] Status: Fila={queue_len} | Processadas={processed_count} | Erros={error_count}")
-                    last_status_time = current_time
+                tempo_atual = time.time()
+                if tempo_atual - ultimo_status_tempo > 30:
+                    tamanho_fila = len(acoes_fila_bot)
+                    print(f"[PROCESSADOR AÇÕES] Status: Fila={tamanho_fila} | Processadas={contador_processadas} | Erros={contador_erros}")
+                    ultimo_status_tempo = tempo_atual
                 
-                if bot_actions_queue:
-                    action = bot_actions_queue[0]
-                    action_type = action['type']
-                    print(f"\n[ACTION PROCESSOR] 🔄 Processando ação: {action_type}")
-                    print(f"   📅 Na fila desde: {action.get('timestamp')}")
+                if acoes_fila_bot:
+                    acao = acoes_fila_bot[0]
+                    tipo_acao = acao['tipo']
+                    print(f"\n[PROCESSADOR AÇÕES] 🔄 Processando ação: {tipo_acao}")
+                    print(f"   📅 Na fila desde: {acao.get('timestamp')}")
                     
                     try:
-                        action = bot_actions_queue.pop(0)
-                        success = await execute_bot_action_internal(action)
+                        acao = acoes_fila_bot.pop(0)
+                        sucesso = await executar_acao_bot_interno(acao)
                         
-                        if success:
-                            processed_count += 1
-                            print(f"[ACTION PROCESSOR] ✅ Ação '{action_type}' concluída! (Total: {processed_count})")
+                        if sucesso:
+                            contador_processadas += 1
+                            print(f"[PROCESSADOR AÇÕES] ✅ Ação '{tipo_acao}' concluída! (Total: {contador_processadas})")
                         else:
-                            error_count += 1
-                            print(f"[ACTION PROCESSOR] ❌ Falha na ação '{action_type}'")
+                            contador_erros += 1
+                            print(f"[PROCESSADOR AÇÕES] ❌ Falha na ação '{tipo_acao}'")
                             
-                            attempts = action.get('attempts', 0)
-                            if attempts < 3:
-                                action['attempts'] = attempts + 1
-                                action['retry_time'] = now_br().isoformat()
-                                bot_actions_queue.insert(0, action)
-                                print(f"[ACTION PROCESSOR] 🔄 Tentando novamente ({action['attempts']}/3)")
+                            tentativas = acao.get('tentativas', 0)
+                            if tentativas < 3:
+                                acao['tentativas'] = tentativas + 1
+                                acao['tempo_retentativa'] = agora_br().isoformat()
+                                acoes_fila_bot.insert(0, acao)
+                                print(f"[PROCESSADOR AÇÕES] 🔄 Tentando novamente ({acao['tentativas']}/3)")
                             else:
-                                print(f"[ACTION PROCESSOR] 🗑️ Descarte após 3 tentativas falhas")
+                                print(f"[PROCESSADOR AÇÕES] 🗑️ Descarte após 3 tentativas falhas")
                     
                     except Exception as e:
-                        error_count += 1
-                        print(f"[ACTION PROCESSOR] 💥 ERRO CRÍTICO: {e}")
+                        contador_erros += 1
+                        print(f"[PROCESSADOR AÇÕES] 💥 ERRO CRÍTICO: {e}")
                         import traceback
                         traceback.print_exc()
                 
                 await asyncio.sleep(1)
                 
             except asyncio.CancelledError:
-                print("[ACTION PROCESSOR] ⏹️ Recebido sinal de cancelamento")
+                print("[PROCESSADOR AÇÕES] ⏹️ Recebido sinal de cancelamento")
                 break
                 
             except Exception as e:
-                print(f"[ACTION PROCESSOR] ⚠️ Erro no loop: {e}")
+                print(f"[PROCESSADOR AÇÕES] ⚠️ Erro no loop: {e}")
                 await asyncio.sleep(5)
     
     except Exception as e:
-        print(f"[ACTION PROCESSOR] 💥 ERRO FATAL: {e}")
+        print(f"[PROCESSADOR AÇÕES] 💥 ERRO FATAL: {e}")
         import traceback
         traceback.print_exc()
     
     finally:
-        action_processor_running = False
+        processador_acoes_rodando = False
         print("\n" + "="*60)
         print("⏹️ PROCESSADOR DE AÇÕES ENCERRADO")
         print(f"   📊 Estatísticas finais:")
-        print(f"   ✅ Ações processadas: {processed_count}")
-        print(f"   ❌ Erros: {error_count}")
-        print(f"   📝 Ações restantes na fila: {len(bot_actions_queue)}")
+        print(f"   ✅ Ações processadas: {contador_processadas}")
+        print(f"   ❌ Erros: {contador_erros}")
+        print(f"   📝 Ações restantes na fila: {len(acoes_fila_bot)}")
         print("="*60)
 
-def start_action_processor():
-    global action_processor_task, action_processor_running
+def iniciar_processador_acoes():
+    global processador_acoes_task, processador_acoes_rodando
     
-    if action_processor_running:
+    if processador_acoes_rodando:
         print("⚠️ Processador já está rodando")
         return False
     
     try:
-        action_processor_task = bot.loop.create_task(process_bot_actions_continuous())
+        processador_acoes_task = bot.loop.create_task(processar_acoes_bot_continuo())
         print("✅ Processador de ações iniciado!")
         return True
     except Exception as e:
         print(f"❌ Erro ao iniciar processador: {e}")
         return False
 
-def stop_action_processor():
-    global action_processor_task, action_processor_running
+def parar_processador_acoes():
+    global processador_acoes_task, processador_acoes_rodando
     
-    if not action_processor_running or action_processor_task is None:
+    if not processador_acoes_rodando or processador_acoes_task is None:
         return False
     
     try:
-        action_processor_running = False
-        if not action_processor_task.done():
-            action_processor_task.cancel()
+        processador_acoes_rodando = False
+        if not processador_acoes_task.done():
+            processador_acoes_task.cancel()
         print("✅ Processador de ações parado")
         return True
     except Exception as e:
@@ -960,42 +958,42 @@ def stop_action_processor():
 # CLASSES DE BOTÕES
 # ========================
 class PersistentRoleButtonView(ui.View):
-    def __init__(self, message_id: int, buttons_dict: dict):
+    def __init__(self, mensagem_id: int, dicionario_botoes: dict):
         super().__init__(timeout=None)
-        self.message_id = message_id
-        for label, role_id in buttons_dict.items():
-            self.add_item(PersistentRoleButton(label=label, role_id=role_id, message_id=message_id))
+        self.mensagem_id = mensagem_id
+        for label, cargo_id in dicionario_botoes.items():
+            self.add_item(PersistentRoleButton(label=label, cargo_id=cargo_id, mensagem_id=mensagem_id))
 
 class PersistentRoleButton(ui.Button):
-    def __init__(self, label: str, role_id: int, message_id: int):
+    def __init__(self, label: str, cargo_id: int, mensagem_id: int):
         super().__init__(label=label, style=ButtonStyle.primary)
-        self.role_id = role_id
-        self.message_id = message_id
+        self.cargo_id = cargo_id
+        self.mensagem_id = mensagem_id
 
     async def callback(self, interaction: Interaction):
         guild = interaction.guild
-        member = interaction.user
-        role = guild.get_role(self.role_id)
-        if not role:
+        membro = interaction.user
+        cargo = guild.get_role(self.cargo_id)
+        if not cargo:
             await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
             return
 
-        if role in member.roles:
-            await member.remove_roles(role, reason="Role button")
-            await interaction.response.send_message(f"Você **removeu** o cargo {role.mention}.", ephemeral=True)
+        if cargo in membro.roles:
+            await membro.remove_roles(cargo, reason="Botão de cargo")
+            await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
         else:
-            await member.add_roles(role, reason="Role button")
-            await interaction.response.send_message(f"Você **recebeu** o cargo {role.mention}.", ephemeral=True)
+            await membro.add_roles(cargo, reason="Botão de cargo")
+            await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
 
-        add_log(f"role_button_click: user={member.id} role={role.id} message={self.message_id}")
+        adicionar_log(f"botao_cargo_clique: usuario={membro.id} cargo={cargo.id} mensagem={self.mensagem_id}")
 
 # ========================
 # ROTAS DO SITE - PÁGINA INICIAL
 # ========================
 @app.route("/", methods=["GET"])
 def home():
-    bot_status = "✅ Bot Online e Funcionando" if bot.is_ready() else "❌ Bot Offline"
-    bot_class = "online" if bot.is_ready() else "offline"
+    status_bot = "✅ Bot Online e Funcionando" if bot.is_ready() else "❌ Bot Offline"
+    classe_bot = "online" if bot.is_ready() else "offline"
     
     return f'''
     <!DOCTYPE html>
@@ -1098,15 +1096,15 @@ def home():
     <body>
         <div class="container">
             <h1>Painel de Controle</h1>
-            <div class="status {bot_class}">
-                {bot_status}
+            <div class="status {classe_bot}">
+                {status_bot}
             </div>
             
             <div class="features">
                 <h3>✨ Funcionalidades:</h3>
                 <ul>
                     <li>Sistema de XP e Níveis</li>
-                    <li>Reaction Roles</li>
+                    <li>Reação com Cargos</li>
                     <li>Boas-vindas Personalizadas</li>
                     <li>Sistema de Moderação</li>
                     <li>Botões de Cargos</li>
@@ -1115,7 +1113,7 @@ def home():
                 </ul>
             </div>
             
-            {"<p>Faça login para configurar o bot pelo navegador</p><a href='/login' class='btn'>🔐 Login com Discord</a>" if 'user' not in session else f'<p>Olá, {session["user"].get("username", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para o Painel</a><a href="/logout" class="btn">🚪 Sair</a>'}
+            {"<p>Faça login para configurar o bot pelo navegador</p><a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"].get("nome_usuario", "Administrador")}!</p><a href="/dashboard" class="btn">🚀 Ir para o Painel</a><a href="/logout" class="btn">🚪 Sair</a>'}
             
             <p style="margin-top: 20px; color: #888; font-size: 0.9em;">
                 Use <code>/comando</code> no Discord ou configure pelo site!
@@ -1149,7 +1147,7 @@ def callback():
         return "Erro: código não recebido", 400
     
     try:
-        data_req = {
+        dados_req = {
             'client_id': CLIENT_ID,
             'client_secret': CLIENT_SECRET,
             'grant_type': 'authorization_code',
@@ -1158,30 +1156,30 @@ def callback():
             'scope': 'identify guilds'
         }
         
-        r = requests.post('https://discord.com/api/oauth2/token', data=data_req)
+        r = requests.post('https://discord.com/api/oauth2/token', data=dados_req)
         if r.status_code != 200:
             return f"Erro ao obter token: {r.text[:100]}", 400
         
-        access_token = r.json()['access_token']
+        token_acesso = r.json()['access_token']
         
-        user_r = requests.get('https://discord.com/api/users/@me', 
-                            headers={'Authorization': f'Bearer {access_token}'})
-        if user_r.status_code != 200:
+        usuario_r = requests.get('https://discord.com/api/users/@me', 
+                            headers={'Authorization': f'Bearer {token_acesso}'})
+        if usuario_r.status_code != 200:
             return "Erro ao obter informações", 400
         
-        user_data = user_r.json()
+        dados_usuario = usuario_r.json()
         
-        guilds_r = requests.get('https://discord.com/api/users/@me/guilds',
-                              headers={'Authorization': f'Bearer {access_token}'})
-        guilds = guilds_r.json() if guilds_r.status_code == 200 else []
+        servidores_r = requests.get('https://discord.com/api/users/@me/guilds',
+                              headers={'Authorization': f'Bearer {token_acesso}'})
+        servidores = servidores_r.json() if servidores_r.status_code == 200 else []
         
-        is_admin = False
-        for guild in guilds:
-            if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):
-                is_admin = True
+        eh_admin = False
+        for servidor in servidores:
+            if str(servidor['id']) == GUILD_ID and (servidor['permissions'] & 0x8):
+                eh_admin = True
                 break
         
-        if not is_admin:
+        if not eh_admin:
             return f'''
             <!DOCTYPE html>
             <html>
@@ -1212,11 +1210,11 @@ def callback():
             </html>
             ''', 403
         
-        session['user'] = {
-            'id': user_data['id'],
-            'username': user_data['username'],
-            'avatar': user_data.get('avatar'),
-            'is_admin': True
+        session['usuario'] = {
+            'id': dados_usuario['id'],
+            'nome_usuario': dados_usuario['username'],
+            'avatar': dados_usuario.get('avatar'),
+            'eh_admin': True
         }
         
         return redirect(url_for('dashboard'))
@@ -1233,9 +1231,9 @@ def logout():
 # ROTAS DO SISTEMA DE FILA (PÚBLICAS)
 # ========================
 
-@app.route("/queue")
-def queue_public():
-    queue = get_queue_data()
+@app.route("/fila")
+def fila_publica():
+    fila = obter_dados_fila()
     
     return f'''
     <!DOCTYPE html>
@@ -1244,7 +1242,7 @@ def queue_public():
         <meta charset="UTF-8">
         <meta http-equiv="refresh" content="30">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{escape_html(queue["name"])} - Lista de Espera</title>
+        <title>{escape_html(fila["nome"])} - Lista de Espera</title>
         <style>
             * {{
                 margin: 0;
@@ -1285,21 +1283,21 @@ def queue_public():
                 font-size: 0.9rem;
                 font-weight: bold;
             }}
-            .status-open {{ background: #00b894; color: #fff; }}
-            .status-closed {{ background: #d63031; color: #fff; }}
-            .queue-info {{
+            .status-aberta {{ background: #00b894; color: #fff; }}
+            .status-fechada {{ background: #d63031; color: #fff; }}
+            .info-fila {{
                 text-align: center;
                 margin-top: 10px;
                 font-size: 0.9rem;
                 color: #bbb;
             }}
-            .queue-list {{
+            .lista-fila {{
                 background: rgba(0,0,0,0.4);
                 border-radius: 20px;
                 overflow: hidden;
                 backdrop-filter: blur(10px);
             }}
-            .queue-header {{
+            .cabecalho-fila {{
                 display: grid;
                 grid-template-columns: 60px 1fr 1fr 80px;
                 padding: 15px;
@@ -1307,29 +1305,29 @@ def queue_public():
                 font-weight: bold;
                 border-bottom: 1px solid rgba(255,255,255,0.2);
             }}
-            .queue-item {{
+            .item-fila {{
                 display: grid;
                 grid-template-columns: 60px 1fr 1fr 80px;
                 padding: 12px 15px;
                 border-bottom: 1px solid rgba(255,255,255,0.1);
                 transition: background 0.3s;
             }}
-            .queue-item:hover {{
+            .item-fila:hover {{
                 background: rgba(255,255,255,0.05);
             }}
-            .position {{
+            .posicao {{
                 font-weight: bold;
                 color: #ffd93d;
                 font-size: 1.2rem;
             }}
-            .username {{
+            .nome-usuario {{
                 font-weight: 600;
             }}
-            .service {{
+            .servico {{
                 color: #a8e6cf;
                 font-size: 0.9rem;
             }}
-            .empty-message {{
+            .mensagem-vazia {{
                 text-align: center;
                 padding: 40px;
                 color: #bbb;
@@ -1341,13 +1339,13 @@ def queue_public():
                 color: #888;
             }}
             @media (max-width: 600px) {{
-                .queue-header {{
+                .cabecalho-fila {{
                     font-size: 0.8rem;
                 }}
-                .queue-item {{
+                .item-fila {{
                     font-size: 0.8rem;
                 }}
-                .position {{
+                .posicao {{
                     font-size: 1rem;
                 }}
             }}
@@ -1356,19 +1354,19 @@ def queue_public():
     <body>
         <div class="container">
             <div class="header">
-                <h1>📋 {escape_html(queue["name"])}</h1>
+                <h1>📋 {escape_html(fila["nome"])}</h1>
                 <div>
-                    <span class="status status-{'open' if queue['settings']['open'] else 'closed'}">
-                        {'🟢 ABERTA' if queue['settings']['open'] else '🔴 FECHADA'}
+                    <span class="status status-{'aberta' if fila['configuracoes']['aberta'] else 'fechada'}">
+                        {'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'}
                     </span>
                 </div>
-                <div class="queue-info">
-                    📊 {len(queue["entries"])} / {queue["settings"]["max_size"]} pessoas na fila
+                <div class="info-fila">
+                    📊 {len(fila["entradas"])} / {fila["configuracoes"]["tamanho_maximo"]} pessoas na fila
                 </div>
             </div>
             
-            <div class="queue-list">
-                <div class="queue-header">
+            <div class="lista-fila">
+                <div class="cabecalho-fila">
                     <span>#</span>
                     <span>Jogador</span>
                     <span>Serviço</span>
@@ -1376,39 +1374,39 @@ def queue_public():
                 </div>
                 
                 {''.join(f'''
-                <div class="queue-item">
-                    <span class="position">{entry["position"]}</span>
-                    <span class="username">{escape_html(entry["username"])}</span>
-                    <span class="service">{escape_html(entry["service"])}</span>
+                <div class="item-fila">
+                    <span class="posicao">{entrada["posicao"]}</span>
+                    <span class="nome-usuario">{escape_html(entrada["nome_usuario"])}</span>
+                    <span class="servico">{escape_html(entrada["servico"])}</span>
                     <span>⏳</span>
                 </div>
-                ''' for entry in queue["entries"]) or '<div class="empty-message">✨ Ninguém na fila no momento</div>'}
+                ''' for entrada in fila["entradas"]) or '<div class="mensagem-vazia">✨ Ninguém na fila no momento</div>'}
             </div>
             
             <div class="footer">
-                Atualizado automaticamente a cada 30 segundos • {now_br().strftime("%d/%m/%Y %H:%M:%S")}
+                Atualizado automaticamente a cada 30 segundos • {agora_br().strftime("%d/%m/%Y %H:%M:%S")}
             </div>
         </div>
     </body>
     </html>
     '''
 
-@app.route("/queue/embed")
-def queue_embed():
-    queue = get_queue_data()
+@app.route("/fila/embed")
+def fila_embed():
+    fila = obter_dados_fila()
     
-    entries_html = ""
-    for entry in queue["entries"][:10]:
-        entries_html += f'''
+    entradas_html = ""
+    for entrada in fila["entradas"][:10]:
+        entradas_html += f'''
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
-            <span style="color: #ffd93d; font-weight: bold;">#{entry["position"]}</span>
-            <span>{escape_html(entry["username"])}</span>
-            <span style="color: #a8e6cf;">{escape_html(entry["service"])}</span>
+            <span style="color: #ffd93d; font-weight: bold;">#{entrada["posicao"]}</span>
+            <span>{escape_html(entrada["nome_usuario"])}</span>
+            <span style="color: #a8e6cf;">{escape_html(entrada["servico"])}</span>
         </div>
         '''
     
-    if not queue["entries"]:
-        entries_html = '<div style="text-align: center; padding: 20px;">✨ Fila vazia</div>'
+    if not fila["entradas"]:
+        entradas_html = '<div style="text-align: center; padding: 20px;">✨ Fila vazia</div>'
     
     return f'''
     <!DOCTYPE html>
@@ -1425,7 +1423,7 @@ def queue_embed():
                 color: white;
                 font-size: 14px;
             }}
-            .queue-container {{
+            .container-fila {{
                 background: rgba(0,0,0,0.7);
                 border-radius: 10px;
                 padding: 10px;
@@ -1446,41 +1444,41 @@ def queue_embed():
         </style>
     </head>
     <body>
-        <div class="queue-container">
+        <div class="container-fila">
             <div class="header">
-                <strong>📋 {escape_html(queue["name"])}</strong>
-                <span class="status" style="background: {'#00b894' if queue['settings']['open'] else '#d63031'}">
-                    {'ABERTA' if queue['settings']['open'] else 'FECHADA'}
+                <strong>📋 {escape_html(fila["nome"])}</strong>
+                <span class="status" style="background: {'#00b894' if fila['configuracoes']['aberta'] else '#d63031'}">
+                    {'ABERTA' if fila['configuracoes']['aberta'] else 'FECHADA'}
                 </span>
             </div>
-            {entries_html}
+            {entradas_html}
             <div style="text-align: center; margin-top: 8px; font-size: 10px; color: #888;">
-                Total: {len(queue["entries"])} pessoas
+                Total: {len(fila["entradas"])} pessoas
             </div>
         </div>
     </body>
     </html>
     '''
 
-@app.route("/queue/api")
-def queue_api():
-    queue = get_queue_data()
+@app.route("/fila/api")
+def fila_api():
+    fila = obter_dados_fila()
     return jsonify({
-        "success": True,
-        "queue": {
-            "name": queue["name"],
-            "open": queue["settings"]["open"],
-            "max_size": queue["settings"]["max_size"],
-            "count": len(queue["entries"]),
-            "entries": [
+        "sucesso": True,
+        "fila": {
+            "nome": fila["nome"],
+            "aberta": fila["configuracoes"]["aberta"],
+            "tamanho_maximo": fila["configuracoes"]["tamanho_maximo"],
+            "contagem": len(fila["entradas"]),
+            "entradas": [
                 {
-                    "position": e["position"],
-                    "username": e["username"],
-                    "service": e["service"],
+                    "posicao": e["posicao"],
+                    "nome_usuario": e["nome_usuario"],
+                    "servico": e["servico"],
                     "timestamp": e["timestamp"],
                     "id": e["id"]
                 }
-                for e in queue["entries"]
+                for e in fila["entradas"]
             ]
         }
     })
@@ -1489,267 +1487,267 @@ def queue_api():
 # APIs DE CONTROLE DA FILA
 # ========================
 
-@app.route("/api/queue/add", methods=["POST"])
-def api_queue_add():
-    req_data = request.json
-    username = req_data.get("username", "").strip()
-    service = req_data.get("service", "").strip()
-    user_id = req_data.get("user_id")
+@app.route("/api/fila/adicionar", methods=["POST"])
+def api_fila_adicionar():
+    dados_req = request.json
+    nome_usuario = dados_req.get("nome_usuario", "").strip()
+    servico = dados_req.get("servico", "").strip()
+    usuario_id = dados_req.get("usuario_id")
     
-    if not username or not service:
-        return jsonify({"success": False, "message": "Nome e serviço são obrigatórios"})
+    if not nome_usuario or not servico:
+        return jsonify({"sucesso": False, "mensagem": "Nome e serviço são obrigatórios"})
     
-    success, result = add_to_queue(username, service, user_id)
+    sucesso, resultado = adicionar_fila(nome_usuario, servico, usuario_id)
     
-    if success:
-        return jsonify({"success": True, "message": f"{username} adicionado à fila!", "entry": result})
+    if sucesso:
+        return jsonify({"sucesso": True, "mensagem": f"{nome_usuario} adicionado à fila!", "entrada": resultado})
     else:
-        return jsonify({"success": False, "message": result})
+        return jsonify({"sucesso": False, "mensagem": resultado})
 
-@app.route("/api/queue/remove", methods=["POST"])
-def api_queue_remove():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/fila/remover", methods=["POST"])
+def api_fila_remover():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    entry_id = request.json.get("entry_id")
-    if not entry_id:
-        return jsonify({"success": False, "message": "ID da entrada é obrigatório"})
+    entrada_id = request.json.get("entrada_id")
+    if not entrada_id:
+        return jsonify({"sucesso": False, "mensagem": "ID da entrada é obrigatório"})
     
-    success, result = remove_from_queue(entry_id)
-    return jsonify({"success": success, "message": "Removido da fila" if success else "Entrada não encontrada"})
+    sucesso, resultado = remover_fila(entrada_id)
+    return jsonify({"sucesso": sucesso, "mensagem": "Removido da fila" if sucesso else "Entrada não encontrada"})
 
-@app.route("/api/queue/move-up", methods=["POST"])
-def api_queue_move_up():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/fila/mover-cima", methods=["POST"])
+def api_fila_mover_cima():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    entry_id = request.json.get("entry_id")
-    success, result = move_up(entry_id)
-    return jsonify({"success": success})
+    entrada_id = request.json.get("entrada_id")
+    sucesso, resultado = mover_cima(entrada_id)
+    return jsonify({"sucesso": sucesso})
 
-@app.route("/api/queue/move-down", methods=["POST"])
-def api_queue_move_down():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/fila/mover-baixo", methods=["POST"])
+def api_fila_mover_baixo():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    entry_id = request.json.get("entry_id")
-    success, result = move_down(entry_id)
-    return jsonify({"success": success})
+    entrada_id = request.json.get("entrada_id")
+    sucesso, resultado = mover_baixo(entrada_id)
+    return jsonify({"sucesso": sucesso})
 
-@app.route("/api/queue/complete", methods=["POST"])
-def api_queue_complete():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/fila/concluir", methods=["POST"])
+def api_fila_concluir():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    entry_id = request.json.get("entry_id")
-    success, result = complete_service(entry_id)
-    return jsonify({"success": success})
+    entrada_id = request.json.get("entrada_id")
+    sucesso, resultado = concluir_servico(entrada_id)
+    return jsonify({"sucesso": sucesso})
 
-@app.route("/api/queue/clear", methods=["POST"])
-def api_queue_clear():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/fila/limpar", methods=["POST"])
+def api_fila_limpar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    clear_queue()
-    return jsonify({"success": True, "message": "Fila limpa com sucesso"})
+    limpar_fila()
+    return jsonify({"sucesso": True, "mensagem": "Fila limpa com sucesso"})
 
-@app.route("/api/queue/settings", methods=["GET", "POST"])
-def api_queue_settings():
+@app.route("/api/fila/configuracoes", methods=["GET", "POST"])
+def api_fila_configuracoes():
     if request.method == "GET":
-        queue = get_queue_data()
+        fila = obter_dados_fila()
         return jsonify({
-            "success": True,
-            "settings": queue["settings"],
-            "name": queue["name"]
+            "sucesso": True,
+            "configuracoes": fila["configuracoes"],
+            "nome": fila["nome"]
         })
     
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    req_data = request.json
+    dados_req = request.json
     
-    if "open" in req_data:
-        toggle_queue(req_data["open"])
-    if "max_size" in req_data:
-        set_max_size(int(req_data["max_size"]))
-    if "name" in req_data:
-        set_queue_name(req_data["name"])
+    if "aberta" in dados_req:
+        alternar_fila(dados_req["aberta"])
+    if "tamanho_maximo" in dados_req:
+        definir_tamanho_maximo(int(dados_req["tamanho_maximo"]))
+    if "nome" in dados_req:
+        definir_nome_fila(dados_req["nome"])
     
-    return jsonify({"success": True, "message": "Configurações salvas"})
+    return jsonify({"sucesso": True, "mensagem": "Configurações salvas"})
 
-@app.route("/api/queue/history")
-def api_queue_history():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/fila/historico")
+def api_fila_historico():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    queue = get_queue_data()
+    fila = obter_dados_fila()
     return jsonify({
-        "success": True,
-        "history": queue["history"][-50:]
+        "sucesso": True,
+        "historico": fila["historico"][-50:]
     })
 
 # ========================
 # APIs EXISTENTES (RESUMIDAS)
 # ========================
-@app.route("/api/config/welcome", methods=["POST"])
-def api_config_welcome():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/config/boasvindas", methods=["POST"])
+def api_config_boasvindas():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        config = data.setdefault("config", {})
-        if 'message' in req_data:
-            config["welcome_message"] = req_data['message']
-        if 'channel_id' in req_data:
-            config["welcome_channel"] = req_data['channel_id']
-        if 'image_url' in req_data:
-            config["welcome_background"] = req_data['image_url']
-        success = save_data_to_github("Config boas-vindas via site")
-        return jsonify({"success": success, "message": "Configuração salva!"})
+        dados_req = request.json
+        config = dados.setdefault("config", {})
+        if 'mensagem' in dados_req:
+            config["mensagem_boas_vindas"] = dados_req['mensagem']
+        if 'canal_id' in dados_req:
+            config["canal_boas_vindas"] = dados_req['canal_id']
+        if 'url_imagem' in dados_req:
+            config["fundo_boas_vindas"] = dados_req['url_imagem']
+        sucesso = salvar_dados_github("Config boas-vindas via site")
+        return jsonify({"sucesso": sucesso, "mensagem": "Configuração salva!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
 @app.route("/api/config/xp", methods=["POST"])
 def api_config_xp():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        config = data.setdefault("config", {})
-        if 'rate' in req_data:
-            rate = int(req_data['rate'])
-            if 1 <= rate <= 10:
-                config["xp_rate"] = rate
-        if 'channel_id' in req_data:
-            config["levelup_channel"] = req_data['channel_id']
-        success = save_data_to_github("Config XP via site")
-        return jsonify({"success": success, "message": "Configuração de XP salva!"})
+        dados_req = request.json
+        config = dados.setdefault("config", {})
+        if 'taxa' in dados_req:
+            taxa = int(dados_req['taxa'])
+            if 1 <= taxa <= 10:
+                config["taxa_xp"] = taxa
+        if 'canal_id' in dados_req:
+            config["canal_levelup"] = dados_req['canal_id']
+        sucesso = salvar_dados_github("Config XP via site")
+        return jsonify({"sucesso": sucesso, "mensagem": "Configuração de XP salva!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/guild/members")
-def api_guild_members():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/servidor/membros")
+def api_servidor_membros():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
         guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
         if not guild:
-            return jsonify({"success": False, "message": "Guild não encontrada"})
-        members = []
+            return jsonify({"sucesso": False, "mensagem": "Servidor não encontrado"})
+        membros = []
         for member in guild.members:
             if not member.bot:
-                members.append({
+                membros.append({
                     "id": str(member.id),
-                    "name": member.display_name,
+                    "nome": member.display_name,
                     "avatar": str(member.avatar.url) if member.avatar else None
                 })
-        return jsonify({"success": True, "members": members[:100]})
+        return jsonify({"sucesso": True, "membros": membros[:100]})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"sucesso": False, "mensagem": str(e)}), 500
 
-@app.route("/api/command/embed", methods=["POST"])
-def api_command_embed():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/comando/embed", methods=["POST"])
+def api_comando_embed():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        channel_id = req_data.get('channel_id')
-        title = req_data.get('title')
-        body = req_data.get('body')
-        color = req_data.get('color', '#5865F2')
-        image_url = req_data.get('image_url')
-        mention = req_data.get('mention')
+        dados_req = request.json
+        canal_id = dados_req.get('canal_id')
+        titulo = dados_req.get('titulo')
+        corpo = dados_req.get('corpo')
+        cor = dados_req.get('cor', '#5865F2')
+        url_imagem = dados_req.get('url_imagem')
+        mencao = dados_req.get('mencao')
         
-        if not channel_id or not title or not body:
-            return jsonify({"success": False, "message": "Preencha todos os campos obrigatórios"})
+        if not canal_id or not titulo or not corpo:
+            return jsonify({"sucesso": False, "mensagem": "Preencha todos os campos obrigatórios"})
         
-        success = execute_bot_action(
-            "create_embed",
-            channel_id=channel_id,
-            title=title,
-            body=body,
-            color=color,
-            image_url=image_url,
-            mention=mention,
-            admin=session['user']['username']
+        sucesso = executar_acao_bot(
+            "criar_embed",
+            canal_id=canal_id,
+            titulo=titulo,
+            corpo=corpo,
+            cor=cor,
+            url_imagem=url_imagem,
+            mencao=mencao,
+            admin=session['usuario']['nome_usuario']
         )
-        return jsonify({"success": success, "message": f"✅ Embed será criada em instantes!"})
+        return jsonify({"sucesso": sucesso, "mensagem": f"✅ Embed será criada em instantes!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/command/warn", methods=["POST"])
-def api_command_warn():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/comando/advertir", methods=["POST"])
+def api_comando_advertir():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        member_id = req_data.get('member_id')
-        reason = req_data.get('reason', 'Sem motivo informado')
-        if not member_id:
-            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
-        success = execute_bot_action("warn_member", member_id=member_id, reason=reason, admin=session['user']['username'])
-        return jsonify({"success": success, "message": f"✅ Membro será advertido em instantes!"})
+        dados_req = request.json
+        membro_id = dados_req.get('membro_id')
+        motivo = dados_req.get('motivo', 'Sem motivo informado')
+        if not membro_id:
+            return jsonify({"sucesso": False, "mensagem": "ID do membro é obrigatório"})
+        sucesso = executar_acao_bot("advertir_membro", membro_id=membro_id, motivo=motivo, admin=session['usuario']['nome_usuario'])
+        return jsonify({"sucesso": sucesso, "mensagem": f"✅ Membro será advertido em instantes!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/command/clearwarns", methods=["POST"])
-def api_command_clearwarns():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/comando/limpar_advertencias", methods=["POST"])
+def api_comando_limpar_advertencias():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        member_id = str(req_data.get('member_id'))
-        if not member_id:
-            return jsonify({"success": False, "message": "ID do membro é obrigatório"})
-        if member_id in data.get("warns", {}):
-            data["warns"].pop(member_id)
-            save_data_to_github(f"Clear warns via site: {member_id}")
-            return jsonify({"success": True, "message": "✅ Advertências removidas!"})
+        dados_req = request.json
+        membro_id = str(dados_req.get('membro_id'))
+        if not membro_id:
+            return jsonify({"sucesso": False, "mensagem": "ID do membro é obrigatório"})
+        if membro_id in dados.get("advertencias", {}):
+            dados["advertencias"].pop(membro_id)
+            salvar_dados_github(f"Limpar advertências via site: {membro_id}")
+            return jsonify({"sucesso": True, "mensagem": "✅ Advertências removidas!"})
         else:
-            return jsonify({"success": False, "message": "❌ Membro não tem advertências"})
+            return jsonify({"sucesso": False, "mensagem": "❌ Membro não tem advertências"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/reactionrole/create", methods=["POST"])
-def api_reactionrole_create():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/reacao_cargo/criar", methods=["POST"])
+def api_reacao_cargo_criar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        channel_id = req_data.get('channel_id')
-        content = req_data.get('content')
-        emoji_cargo = req_data.get('emoji_cargo')
-        if not channel_id or not content or not emoji_cargo:
-            return jsonify({"success": False, "message": "Preencha todos os campos"})
-        success = execute_bot_action("create_reaction_role", channel_id=channel_id, content=content, emoji_cargo=emoji_cargo, admin=session['user']['username'])
-        return jsonify({"success": success, "message": "✅ Reaction role será criada em instantes!"})
+        dados_req = request.json
+        canal_id = dados_req.get('canal_id')
+        conteudo = dados_req.get('conteudo')
+        emoji_cargo = dados_req.get('emoji_cargo')
+        if not canal_id or not conteudo or not emoji_cargo:
+            return jsonify({"sucesso": False, "mensagem": "Preencha todos os campos"})
+        sucesso = executar_acao_bot("criar_reacao_cargo", canal_id=canal_id, conteudo=conteudo, emoji_cargo=emoji_cargo, admin=session['usuario']['nome_usuario'])
+        return jsonify({"sucesso": sucesso, "mensagem": "✅ Reação com cargo será criada em instantes!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/rolebuttons/create", methods=["POST"])
-def api_rolebuttons_create():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/botoes_cargo/criar", methods=["POST"])
+def api_botoes_cargo_criar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     try:
-        req_data = request.json
-        channel_id = req_data.get('channel_id')
-        content = req_data.get('content')
-        roles = req_data.get('roles')
-        if not channel_id or not content or not roles:
-            return jsonify({"success": False, "message": "Preencha todos os campos"})
-        success = execute_bot_action("create_role_buttons", channel_id=channel_id, content=content, roles=roles, admin=session['user']['username'])
-        return jsonify({"success": success, "message": "✅ Botões de cargo serão criados em instantes!"})
+        dados_req = request.json
+        canal_id = dados_req.get('canal_id')
+        conteudo = dados_req.get('conteudo')
+        cargos = dados_req.get('cargos')
+        if not canal_id or not conteudo or not cargos:
+            return jsonify({"sucesso": False, "mensagem": "Preencha todos os campos"})
+        sucesso = executar_acao_bot("criar_botoes_cargo", canal_id=canal_id, conteudo=conteudo, cargos=cargos, admin=session['usuario']['nome_usuario'])
+        return jsonify({"sucesso": sucesso, "mensagem": "✅ Botões de cargo serão criados em instantes!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erro: {str(e)}"}), 500
+        return jsonify({"sucesso": False, "mensagem": f"Erro: {str(e)}"}), 500
 
-@app.route("/api/test/bot", methods=["GET"])
-def api_test_bot():
-    if 'user' not in session:
-        return jsonify({"success": False, "message": "Não autenticado"}), 401
+@app.route("/api/teste/bot", methods=["GET"])
+def api_teste_bot():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     return jsonify({
-        "success": True,
-        "bot": {"ready": bot.is_ready(), "user": str(bot.user) if bot.user else None},
-        "queue_length": len(bot_actions_queue)
+        "sucesso": True,
+        "bot": {"pronto": bot.is_ready(), "usuario": str(bot.user) if bot.user else None},
+        "tamanho_fila": len(acoes_fila_bot)
     })
 
 # ========================
@@ -1757,30 +1755,30 @@ def api_test_bot():
 # ========================
 @app.route("/dashboard")
 def dashboard():
-    if 'user' not in session:
+    if 'usuario' not in session:
         return redirect(url_for('login'))
     
-    user = session['user']
+    usuario = session['usuario']
     
-    config = data.get("config", {})
-    welcome_msg = config.get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
-    xp_rate = config.get("xp_rate", 3)
-    welcome_bg = config.get("welcome_background", "")
-    welcome_chan = config.get("welcome_channel", "")
-    levelup_chan = config.get("levelup_channel", "")
+    config = dados.get("config", {})
+    msg_boas_vindas = config.get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!")
+    taxa_xp = config.get("taxa_xp", 3)
+    fundo_boas_vindas = config.get("fundo_boas_vindas", "")
+    canal_boas_vindas = config.get("canal_boas_vindas", "")
+    canal_levelup = config.get("canal_levelup", "")
     
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
-    channels = []
-    roles = []
+    canais = []
+    cargos = []
     
     if guild:
-        channels = [{"id": str(c.id), "name": c.name} for c in guild.text_channels]
-        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if r.name != "@everyone"]
+        canais = [{"id": str(c.id), "nome": c.name} for c in guild.text_channels]
+        cargos = [{"id": str(r.id), "nome": r.name} for r in guild.roles if r.name != "@everyone"]
     
-    channels_json = json.dumps(channels, ensure_ascii=False)
-    roles_json = json.dumps(roles, ensure_ascii=False)
+    canais_json = json.dumps(canais, ensure_ascii=False)
+    cargos_json = json.dumps(cargos, ensure_ascii=False)
     
-    queue = get_queue_data()
+    fila = obter_dados_fila()
     
     return f'''
     <!DOCTYPE html>
@@ -1844,8 +1842,8 @@ def dashboard():
             <div class="header-content">
                 <h1>Painel de Controle</h1>
                 <div class="user-info">
-                    <img src="https://cdn.discordapp.com/avatars/{user['id']}/{user.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                    <span>{user['username']}</span>
+                    <img src="https://cdn.discordapp.com/avatars/{usuario['id']}/{usuario.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <span>{usuario['nome_usuario']}</span>
                     <a href="/" class="btn btn-primary">🏠 Início</a>
                     <a href="/logout" class="btn btn-danger">🚪 Sair</a>
                 </div>
@@ -1854,82 +1852,82 @@ def dashboard():
         
         <div class="container">
             <div class="tab-nav">
-                <button class="tab-btn active" onclick="showTab('overview')">📊 Visão Geral</button>
-                <button class="tab-btn" onclick="showTab('welcome')">👋 Boas-vindas</button>
-                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
-                <button class="tab-btn" onclick="showTab('roles')">🎭 Cargos</button>
-                <button class="tab-btn" onclick="showTab('moderation')">🛡️ Moderação</button>
-                <button class="tab-btn" onclick="showTab('queue')">📋 Fila</button>
+                <button class="tab-btn active" onclick="mostrarAba('visao_geral')">📊 Visão Geral</button>
+                <button class="tab-btn" onclick="mostrarAba('boas_vindas')">👋 Boas-vindas</button>
+                <button class="tab-btn" onclick="mostrarAba('xp')">⭐ Sistema XP</button>
+                <button class="tab-btn" onclick="mostrarAba('cargos')">🎭 Cargos</button>
+                <button class="tab-btn" onclick="mostrarAba('moderacao')">🛡️ Moderação</button>
+                <button class="tab-btn" onclick="mostrarAba('fila')">📋 Fila</button>
             </div>
             
-            <div id="overview" class="tab active">
+            <div id="visao_geral" class="tab active">
                 <div class="card">
                     <h2>📊 Estatísticas</h2>
                     <div class="stats-grid">
-                        <div class="stat-card"><h3>{len(data.get("xp", {}))}</h3><p>Usuários com XP</p></div>
-                        <div class="stat-card"><h3>{sum(len(w) for w in data.get("warns", {}).values())}</h3><p>Advertências</p></div>
-                        <div class="stat-card"><h3>{len(queue["entries"])}</h3><p>Na Fila</p></div>
+                        <div class="stat-card"><h3>{len(dados.get("xp", {}))}</h3><p>Usuários com XP</p></div>
+                        <div class="stat-card"><h3>{sum(len(w) for w in dados.get("advertencias", {}).values())}</h3><p>Advertências</p></div>
+                        <div class="stat-card"><h3>{len(fila["entradas"])}</h3><p>Na Fila</p></div>
                     </div>
                 </div>
                 <div class="card">
                     <h2>⚡ Status</h2>
                     <p><strong>Bot:</strong> {'✅ Online' if bot.is_ready() else '❌ Offline'}</p>
                     <p><strong>Servidor:</strong> {guild.name if guild else 'Não conectado'}</p>
-                    <p><strong>Fila:</strong> {queue["settings"]["open"] and '🟢 Aberta' or '🔴 Fechada'} - {len(queue["entries"])}/{queue["settings"]["max_size"]}</p>
+                    <p><strong>Fila:</strong> {fila["configuracoes"]["aberta"] and '🟢 Aberta' or '🔴 Fechada'} - {len(fila["entradas"])}/{fila["configuracoes"]["tamanho_maximo"]}</p>
                 </div>
             </div>
             
-            <div id="welcome" class="tab">
+            <div id="boas_vindas" class="tab">
                 <div class="card">
                     <h2>👋 Boas-vindas</h2>
-                    <div class="form-group"><label>Canal</label><select id="welcome-channel" class="form-control"></select></div>
-                    <div class="form-group"><label>Mensagem</label><textarea id="welcome-message" class="form-control" rows="3">{welcome_msg}</textarea><small>Use {{member}} para mencionar</small></div>
-                    <div class="form-group"><label>Imagem URL</label><input type="url" id="welcome-image" class="form-control" value="{welcome_bg}"></div>
-                    <button onclick="saveWelcomeConfig()" class="btn btn-primary">💾 Salvar</button>
-                    <div id="welcome-alert" class="alert"></div>
+                    <div class="form-group"><label>Canal</label><select id="boas-vindas-canal" class="form-control"></select></div>
+                    <div class="form-group"><label>Mensagem</label><textarea id="boas-vindas-mensagem" class="form-control" rows="3">{msg_boas_vindas}</textarea><small>Use {{member}} para mencionar</small></div>
+                    <div class="form-group"><label>Imagem URL</label><input type="url" id="boas-vindas-imagem" class="form-control" value="{fundo_boas_vindas}"></div>
+                    <button onclick="salvarConfigBoasVindas()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="boas-vindas-alert" class="alert"></div>
                 </div>
             </div>
             
             <div id="xp" class="tab">
                 <div class="card">
                     <h2>⭐ Sistema XP</h2>
-                    <div class="form-group"><label>Taxa de XP</label><input type="number" id="xp-rate" class="form-control" value="{xp_rate}" min="1" max="10"></div>
-                    <div class="form-group"><label>Canal Level Up</label><select id="levelup-channel" class="form-control"></select></div>
-                    <button onclick="saveXPConfig()" class="btn btn-primary">💾 Salvar</button>
+                    <div class="form-group"><label>Taxa de XP</label><input type="number" id="xp-taxa" class="form-control" value="{taxa_xp}" min="1" max="10"></div>
+                    <div class="form-group"><label>Canal Level Up</label><select id="levelup-canal" class="form-control"></select></div>
+                    <button onclick="salvarConfigXP()" class="btn btn-primary">💾 Salvar</button>
                     <div id="xp-alert" class="alert"></div>
                 </div>
             </div>
             
-            <div id="roles" class="tab">
+            <div id="cargos" class="tab">
                 <div class="card">
-                    <h2>🎭 Reaction Role</h2>
-                    <div class="form-group"><label>Canal</label><select id="rr-channel" class="form-control"></select></div>
-                    <div class="form-group"><label>Mensagem</label><textarea id="rr-content" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea></div>
-                    <div class="form-group"><label>Emoji:Cargo</label><input type="text" id="rr-pair" class="form-control" placeholder="✅:Verificado,👍:Aprovado"></div>
-                    <button onclick="createReactionRole()" class="btn btn-primary">✨ Criar</button>
-                    <div id="roles-alert" class="alert"></div>
+                    <h2>🎭 Reação com Cargo</h2>
+                    <div class="form-group"><label>Canal</label><select id="rr-canal" class="form-control"></select></div>
+                    <div class="form-group"><label>Mensagem</label><textarea id="rr-conteudo" class="form-control" rows="3" placeholder="Reaja para receber cargos!"></textarea></div>
+                    <div class="form-group"><label>Emoji:Cargo</label><input type="text" id="rr-pares" class="form-control" placeholder="✅:Verificado,👍:Aprovado"></div>
+                    <button onclick="criarReacaoCargo()" class="btn btn-primary">✨ Criar</button>
+                    <div id="cargos-alert" class="alert"></div>
                 </div>
                 <div class="card">
                     <h3>🔄 Botões de Cargos</h3>
-                    <div class="form-group"><label>Canal</label><select id="btn-channel" class="form-control"></select></div>
-                    <div class="form-group"><label>Mensagem</label><textarea id="btn-content" class="form-control" rows="3"></textarea></div>
-                    <div class="form-group"><label>Botão:Cargo</label><input type="text" id="btn-pairs" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos"></div>
-                    <button onclick="createRoleButtons()" class="btn btn-success">🔄 Criar</button>
+                    <div class="form-group"><label>Canal</label><select id="btn-canal" class="form-control"></select></div>
+                    <div class="form-group"><label>Mensagem</label><textarea id="btn-conteudo" class="form-control" rows="3"></textarea></div>
+                    <div class="form-group"><label>Botão:Cargo</label><input type="text" id="btn-pares" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos"></div>
+                    <button onclick="criarBotoesCargo()" class="btn btn-success">🔄 Criar</button>
                 </div>
             </div>
             
-            <div id="moderation" class="tab">
+            <div id="moderacao" class="tab">
                 <div class="card">
                     <h2>🛡️ Moderação</h2>
-                    <div class="form-group"><label>Membro</label><select id="warn-member" class="form-control"></select></div>
-                    <div class="form-group"><label>Motivo</label><input type="text" id="warn-reason" class="form-control"></div>
-                    <button onclick="executeWarn()" class="btn btn-warning">⚠️ Advertir</button>
-                    <button onclick="clearWarns()" class="btn btn-danger" style="margin-left: 10px;">🧹 Limpar Advertências</button>
-                    <div id="warn-alert" class="alert"></div>
+                    <div class="form-group"><label>Membro</label><select id="advertir-membro" class="form-control"></select></div>
+                    <div class="form-group"><label>Motivo</label><input type="text" id="advertir-motivo" class="form-control"></div>
+                    <button onclick="executarAdvertir()" class="btn btn-warning">⚠️ Advertir</button>
+                    <button onclick="limparAdvertencias()" class="btn btn-danger" style="margin-left: 10px;">🧹 Limpar Advertências</button>
+                    <div id="advertir-alert" class="alert"></div>
                 </div>
             </div>
             
-            <div id="queue" class="tab">
+            <div id="fila" class="tab">
                 <div class="card">
                     <h2>📋 Sistema de Fila</h2>
                 </div>
@@ -1937,24 +1935,24 @@ def dashboard():
                 <div class="card">
                     <h3>⚙️ Configurações</h3>
                     <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                        <div style="flex: 1;"><label>Nome da Fila</label><input type="text" id="queue-name" class="form-control" value="{escape_html(queue['name'])}"></div>
-                        <div style="width: 150px;"><label>Máximo</label><input type="number" id="queue-max-size" class="form-control" value="{queue['settings']['max_size']}" min="1" max="100"></div>
-                        <div style="display: flex; align-items: flex-end;"><button onclick="saveQueueSettings()" class="btn btn-primary">💾 Salvar</button></div>
-                        <div style="display: flex; align-items: flex-end;"><button onclick="toggleQueueStatus()" id="queue-toggle-btn" class="btn {'btn-success' if queue['settings']['open'] else 'btn-danger'}">{'🔓 Fechar Fila' if queue['settings']['open'] else '🔒 Abrir Fila'}</button></div>
+                        <div style="flex: 1;"><label>Nome da Fila</label><input type="text" id="fila-nome" class="form-control" value="{escape_html(fila['nome'])}"></div>
+                        <div style="width: 150px;"><label>Máximo</label><input type="number" id="fila-tamanho-max" class="form-control" value="{fila['configuracoes']['tamanho_maximo']}" min="1" max="100"></div>
+                        <div style="display: flex; align-items: flex-end;"><button onclick="salvarConfigFila()" class="btn btn-primary">💾 Salvar</button></div>
+                        <div style="display: flex; align-items: flex-end;"><button onclick="alternarStatusFila()" id="fila-alternar-btn" class="btn {'btn-success' if fila['configuracoes']['aberta'] else 'btn-danger'}">{'🔓 Fechar Fila' if fila['configuracoes']['aberta'] else '🔒 Abrir Fila'}</button></div>
                     </div>
-                    <div id="queue-status-display" style="margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 5px;">
-                        Status: <strong>{'🟢 ABERTA' if queue['settings']['open'] else '🔴 FECHADA'}</strong> | Ocupação: {len(queue["entries"])} / {queue["settings"]["max_size"]}
+                    <div id="fila-status-display" style="margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 5px;">
+                        Status: <strong>{'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'}</strong> | Ocupação: {len(fila["entradas"])} / {fila["configuracoes"]["tamanho_maximo"]}
                     </div>
                 </div>
                 
                 <div class="card">
                     <h3>➕ Adicionar</h3>
                     <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                        <input type="text" id="add-username" class="form-control" placeholder="Nome do jogador" style="flex: 1;">
-                        <input type="text" id="add-service" class="form-control" placeholder="Serviço" style="flex: 1;">
-                        <button onclick="addToQueue()" class="btn btn-primary">➕ Adicionar</button>
+                        <input type="text" id="adicionar-nome" class="form-control" placeholder="Nome do jogador" style="flex: 1;">
+                        <input type="text" id="adicionar-servico" class="form-control" placeholder="Serviço" style="flex: 1;">
+                        <button onclick="adicionarFila()" class="btn btn-primary">➕ Adicionar</button>
                     </div>
-                    <div id="add-result" class="alert" style="margin-top: 10px; display: none;"></div>
+                    <div id="adicionar-resultado" class="alert" style="margin-top: 10px; display: none;"></div>
                 </div>
                 
                 <div class="card">
@@ -1964,71 +1962,71 @@ def dashboard():
                             <thead>
                                 <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr>
                             </thead>
-                            <tbody id="queue-table-body">
+                            <tbody id="fila-tabela-body">
                                 <tr><td colspan="5">Carregando...</td></tr>
                             </tbody>
                         </table>
                     </div>
                     <div style="margin-top: 10px;">
-                        <button onclick="clearQueue()" class="btn btn-danger">🗑️ Limpar Toda Fila</button>
-                        <button onclick="refreshQueue()" class="btn btn-primary">🔄 Atualizar</button>
+                        <button onclick="limparFila()" class="btn btn-danger">🗑️ Limpar Toda Fila</button>
+                        <button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button>
                     </div>
                 </div>
                 
                 <div class="card">
                     <h3>📎 Links para StreamElements/OBS</h3>
-                    <div class="form-group"><label>URL da Lista (HTML)</label><input type="text" class="form-control" readonly value="{request.host_url}queue" onclick="this.select();"></div>
-                    <div class="form-group"><label>URL Embed (Overlay)</label><input type="text" class="form-control" readonly value="{request.host_url}queue/embed" onclick="this.select();"></div>
-                    <div class="form-group"><label>URL API (JSON)</label><input type="text" class="form-control" readonly value="{request.host_url}queue/api" onclick="this.select();"></div>
+                    <div class="form-group"><label>URL da Lista (HTML)</label><input type="text" class="form-control" readonly value="{request.host_url}fila" onclick="this.select();"></div>
+                    <div class="form-group"><label>URL Embed (Overlay)</label><input type="text" class="form-control" readonly value="{request.host_url}fila/embed" onclick="this.select();"></div>
+                    <div class="form-group"><label>URL API (JSON)</label><input type="text" class="form-control" readonly value="{request.host_url}fila/api" onclick="this.select();"></div>
                 </div>
             </div>
         </div>
         
         <script>
-            const guildChannels = {channels_json};
+            const canaisServidor = {canais_json};
             
-            function showTab(tabId) {{
+            function mostrarAba(abaId) {{
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
+                document.getElementById(abaId).classList.add('active');
                 event.target.classList.add('active');
-                if (tabId === 'queue') loadQueue();
-                if (tabId === 'welcome' || tabId === 'xp' || tabId === 'roles') populateSelects();
-                if (tabId === 'moderation') loadMembers();
+                if (abaId === 'fila') carregarFila();
+                if (abaId === 'boas_vindas' || abaId === 'xp' || abaId === 'cargos') popularSelects();
+                if (abaId === 'moderacao') carregarMembros();
             }}
             
-            function populateSelects() {{
-                const selects = ['welcome-channel', 'levelup-channel', 'rr-channel', 'btn-channel'];
+            function popularSelects() {{
+                const selects = ['boas-vindas-canal', 'levelup-canal', 'rr-canal', 'btn-canal'];
                 selects.forEach(id => {{
                     const select = document.getElementById(id);
                     if (select) {{
                         select.innerHTML = '<option value="">Selecione um canal</option>';
-                        guildChannels.forEach(c => {{
+                        canaisServidor.forEach(c => {{
                             const option = document.createElement('option');
                             option.value = c.id;
-                            option.textContent = '#' + c.name;
+                            option.textContent = '#' + c.nome;
                             select.appendChild(option);
                         }});
                     }}
                 }});
-                const wc = document.getElementById('welcome-channel');
-                if (wc) wc.value = '{welcome_chan}';
-                const lc = document.getElementById('levelup-channel');
-                if (lc) lc.value = '{levelup_chan}';
+                const wc = document.getElementById('boas-vindas-canal');
+                if (wc) wc.value = '{canal_boas_vindas}';
+                const lc = document.getElementById('levelup-canal');
+                if (lc) lc.value = '{canal_levelup}';
             }}
             
-            async function loadMembers() {{
+            async function carregarMembros() {{
                 try {{
-                    const resp = await fetch('/api/guild/members');
+                    const resp = await fetch('/api/servidor/membros');
                     const data = await resp.json();
-                    if (data.success) {{
-                        const select = document.getElementById('warn-member');
+                    if (data.sucesso) {{
+                        const select = document.getElementById('advertir-membro');
                         if (select) {{
                             select.innerHTML = '<option value="">Selecione membro</option>';
-                            data.members.forEach(m => {{
+                            data.membros.forEach(m => {{
                                 const opt = document.createElement('option');
                                 opt.value = m.id;
-                                opt.textContent = m.name;
+                                opt.textContent = m.nome;
                                 select.appendChild(opt);
                             }});
                         }}
@@ -2036,208 +2034,208 @@ def dashboard():
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function saveWelcomeConfig() {{
+            async function salvarConfigBoasVindas() {{
                 const data = {{
-                    message: document.getElementById('welcome-message').value,
-                    channel_id: document.getElementById('welcome-channel').value,
-                    image_url: document.getElementById('welcome-image').value
+                    mensagem: document.getElementById('boas-vindas-mensagem').value,
+                    canal_id: document.getElementById('boas-vindas-canal').value,
+                    url_imagem: document.getElementById('boas-vindas-imagem').value
                 }};
                 try {{
-                    const resp = await fetch('/api/config/welcome', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
-                    const result = await resp.json();
-                    showAlert('welcome-alert', result.message, result.success);
-                }} catch(e) {{ showAlert('welcome-alert', 'Erro: ' + e.message, false); }}
+                    const resp = await fetch('/api/config/boasvindas', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const resultado = await resp.json();
+                    mostrarAlerta('boas-vindas-alert', resultado.mensagem, resultado.sucesso);
+                }} catch(e) {{ mostrarAlerta('boas-vindas-alert', 'Erro: ' + e.message, false); }}
             }}
             
-            async function saveXPConfig() {{
-                const data = {{rate: parseInt(document.getElementById('xp-rate').value), channel_id: document.getElementById('levelup-channel').value}};
+            async function salvarConfigXP() {{
+                const data = {{taxa: parseInt(document.getElementById('xp-taxa').value), canal_id: document.getElementById('levelup-canal').value}};
                 try {{
                     const resp = await fetch('/api/config/xp', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
-                    const result = await resp.json();
-                    showAlert('xp-alert', result.message, result.success);
-                }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+                    const resultado = await resp.json();
+                    mostrarAlerta('xp-alert', resultado.mensagem, resultado.sucesso);
+                }} catch(e) {{ mostrarAlerta('xp-alert', 'Erro: ' + e.message, false); }}
             }}
             
-            async function createReactionRole() {{
-                const channelId = document.getElementById('rr-channel').value;
-                const content = document.getElementById('rr-content').value;
-                const pairs = document.getElementById('rr-pair').value;
-                if (!channelId || !content || !pairs) {{ showAlert('roles-alert', 'Preencha todos os campos', false); return; }}
+            async function criarReacaoCargo() {{
+                const canalId = document.getElementById('rr-canal').value;
+                const conteudo = document.getElementById('rr-conteudo').value;
+                const pares = document.getElementById('rr-pares').value;
+                if (!canalId || !conteudo || !pares) {{ mostrarAlerta('cargos-alert', 'Preencha todos os campos', false); return; }}
                 try {{
-                    const resp = await fetch('/api/reactionrole/create', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{channel_id: channelId, content: content, emoji_cargo: pairs}})}});
-                    const result = await resp.json();
-                    showAlert('roles-alert', result.message, result.success);
-                    if (result.success) {{ document.getElementById('rr-content').value = ''; document.getElementById('rr-pair').value = ''; }}
-                }} catch(e) {{ showAlert('roles-alert', 'Erro: ' + e.message, false); }}
+                    const resp = await fetch('/api/reacao_cargo/criar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{canal_id: canalId, conteudo: conteudo, emoji_cargo: pares}})}});
+                    const resultado = await resp.json();
+                    mostrarAlerta('cargos-alert', resultado.mensagem, resultado.sucesso);
+                    if (resultado.sucesso) {{ document.getElementById('rr-conteudo').value = ''; document.getElementById('rr-pares').value = ''; }}
+                }} catch(e) {{ mostrarAlerta('cargos-alert', 'Erro: ' + e.message, false); }}
             }}
             
-            async function createRoleButtons() {{
-                const channelId = document.getElementById('btn-channel').value;
-                const content = document.getElementById('btn-content').value;
-                const pairs = document.getElementById('btn-pairs').value;
-                if (!channelId || !content || !pairs) {{ showAlert('roles-alert', 'Preencha todos os campos', false); return; }}
+            async function criarBotoesCargo() {{
+                const canalId = document.getElementById('btn-canal').value;
+                const conteudo = document.getElementById('btn-conteudo').value;
+                const pares = document.getElementById('btn-pares').value;
+                if (!canalId || !conteudo || !pares) {{ mostrarAlerta('cargos-alert', 'Preencha todos os campos', false); return; }}
                 try {{
-                    const resp = await fetch('/api/rolebuttons/create', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{channel_id: channelId, content: content, roles: pairs}})}});
-                    const result = await resp.json();
-                    showAlert('roles-alert', result.message, result.success);
-                    if (result.success) {{ document.getElementById('btn-content').value = ''; document.getElementById('btn-pairs').value = ''; }}
-                }} catch(e) {{ showAlert('roles-alert', 'Erro: ' + e.message, false); }}
+                    const resp = await fetch('/api/botoes_cargo/criar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{canal_id: canalId, conteudo: conteudo, cargos: pares}})}});
+                    const resultado = await resp.json();
+                    mostrarAlerta('cargos-alert', resultado.mensagem, resultado.sucesso);
+                    if (resultado.sucesso) {{ document.getElementById('btn-conteudo').value = ''; document.getElementById('btn-pares').value = ''; }}
+                }} catch(e) {{ mostrarAlerta('cargos-alert', 'Erro: ' + e.message, false); }}
             }}
             
-            async function executeWarn() {{
-                const memberId = document.getElementById('warn-member').value;
-                const reason = document.getElementById('warn-reason').value;
-                if (!memberId || !reason) {{ alert('Selecione membro e motivo'); return; }}
+            async function executarAdvertir() {{
+                const membroId = document.getElementById('advertir-membro').value;
+                const motivo = document.getElementById('advertir-motivo').value;
+                if (!membroId || !motivo) {{ alert('Selecione membro e motivo'); return; }}
                 try {{
-                    const resp = await fetch('/api/command/warn', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{member_id: memberId, reason: reason}})}});
-                    const result = await resp.json();
-                    alert(result.message);
-                    if (result.success) document.getElementById('warn-reason').value = '';
+                    const resp = await fetch('/api/comando/advertir', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{membro_id: membroId, motivo: motivo}})}});
+                    const resultado = await resp.json();
+                    alert(resultado.mensagem);
+                    if (resultado.sucesso) document.getElementById('advertir-motivo').value = '';
                 }} catch(e) {{ alert('Erro: ' + e.message); }}
             }}
             
-            async function clearWarns() {{
-                const memberId = document.getElementById('warn-member').value;
-                if (!memberId) {{ alert('Selecione um membro'); return; }}
+            async function limparAdvertencias() {{
+                const membroId = document.getElementById('advertir-membro').value;
+                if (!membroId) {{ alert('Selecione um membro'); return; }}
                 if (!confirm('Tem certeza?')) return;
                 try {{
-                    const resp = await fetch('/api/command/clearwarns', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{member_id: memberId}})}});
-                    const result = await resp.json();
-                    alert(result.message);
+                    const resp = await fetch('/api/comando/limpar_advertencias', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{membro_id: membroId}})}});
+                    const resultado = await resp.json();
+                    alert(resultado.mensagem);
                 }} catch(e) {{ alert('Erro: ' + e.message); }}
             }}
             
-            async function loadQueue() {{
+            async function carregarFila() {{
                 try {{
-                    const resp = await fetch('/queue/api');
+                    const resp = await fetch('/fila/api');
                     const data = await resp.json();
-                    if (data.success) {{
-                        const queue = data.queue;
-                        const tbody = document.getElementById('queue-table-body');
-                        if (queue.entries.length === 0) {{
+                    if (data.sucesso) {{
+                        const fila = data.fila;
+                        const tbody = document.getElementById('fila-tabela-body');
+                        if (fila.entradas.length === 0) {{
                             tbody.innerHTML = '<tr><td colspan="5">📭 Ninguém na fila</td></tr>';
                         }} else {{
-                            tbody.innerHTML = queue.entries.map(e => `
+                            tbody.innerHTML = fila.entradas.map(e => `
                                 <tr>
-                                    <td><strong style="color:#ffd93d;">#${{e.position}}</strong></td>
-                                    <td>${{escapeHtml(e.username)}}</td>
-                                    <td style="color:#a8e6cf;">${{escapeHtml(e.service)}}</td>
+                                    <td><strong style="color:#ffd93d;">#${{e.posicao}}</strong></td>
+                                    <td>${{escapeHtml(e.nome_usuario)}}</td>
+                                    <td style="color:#a8e6cf;">${{escapeHtml(e.servico)}}</td>
                                     <td>${{new Date(e.timestamp).toLocaleTimeString()}}</td>
                                     <td>
-                                        <button onclick="moveUp('${{e.id}}')" class="btn btn-primary" style="padding:4px 8px;">⬆️</button>
-                                        <button onclick="moveDown('${{e.id}}')" class="btn btn-primary" style="padding:4px 8px;">⬇️</button>
-                                        <button onclick="completeService('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
-                                        <button onclick="removeFromQueue('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
+                                        <button onclick="moverCima('${{e.id}}')" class="btn btn-primary" style="padding:4px 8px;">⬆️</button>
+                                        <button onclick="moverBaixo('${{e.id}}')" class="btn btn-primary" style="padding:4px 8px;">⬇️</button>
+                                        <button onclick="concluirServico('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
+                                        <button onclick="removerFila('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
                                     </td>
                                 </tr>
                             `).join('');
                         }}
-                        document.getElementById('queue-status-display').innerHTML = `Status: <strong>${{queue.open ? '🟢 ABERTA' : '🔴 FECHADA'}}</strong> | Ocupação: ${{queue.count}} / ${{queue.max_size}}`;
-                        const toggleBtn = document.getElementById('queue-toggle-btn');
+                        document.getElementById('fila-status-display').innerHTML = `Status: <strong>${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}}</strong> | Ocupação: ${{fila.contagem}} / ${{fila.tamanho_maximo}}`;
+                        const toggleBtn = document.getElementById('fila-alternar-btn');
                         if (toggleBtn) {{
-                            toggleBtn.className = queue.open ? 'btn btn-danger' : 'btn btn-success';
-                            toggleBtn.textContent = queue.open ? '🔓 Fechar Fila' : '🔒 Abrir Fila';
+                            toggleBtn.className = fila.aberta ? 'btn btn-danger' : 'btn btn-success';
+                            toggleBtn.textContent = fila.aberta ? '🔓 Fechar Fila' : '🔒 Abrir Fila';
                         }}
                     }}
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function addToQueue() {{
-                const username = document.getElementById('add-username').value.trim();
-                const service = document.getElementById('add-service').value.trim();
-                if (!username || !service) {{ showQueueAlert('add-result', 'Preencha nome e serviço', false); return; }}
+            async function adicionarFila() {{
+                const nome = document.getElementById('adicionar-nome').value.trim();
+                const servico = document.getElementById('adicionar-servico').value.trim();
+                if (!nome || !servico) {{ mostrarAlertaFila('adicionar-resultado', 'Preencha nome e serviço', false); return; }}
                 try {{
-                    const resp = await fetch('/api/queue/add', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{username, service}})}});
+                    const resp = await fetch('/api/fila/adicionar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{nome_usuario: nome, servico: servico}})}});
                     const data = await resp.json();
-                    showQueueAlert('add-result', data.message, data.success);
-                    if (data.success) {{
-                        document.getElementById('add-username').value = '';
-                        document.getElementById('add-service').value = '';
-                        loadQueue();
+                    mostrarAlertaFila('adicionar-resultado', data.mensagem, data.sucesso);
+                    if (data.sucesso) {{
+                        document.getElementById('adicionar-nome').value = '';
+                        document.getElementById('adicionar-servico').value = '';
+                        carregarFila();
                     }}
-                }} catch(e) {{ showQueueAlert('add-result', 'Erro: ' + e.message, false); }}
+                }} catch(e) {{ mostrarAlertaFila('adicionar-resultado', 'Erro: ' + e.message, false); }}
             }}
             
-            async function removeFromQueue(entryId) {{
+            async function removerFila(entradaId) {{
                 if (!confirm('Remover esta pessoa da fila?')) return;
                 try {{
-                    await fetch('/api/queue/remove', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
-                    loadQueue();
+                    await fetch('/api/fila/remover', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entrada_id: entradaId}})}});
+                    carregarFila();
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function moveUp(entryId) {{
+            async function moverCima(entradaId) {{
                 try {{
-                    await fetch('/api/queue/move-up', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
-                    loadQueue();
+                    await fetch('/api/fila/mover-cima', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entrada_id: entradaId}})}});
+                    carregarFila();
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function moveDown(entryId) {{
+            async function moverBaixo(entradaId) {{
                 try {{
-                    await fetch('/api/queue/move-down', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
-                    loadQueue();
+                    await fetch('/api/fila/mover-baixo', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entrada_id: entradaId}})}});
+                    carregarFila();
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function completeService(entryId) {{
+            async function concluirServico(entradaId) {{
                 if (!confirm('Marcar como concluído?')) return;
                 try {{
-                    await fetch('/api/queue/complete', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entry_id: entryId}})}});
-                    loadQueue();
+                    await fetch('/api/fila/concluir', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{entrada_id: entradaId}})}});
+                    carregarFila();
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function clearQueue() {{
+            async function limparFila() {{
                 if (!confirm('⚠️ LIMPAR TODA A FILA? Tem certeza?')) return;
                 try {{
-                    await fetch('/api/queue/clear', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}}});
-                    loadQueue();
+                    await fetch('/api/fila/limpar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}}});
+                    carregarFila();
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function saveQueueSettings() {{
-                const name = document.getElementById('queue-name').value;
-                const max_size = parseInt(document.getElementById('queue-max-size').value);
+            async function salvarConfigFila() {{
+                const nome = document.getElementById('fila-nome').value;
+                const tamanho_max = parseInt(document.getElementById('fila-tamanho-max').value);
                 try {{
-                    const resp = await fetch('/api/queue/settings', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{name, max_size}})}});
+                    const resp = await fetch('/api/fila/configuracoes', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{nome: nome, tamanho_maximo: tamanho_max}})}});
                     const data = await resp.json();
-                    if (data.success) {{
-                        showQueueAlert('add-result', 'Configurações salvas!', true);
-                        setTimeout(() => {{ document.getElementById('add-result').style.display = 'none'; }}, 2000);
-                        loadQueue();
+                    if (data.sucesso) {{
+                        mostrarAlertaFila('adicionar-resultado', 'Configurações salvas!', true);
+                        setTimeout(() => {{ document.getElementById('adicionar-resultado').style.display = 'none'; }}, 2000);
+                        carregarFila();
                     }}
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            async function toggleQueueStatus() {{
+            async function alternarStatusFila() {{
                 try {{
-                    await fetch('/api/queue/settings', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{open: null}})}});
-                    loadQueue();
+                    await fetch('/api/fila/configuracoes', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{aberta: null}})}});
+                    carregarFila();
                 }} catch(e) {{ console.error(e); }}
             }}
             
-            function refreshQueue() {{ loadQueue(); }}
+            function atualizarFila() {{ carregarFila(); }}
             
-            function showAlert(id, msg, success) {{
+            function mostrarAlerta(id, msg, sucesso) {{
                 const el = document.getElementById(id);
                 el.textContent = msg;
-                el.className = 'alert ' + (success ? 'alert-success' : 'alert-error');
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
                 el.style.display = 'block';
                 setTimeout(() => el.style.display = 'none', 3000);
             }}
             
-            function showQueueAlert(id, msg, success) {{
+            function mostrarAlertaFila(id, msg, sucesso) {{
                 const el = document.getElementById(id);
                 el.textContent = msg;
-                el.className = 'alert ' + (success ? 'alert-success' : 'alert-error');
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
                 el.style.display = 'block';
                 setTimeout(() => el.style.display = 'none', 3000);
             }}
             
-            function escapeHtml(text) {{
-                if (!text) return '';
-                return text.replace(/[&<>]/g, function(m) {{
+            function escapeHtml(texto) {{
+                if (!texto) return '';
+                return texto.replace(/[&<>]/g, function(m) {{
                     if (m === '&') return '&amp;';
                     if (m === '<') return '&lt;';
                     if (m === '>') return '&gt;';
@@ -2246,9 +2244,9 @@ def dashboard():
             }}
             
             document.addEventListener('DOMContentLoaded', function() {{
-                populateSelects();
-                loadMembers();
-                loadQueue();
+                popularSelects();
+                carregarMembros();
+                carregarFila();
             }});
         </script>
     </body>
@@ -2284,23 +2282,23 @@ async def on_ready():
     print(f"🆔 ID: {bot.user.id}")
     print(f"{'='*50}")
     
-    print(f"🏠 GUILDS CONECTADAS ({len(bot.guilds)}):")
+    print(f"🏠 SERVIDORES CONECTADOS ({len(bot.guilds)}):")
     for i, guild in enumerate(bot.guilds, 1):
         print(f"  {i}. {guild.name} (ID: {guild.id}) - Membros: {len(guild.members)}")
     print(f"{'='*50}")
     
     if GUILD_ID:
-        target_guild = bot.get_guild(int(GUILD_ID))
-        if target_guild:
-            print(f"🎯 GUILD ALVO: {target_guild.name}")
+        servidor_alvo = bot.get_guild(int(GUILD_ID))
+        if servidor_alvo:
+            print(f"🎯 SERVIDOR ALVO: {servidor_alvo.name}")
         else:
-            print(f"⚠️ Guild alvo não encontrada! ID: {GUILD_ID}")
+            print(f"⚠️ Servidor alvo não encontrado! ID: {GUILD_ID}")
     
     print(f"{'='*50}")
     
     print("📂 Carregando dados do GitHub...")
-    load_success = load_data_from_github()
-    print(f"   {'✅ Dados carregados' if load_success else '⚠️ Usando dados locais'}")
+    sucesso_carregar = carregar_dados_github()
+    print(f"   {'✅ Dados carregados' if sucesso_carregar else '⚠️ Usando dados locais'}")
 
     print("⚙️ Sincronizando comandos slash...")
     try:
@@ -2316,7 +2314,7 @@ async def on_ready():
     await asyncio.sleep(2)
     
     try:
-        start_action_processor()
+        iniciar_processador_acoes()
         print("✅ Sistema de ações INICIADO!")
     except Exception as e:
         print(f"❌ Erro ao iniciar sistema de ações: {e}")
@@ -2327,33 +2325,33 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    ch_id = data.get("config", {}).get("welcome_channel")
-    channel = None
+    ch_id = dados.get("config", {}).get("canal_boas_vindas")
+    canal = None
     if ch_id:
-        channel = member.guild.get_channel(int(ch_id))
-    if not channel:
-        channel = discord.utils.get(member.guild.text_channels, name="boas-vindas")
-    if not channel:
+        canal = member.guild.get_channel(int(ch_id))
+    if not canal:
+        canal = discord.utils.get(member.guild.text_channels, name="boas-vindas")
+    if not canal:
         return
 
-    welcome_msg = data.get("config", {}).get("welcome_message", "Olá {member}, seja bem-vindo(a)!")
-    welcome_msg = welcome_msg.replace("{member}", member.mention)
+    msg_boas_vindas = dados.get("config", {}).get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!")
+    msg_boas_vindas = msg_boas_vindas.replace("{member}", member.mention)
 
-    background_path = data.get("config", {}).get("welcome_background", "")
+    caminho_fundo = dados.get("config", {}).get("fundo_boas_vindas", "")
 
-    width, height = 900, 300
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    largura, altura = 900, 300
+    img = Image.new("RGBA", (largura, altura), (0, 0, 0, 255))
 
-    if background_path:
+    if caminho_fundo:
         try:
-            response = requests.get(background_path)
+            response = requests.get(caminho_fundo)
             bg = Image.open(BytesIO(response.content)).convert("RGBA")
-            bg = bg.resize((width, height))
+            bg = bg.resize((largura, altura))
             img.paste(bg, (0, 0))
         except Exception as e:
             print(f"Erro ao carregar imagem de fundo: {e}")
 
-    overlay = Image.new("RGBA", (width, height), (50, 50, 50, 150))
+    overlay = Image.new("RGBA", (largura, altura), (50, 50, 50, 150))
     img = Image.alpha_composite(img, overlay)
 
     draw = ImageDraw.Draw(img)
@@ -2362,27 +2360,27 @@ async def on_member_join(member: discord.Member):
         user_bytes = await member.avatar.read()
         user_avatar = Image.open(BytesIO(user_bytes)).convert("RGBA")
 
-        avatar_size = 150
-        border_size = 5
+        tamanho_avatar = 150
+        tamanho_borda = 5
         upscale = 4
-        big_size = (avatar_size + border_size * 2) * upscale
+        tamanho_grande = (tamanho_avatar + tamanho_borda * 2) * upscale
 
-        user_avatar = user_avatar.resize((avatar_size * upscale, avatar_size * upscale))
-        mask = Image.new("L", (avatar_size * upscale, avatar_size * upscale), 0)
+        user_avatar = user_avatar.resize((tamanho_avatar * upscale, tamanho_avatar * upscale))
+        mask = Image.new("L", (tamanho_avatar * upscale, tamanho_avatar * upscale), 0)
         mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, avatar_size * upscale, avatar_size * upscale), fill=255)
+        mask_draw.ellipse((0, 0, tamanho_avatar * upscale, tamanho_avatar * upscale), fill=255)
 
-        border_color = (200, 150, 255, 255)
-        border = Image.new("RGBA", (big_size, big_size), (0, 0, 0, 0))
-        draw_border = ImageDraw.Draw(border)
-        draw_border.ellipse((0, 0, big_size, big_size), fill=border_color)
+        cor_borda = (200, 150, 255, 255)
+        borda = Image.new("RGBA", (tamanho_grande, tamanho_grande), (0, 0, 0, 0))
+        draw_borda = ImageDraw.Draw(borda)
+        draw_borda.ellipse((0, 0, tamanho_grande, tamanho_grande), fill=cor_borda)
 
-        border.paste(user_avatar, (border_size * upscale, border_size * upscale), mask)
-        border = border.resize((avatar_size + border_size * 2, avatar_size + border_size * 2), Image.Resampling.LANCZOS)
+        borda.paste(user_avatar, (tamanho_borda * upscale, tamanho_borda * upscale), mask)
+        borda = borda.resize((tamanho_avatar + tamanho_borda * 2, tamanho_avatar + tamanho_borda * 2), Image.Resampling.LANCZOS)
 
-        x = (width - border.width) // 2
+        x = (largura - borda.width) // 2
         y = 30
-        img.paste(border, (x, y), border)
+        img.paste(borda, (x, y), borda)
     except Exception as e:
         print(f"Erro ao carregar avatar do usuário: {e}")
 
@@ -2393,34 +2391,34 @@ async def on_member_join(member: discord.Member):
         font_b = ImageFont.load_default()
         font_s = ImageFont.load_default()
 
-    text_color = (200, 150, 255)
-    shadow_color = (0, 0, 0, 180)
+    cor_texto = (200, 150, 255)
+    cor_sombra = (0, 0, 0, 180)
 
-    text_name = member.display_name
-    bbox_name = draw.textbbox((0, 0), text_name, font=font_b)
-    text_w = bbox_name[2] - bbox_name[0]
-    text_x = (width - text_w) // 2
-    text_y = y + border.height + 10
+    nome_texto = member.display_name
+    bbox_nome = draw.textbbox((0, 0), nome_texto, font=font_b)
+    text_w = bbox_nome[2] - bbox_nome[0]
+    text_x = (largura - text_w) // 2
+    text_y = y + borda.height + 10
 
-    draw.text((text_x + 2, text_y + 2), text_name, font=font_b, fill=shadow_color)
-    draw.text((text_x, text_y), text_name, font=font_b, fill=text_color)
+    draw.text((text_x + 2, text_y + 2), nome_texto, font=font_b, fill=cor_sombra)
+    draw.text((text_x, text_y), nome_texto, font=font_b, fill=cor_texto)
 
-    text_count = f"Membro #{len(member.guild.members)}"
-    bbox_count = draw.textbbox((0, 0), text_count, font=font_s)
-    text_w2 = bbox_count[2] - bbox_count[0]
-    text_x2 = (width - text_w2) // 2
+    texto_contagem = f"Membro #{len(member.guild.members)}"
+    bbox_contagem = draw.textbbox((0, 0), texto_contagem, font=font_s)
+    text_w2 = bbox_contagem[2] - bbox_contagem[0]
+    text_x2 = (largura - text_w2) // 2
     text_y2 = text_y + 50
 
-    draw.text((text_x2 + 1, text_y2 + 1), text_count, font=font_s, fill=shadow_color)
-    draw.text((text_x2, text_y2), text_count, font=font_s, fill=text_color)
+    draw.text((text_x2 + 1, text_y2 + 1), texto_contagem, font=font_s, fill=cor_sombra)
+    draw.text((text_x2, text_y2), texto_contagem, font=font_s, fill=cor_texto)
 
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    file = discord.File(buf, filename="welcome.png")
+    arquivo = discord.File(buf, filename="welcome.png")
 
-    await channel.send(content=welcome_msg, file=file)
-    add_log(f"member_join: {member.id} - {member}")
+    await canal.send(content=msg_boas_vindas, file=arquivo)
+    adicionar_log(f"membro_entrou: {member.id} - {member}")
 
 # ========================
 # REACTION ROLES
@@ -2428,19 +2426,19 @@ async def on_member_join(member: discord.Member):
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     try:
-        msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
+        msgmap = dados.get("reacoes_cargos", {}).get(str(payload.message_id))
         if not msgmap:
             return
 
-        role_id = None
+        cargo_id = None
         if payload.emoji.id and str(payload.emoji.id) in msgmap:
-            role_id = msgmap[str(payload.emoji.id)]
+            cargo_id = msgmap[str(payload.emoji.id)]
         elif payload.emoji.id is not None and payload.emoji.name in msgmap:
-            role_id = msgmap[payload.emoji.name]
+            cargo_id = msgmap[payload.emoji.name]
         elif str(payload.emoji) in msgmap:
-            role_id = msgmap[str(payload.emoji)]
+            cargo_id = msgmap[str(payload.emoji)]
 
-        if not role_id:
+        if not cargo_id:
             return
 
         guild = bot.get_guild(payload.guild_id)
@@ -2449,10 +2447,10 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         member = guild.get_member(payload.user_id)
         if not member:
             member = await guild.fetch_member(payload.user_id)
-        role = guild.get_role(int(role_id))
-        if member and role:
-            await member.add_roles(role, reason="reaction role add")
-            add_log(f"reaction add: user={member.id} role={role.id} msg={payload.message_id}")
+        cargo = guild.get_role(int(cargo_id))
+        if member and cargo:
+            await member.add_roles(cargo, reason="reaction role add")
+            adicionar_log(f"reacao adicionar: usuario={member.id} cargo={cargo.id} msg={payload.message_id}")
 
     except Exception as e:
         print("on_raw_reaction_add error:", e)
@@ -2460,19 +2458,19 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 @bot.event
 async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     try:
-        msgmap = data.get("reaction_roles", {}).get(str(payload.message_id))
+        msgmap = dados.get("reacoes_cargos", {}).get(str(payload.message_id))
         if not msgmap:
             return
 
-        role_id = None
+        cargo_id = None
         if payload.emoji.id and str(payload.emoji.id) in msgmap:
-            role_id = msgmap[str(payload.emoji.id)]
+            cargo_id = msgmap[str(payload.emoji.id)]
         elif payload.emoji.id is not None and payload.emoji.name in msgmap:
-            role_id = msgmap[payload.emoji.name]
+            cargo_id = msgmap[payload.emoji.name]
         elif str(payload.emoji) in msgmap:
-            role_id = msgmap[str(payload.emoji)]
+            cargo_id = msgmap[str(payload.emoji)]
 
-        if not role_id:
+        if not cargo_id:
             return
 
         guild = bot.get_guild(payload.guild_id)
@@ -2481,10 +2479,10 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         member = guild.get_member(payload.user_id)
         if not member:
             member = await guild.fetch_member(payload.user_id)
-        role = guild.get_role(int(role_id))
-        if member and role:
-            await member.remove_roles(role, reason="reaction role remove")
-            add_log(f"reaction remove: user={member.id} role={role.id} msg={payload.message_id}")
+        cargo = guild.get_role(int(cargo_id))
+        if member and cargo:
+            await member.remove_roles(cargo, reason="reaction role remove")
+            adicionar_log(f"reacao remover: usuario={member.id} cargo={cargo.id} msg={payload.message_id}")
 
     except Exception as e:
         print("on_raw_reaction_remove error:", e)
@@ -2492,16 +2490,16 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 # ========================
 # WARN HELPER
 # ========================
-async def add_warn(member: discord.Member, reason=""):
+async def adicionar_advertencia(member: discord.Member, motivo=""):
     uid = str(member.id)
-    entry = {
-        "by": bot.user.id,
-        "reason": reason,
-        "ts": now_br().strftime("%d/%m/%Y %H:%M")
+    entrada = {
+        "por": bot.user.id,
+        "motivo": motivo,
+        "ts": agora_br().strftime("%d/%m/%Y %H:%M")
     }
-    data.setdefault("warns", {}).setdefault(uid, []).append(entry)
-    save_data_to_github("Auto-warn")
-    add_log(f"warn: user={uid} by=bot reason={reason}")
+    dados.setdefault("advertencias", {}).setdefault(uid, []).append(entrada)
+    salvar_dados_github("Auto-advertência")
+    adicionar_log(f"advertencia: usuario={uid} por=bot motivo={motivo}")
 
 # ========================
 # ON MESSAGE
@@ -2512,121 +2510,121 @@ async def on_message(message: discord.Message):
         return
 
     uid = str(message.author.id)
-    content = message.content.strip()
-    delete_message = False
+    conteudo = message.content.strip()
+    deletar_mensagem = False
 
-    mudae_commands = [
+    comandos_mudae = [
         "$w", "$wa", "$wg", "$h", "$ha", "$hg",
         "$W", "$WA", "$WG", "$H", "$HA", "$HG",
         "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
     ]
-    if any(content.lower().startswith(cmd) for cmd in mudae_commands):
+    if any(conteudo.lower().startswith(cmd) for cmd in comandos_mudae):
         await bot.process_commands(message)
         return
 
-    ignored_roles = {"Administrador", "Moderador"}
-    member_roles = {r.name for r in message.author.roles}
-    is_staff = any(role in ignored_roles for role in member_roles)
+    cargos_ignorados = {"Administrador", "Moderador"}
+    cargos_membro = {r.name for r in message.author.roles}
+    eh_staff = any(cargo in cargos_ignorados for cargo in cargos_membro)
 
-    has_media = False
+    tem_midia = False
     if message.attachments:
-        has_media = True
+        tem_midia = True
     if message.stickers:
-        has_media = True
-    gif_domains = ["tenor.com", "media.tenor.com", "giphy.com", "imgur.com"]
-    if any(domain in content.lower() for domain in gif_domains):
-        has_media = True
+        tem_midia = True
+    dominios_gif = ["tenor.com", "media.tenor.com", "giphy.com", "imgur.com"]
+    if any(dominio in conteudo.lower() for dominio in dominios_gif):
+        tem_midia = True
 
-    if has_media:
+    if tem_midia:
         await bot.process_commands(message)
         return
 
-    blocked_channels = data.get("blocked_links_channels", [])
-    if message.channel.id in blocked_channels:
-        url_pattern = r"https?://[^\s]+"
-        if re.search(url_pattern, content):
-            if not is_staff:
+    canais_bloqueados = dados.get("canais_links_bloqueados", [])
+    if message.channel.id in canais_bloqueados:
+        padrao_url = r"https?://[^\s]+"
+        if re.search(padrao_url, conteudo):
+            if not eh_staff:
                 try:
                     await message.delete()
                 except discord.Forbidden:
                     pass
                 await message.channel.send(f"⚠️ {message.author.mention}, links não são permitidos aqui!")
-                await add_warn(message.author, reason="Enviou link em canal bloqueado")
+                await adicionar_advertencia(message.author, motivo="Enviou link em canal bloqueado")
                 return
 
-    user_msgs = data.setdefault("last_messages_content", {}).setdefault(uid, [])
-    if len(user_msgs) >= 5:
-        user_msgs.pop(0)
+    msgs_usuario = dados.setdefault("ultimas_mensagens_conteudo", {}).setdefault(uid, [])
+    if len(msgs_usuario) >= 5:
+        msgs_usuario.pop(0)
 
-    if user_msgs and content == user_msgs[-1]:
-        if not is_staff:
-            delete_message = True
+    if msgs_usuario and conteudo == msgs_usuario[-1]:
+        if not eh_staff:
+            deletar_mensagem = True
             try:
                 await message.delete()
             except discord.Forbidden:
                 pass
             await message.channel.send(f"⚠️ {message.author.mention}, evite enviar mensagens repetidas!")
-            await add_warn(message.author, reason="Spam detectado")
+            await adicionar_advertencia(message.author, motivo="Spam detectado")
             return
     else:
-        user_msgs.append(content)
-    data["last_messages_content"][uid] = user_msgs
+        msgs_usuario.append(conteudo)
+    dados["ultimas_mensagens_conteudo"][uid] = msgs_usuario
 
-    if len(content) > 5 and content.isupper():
-        if not is_staff:
-            delete_message = True
+    if len(conteudo) > 5 and conteudo.isupper():
+        if not eh_staff:
+            deletar_mensagem = True
             try:
                 await message.delete()
             except discord.Forbidden:
                 pass
             await message.channel.send(f"⚠️ {message.author.mention}, evite escrever tudo em maiúsculas!")
-            await add_warn(message.author, reason="Uso excessivo de maiúsculas")
+            await adicionar_advertencia(message.author, motivo="Uso excessivo de maiúsculas")
             return
 
-    if not delete_message:
-        data.setdefault("xp", {})
-        data.setdefault("level", {})
+    if not deletar_mensagem:
+        dados.setdefault("xp", {})
+        dados.setdefault("nivel", {})
 
-        xp_rate = data.get("config", {}).get("xp_rate", 3)
-        xp_gain = max(1, xp_for_message() // xp_rate)
-        data["xp"][uid] = data["xp"].get(uid, 0) + xp_gain
+        taxa_xp = dados.get("config", {}).get("taxa_xp", 3)
+        ganho_xp = max(1, xp_por_mensagem() // taxa_xp)
+        dados["xp"][uid] = dados["xp"].get(uid, 0) + ganho_xp
 
-        xp_now = data["xp"][uid]
-        lvl_now = xp_to_level(xp_now)
-        prev_lvl = data["level"].get(uid, 1)
+        xp_atual = dados["xp"][uid]
+        nivel_atual = xp_para_nivel(xp_atual)
+        nivel_anterior = dados["nivel"].get(uid, 1)
 
-        if lvl_now > prev_lvl:
-            data["level"][uid] = lvl_now
+        if nivel_atual > nivel_anterior:
+            dados["nivel"][uid] = nivel_atual
 
-            levelup_channel_id = data.get("config", {}).get("levelup_channel")
-            channel_to_send = None
+            canal_levelup_id = dados.get("config", {}).get("canal_levelup")
+            canal_enviar = None
 
-            if levelup_channel_id:
-                channel_to_send = message.guild.get_channel(int(levelup_channel_id))
-            if not channel_to_send:
-                channel_to_send = message.channel
+            if canal_levelup_id:
+                canal_enviar = message.guild.get_channel(int(canal_levelup_id))
+            if not canal_enviar:
+                canal_enviar = message.channel
 
             try:
-                await channel_to_send.send(f"🎉 {message.author.mention} subiu para o nível **{lvl_now}**!")
+                await canal_enviar.send(f"🎉 {message.author.mention} subiu para o nível **{nivel_atual}**!")
             except Exception as e:
                 print(f"Erro ao enviar mensagem de level up: {e}")
 
-            level_roles = data.get("level_roles", {})
-            role_id = level_roles.get(str(lvl_now))
-            if role_id:
-                role = message.guild.get_role(int(role_id))
-                if role:
+            cargos_nivel = dados.get("cargos_nivel", {})
+            cargo_id = cargos_nivel.get(str(nivel_atual))
+            if cargo_id:
+                cargo = message.guild.get_role(int(cargo_id))
+                if cargo:
                     try:
-                        await message.author.add_roles(role, reason=f"Alcançou nível {lvl_now}")
+                        await message.author.add_roles(cargo, reason=f"Alcançou nível {nivel_atual}")
                     except discord.Forbidden:
-                        await channel_to_send.send(
-                            f"⚠️ Não consegui dar o cargo {role.mention}, verifique minhas permissões."
+                        await canal_enviar.send(
+                            f"⚠️ Não consegui dar o cargo {cargo.mention}, verifique minhas permissões."
                         )
 
-            add_log(f"level_up: user={uid} level={lvl_now}")
+            adicionar_log(f"level_up: usuario={uid} nivel={nivel_atual}")
 
     try:
-        save_data_to_github("XP update")
+        salvar_dados_github("Atualização XP")
     except Exception as e:
         print(f"Erro ao salvar XP: {e}")
 
@@ -2635,55 +2633,55 @@ async def on_message(message: discord.Message):
 # ========================
 # SLASH COMMANDS
 # ========================
-def is_admin_check(interaction: discord.Interaction) -> bool:
+def verificar_admin(interaction: discord.Interaction) -> bool:
     try:
-        perms = interaction.user.guild_permissions
-        return perms.administrator or perms.manage_guild or perms.manage_roles
+        permissoes = interaction.user.guild_permissions
+        return permissoes.administrator or permissoes.manage_guild or permissoes.manage_roles
     except Exception:
         return False
         
-def is_command_allowed(interaction: discord.Interaction, command_name: str) -> bool:
-    allowed = data.get("command_channels", {}).get(command_name, [])
-    if not allowed:
+def verificar_comando_permitido(interaction: discord.Interaction, nome_comando: str) -> bool:
+    permitidos = dados.get("canais_comandos", {}).get(nome_comando, [])
+    if not permitidos:
         return True
-    return interaction.channel_id in allowed
+    return interaction.channel_id in permitidos
 
 #/cargo_xp
 @tree.command(name="cargo_xp", description="Define um cargo para ser atribuído ao atingir certo nível (admin)")
-@app_commands.describe(level="Nível em que o cargo será dado", role="Cargo a ser atribuído")
-async def set_level_role(interaction: discord.Interaction, level: int, role: discord.Role):
-    if not is_admin_check(interaction):
+@app_commands.describe(nivel="Nível em que o cargo será dado", cargo="Cargo a ser atribuído")
+async def set_level_role(interaction: discord.Interaction, nivel: int, cargo: discord.Role):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("❌ Você não tem permissão.", ephemeral=True)
         return
 
-    if level < 1:
+    if nivel < 1:
         await interaction.response.send_message("⚠️ O nível deve ser maior que 0.", ephemeral=True)
         return
 
-    data.setdefault("level_roles", {})[str(level)] = str(role.id)
-    save_data_to_github("Set level role")
+    dados.setdefault("cargos_nivel", {})[str(nivel)] = str(cargo.id)
+    salvar_dados_github("Set level role")
 
     await interaction.response.send_message(
-        f"✅ Cargo {role.mention} será atribuído ao atingir o **nível {level}**.",
+        f"✅ Cargo {cargo.mention} será atribuído ao atingir o **nível {nivel}**.",
         ephemeral=False
     )
 
 #/xp_rate
 @tree.command(name="xp_rate", description="Define a taxa de ganho de XP (admin)")
-@app_commands.describe(rate="Taxa de XP — valores menores tornam o up mais lento")
-async def set_xp_rate(interaction: discord.Interaction, rate: int):
-    if not is_admin_check(interaction):
+@app_commands.describe(taxa="Taxa de XP — valores menores tornam o up mais lento")
+async def set_xp_rate(interaction: discord.Interaction, taxa: int):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
-    if rate < 1:
+    if taxa < 1:
         await interaction.response.send_message("⚠️ O valor mínimo é 1.", ephemeral=True)
         return
 
-    data.setdefault("config", {})["xp_rate"] = rate
-    save_data_to_github("Set XP rate")
+    dados.setdefault("config", {})["taxa_xp"] = taxa
+    salvar_dados_github("Set XP rate")
 
-    await interaction.response.send_message(f"✅ Taxa de XP ajustada para **x{rate}**.", ephemeral=False)
+    await interaction.response.send_message(f"✅ Taxa de XP ajustada para **x{taxa}**.", ephemeral=False)
 
 #/mensagem_personalizada
 @tree.command(name="mensagem_personalizada", description="Cria uma mensagem personalizada (admin)")
@@ -2704,7 +2702,7 @@ async def criar_embed(
     cor: str = "#5865F2",
     mencionar: str = None
 ):
-    if not is_admin_check(interaction):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
@@ -2713,44 +2711,44 @@ async def criar_embed(
     except:
         color = discord.Color.blurple()
 
-    formatted_text = corpo.replace("\\n", "\n").strip()
-    formatted_text = formatted_text.replace("- ", "● ").replace("• ", "● ")
-    lines = formatted_text.split("\n")
-    formatted_text = "\n\n".join(line.strip() for line in lines if line.strip())
+    texto_formatado = corpo.replace("\\n", "\n").strip()
+    texto_formatado = texto_formatado.replace("- ", "● ").replace("• ", "● ")
+    linhas = texto_formatado.split("\n")
+    texto_formatado = "\n\n".join(linha.strip() for linha in linhas if linha.strip())
 
     embed = discord.Embed(
         title=f"**{titulo}**",
-        description=formatted_text,
+        description=texto_formatado,
         color=color
     )
 
     if imagem:
         embed.set_image(url=imagem)
 
-    mention_text = mencionar if mencionar in ["@everyone", "@here"] else ""
-    await canal.send(content=mention_text, embed=embed)
+    texto_mencao = mencionar if mencionar in ["@everyone", "@here"] else ""
+    await canal.send(content=texto_mencao, embed=embed)
     await interaction.response.send_message(f"✅ Embed enviada para {canal.mention}.", ephemeral=True)
 
 #/perfil
 @tree.command(name="perfil", description="mostra o seu perfil")
-@app_commands.describe(member="Membro a ver o rank (opcional)")
-async def slash_rank(interaction: discord.Interaction, member: discord.Member = None):
-    if not is_command_allowed(interaction, "rank"):
+@app_commands.describe(membro="Membro a ver o rank (opcional)")
+async def slash_rank(interaction: discord.Interaction, membro: discord.Member = None):
+    if not verificar_comando_permitido(interaction, "rank"):
         await interaction.response.send_message("❌ Este comando só pode ser usado em canais autorizados.", ephemeral=True)
         return
 
     await interaction.response.defer(thinking=True)
 
-    target = member or interaction.user
-    uid = str(target.id)
-    xp = data.get("xp", {}).get(uid, 0)
-    lvl = data.get("level", {}).get(uid, xp_to_level(xp))
+    alvo = membro or interaction.user
+    uid = str(alvo.id)
+    xp = dados.get("xp", {}).get(uid, 0)
+    nivel = dados.get("nivel", {}).get(uid, xp_para_nivel(xp))
 
-    ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)
+    ranking = sorted(dados.get("xp", {}).items(), key=lambda t: t[1], reverse=True)
     pos = next((i+1 for i, (u, _) in enumerate(ranking) if u == uid), len(ranking))
 
-    width, height = 900, 200
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    largura, altura = 900, 200
+    img = Image.new("RGBA", (largura, altura), (0, 0, 0, 255))
     draw = ImageDraw.Draw(img)
 
     try:
@@ -2761,7 +2759,7 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
         font_s = ImageFont.load_default()
 
     try:
-        avatar_bytes = await target.avatar.read()
+        avatar_bytes = await alvo.avatar.read()
         avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
         avatar = avatar.resize((120, 120))
         mask = Image.new("L", (120, 120), 0)
@@ -2771,145 +2769,145 @@ async def slash_rank(interaction: discord.Interaction, member: discord.Member = 
     except Exception as e:
         print("Erro avatar:", e)
 
-    draw.text((160, 50), target.display_name, font=font_b, fill=(0, 255, 255))
-    draw.text((width - 220, 40), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(0, 255, 255))
-    draw.text((width - 220, 80), f"NÍVEL {lvl}", font=font_s, fill=(255, 0, 255))
+    draw.text((160, 50), alvo.display_name, font=font_b, fill=(0, 255, 255))
+    draw.text((largura - 220, 40), f"CLASSIFICAÇÃO #{pos}", font=font_s, fill=(0, 255, 255))
+    draw.text((largura - 220, 80), f"NÍVEL {nivel}", font=font_s, fill=(255, 0, 255))
 
-    next_xp = 100 + lvl*50
-    cur = xp % next_xp
-    bar_total_w, bar_h = 560, 36
+    proximo_xp = 100 + nivel*50
+    atual = xp % proximo_xp
+    barra_total_w, barra_h = 560, 36
     x0, y0 = 160, 140
-    radius = bar_h // 2
+    raio = barra_h // 2
 
-    draw.rounded_rectangle([x0, y0, x0+bar_total_w, y0+bar_h], radius=radius, fill=(50, 50, 50))
+    draw.rounded_rectangle([x0, y0, x0+barra_total_w, y0+barra_h], radius=raio, fill=(50, 50, 50))
     
-    fill_w = int(bar_total_w * min(1.0, cur / next_xp))
-    if fill_w > 0:
-        filled_bar = Image.new("RGBA", (fill_w, bar_h), (0,0,0,0))
-        fill_draw = ImageDraw.Draw(filled_bar)
-        fill_draw.rounded_rectangle([0, 0, fill_w, bar_h], radius=radius, fill=(0, 200, 255))
-        img.paste(filled_bar, (x0, y0), filled_bar)
+    preenchimento_w = int(barra_total_w * min(1.0, atual / proximo_xp))
+    if preenchimento_w > 0:
+        barra_preenchida = Image.new("RGBA", (preenchimento_w, barra_h), (0,0,0,0))
+        fill_draw = ImageDraw.Draw(barra_preenchida)
+        fill_draw.rounded_rectangle([0, 0, preenchimento_w, barra_h], radius=raio, fill=(0, 200, 255))
+        img.paste(barra_preenchida, (x0, y0), barra_preenchida)
 
-    xp_text = f"{cur} / {next_xp} XP"
-    bbox = draw.textbbox((0, 0), xp_text, font=font_s)
+    texto_xp = f"{atual} / {proximo_xp} XP"
+    bbox = draw.textbbox((0, 0), texto_xp, font=font_s)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
-    text_x = x0 + (bar_total_w - text_w) // 2
-    text_y = y0 + (bar_h - text_h) // 2
-    draw.text((text_x, text_y), xp_text, font=font_s, fill=(255, 255, 255))
+    text_x = x0 + (barra_total_w - text_w) // 2
+    text_y = y0 + (barra_h - text_h) // 2
+    draw.text((text_x, text_y), texto_xp, font=font_s, fill=(255, 255, 255))
 
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    file = discord.File(buf, filename="rank.png")
-    await interaction.followup.send(file=file)
+    arquivo = discord.File(buf, filename="rank.png")
+    await interaction.followup.send(file=arquivo)
 
 #/rank
 @tree.command(name="rank", description="Mostra top 10 de XP")
 async def slash_top(interaction: discord.Interaction):
-    if not is_command_allowed(interaction, "top"):
+    if not verificar_comando_permitido(interaction, "top"):
         await interaction.response.send_message("❌ Este comando só pode ser usado em canais autorizados.", ephemeral=True)
         return
     await interaction.response.defer()
-    ranking = sorted(data.get("xp", {}).items(), key=lambda t: t[1], reverse=True)[:10]
-    lines = []
+    ranking = sorted(dados.get("xp", {}).items(), key=lambda t: t[1], reverse=True)[:10]
+    linhas = []
     for i, (uid, xp) in enumerate(ranking, 1):
         user = interaction.guild.get_member(int(uid))
-        name = user.display_name if user else f"Usuário {uid}"
-        lines.append(f"{i}. {name} — {xp} XP")
-    text = "\n".join(lines) if lines else "Sem dados ainda."
-    await interaction.followup.send(f"🏆 **Top 10 XP**\n{text}")
+        nome = user.display_name if user else f"Usuário {uid}"
+        linhas.append(f"{i}. {nome} — {xp} XP")
+    texto = "\n".join(linhas) if linhas else "Sem dados ainda."
+    await interaction.followup.send(f"🏆 **Top 10 XP**\n{texto}")
 
 #/advertir
 @tree.command(name="advertir", description="Advertir um membro (admin)")
-@app_commands.describe(member="Membro a ser advertido", reason="Motivo da advertência")
-async def slash_warn(interaction: discord.Interaction, member: discord.Member, reason: str = "Sem motivo informado"):
-    if not is_admin_check(interaction):
+@app_commands.describe(membro="Membro a ser advertido", motivo="Motivo da advertência")
+async def slash_warn(interaction: discord.Interaction, membro: discord.Member, motivo: str = "Sem motivo informado"):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("Você não tem permissão para usar este comando.", ephemeral=True)
         return
-    uid = str(member.id)
-    entry = {
-        "by": interaction.user.id,
-        "reason": reason,
-        "ts": now_br().strftime("%d/%m/%Y %H:%M")
+    uid = str(membro.id)
+    entrada = {
+        "por": interaction.user.id,
+        "motivo": motivo,
+        "ts": agora_br().strftime("%d/%m/%Y %H:%M")
     }
-    data.setdefault("warns", {}).setdefault(uid, []).append(entry)
-    save_data_to_github("New warn")
-    add_log(f"warn: user={uid} by={interaction.user.id} reason={reason}")
-    await interaction.response.send_message(f"⚠️ {member.mention} advertido.\nMotivo: {reason}")
+    dados.setdefault("advertencias", {}).setdefault(uid, []).append(entrada)
+    salvar_dados_github("New warn")
+    adicionar_log(f"advertencia: usuario={uid} por={interaction.user.id} motivo={motivo}")
+    await interaction.response.send_message(f"⚠️ {membro.mention} advertido.\nMotivo: {motivo}")
 
 #/savedata
 @tree.command(name="savedata", description="Força salvar dados no GitHub (admin)")
 async def slash_savedata(interaction: discord.Interaction):
-    if not is_admin_check(interaction):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
-    ok = save_data_to_github("Manual save via /savedata")
+    ok = salvar_dados_github("Manual save via /savedata")
     await interaction.response.send_message("Dados salvos no GitHub." if ok else "Falha ao salvar (veja logs).")
 
 #/definir_canal_boas-vindas
 @tree.command(name="definir_canal_boas-vindas", description="Define canal de boas-vindas para o bot (admin)")
-@app_commands.describe(channel="Canal de texto")
-async def slash_setwelcome(interaction: discord.Interaction, channel: discord.TextChannel = None):
-    if not is_admin_check(interaction):
+@app_commands.describe(canal="Canal de texto")
+async def slash_setwelcome(interaction: discord.Interaction, canal: discord.TextChannel = None):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
-    if channel is None:
-        data.setdefault("config", {})["welcome_channel"] = None
-        save_data_to_github("Unset welcome channel")
+    if canal is None:
+        dados.setdefault("config", {})["canal_boas_vindas"] = None
+        salvar_dados_github("Unset welcome channel")
         await interaction.response.send_message("Canal de boas-vindas removido.")
     else:
-        data.setdefault("config", {})["welcome_channel"] = str(channel.id)
-        save_data_to_github("Set welcome channel")
-        await interaction.response.send_message(f"Canal de boas-vindas definido: {channel.mention}")
+        dados.setdefault("config", {})["canal_boas_vindas"] = str(canal.id)
+        salvar_dados_github("Set welcome channel")
+        await interaction.response.send_message(f"Canal de boas-vindas definido: {canal.mention}")
 
 #/canal_xp
 @tree.command(name="canal_xp", description="Define o canal onde serão enviadas as mensagens de level up (admin)")
-@app_commands.describe(channel="Canal onde o bot vai enviar as mensagens de level up")
-async def set_levelup_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not is_admin_check(interaction):
+@app_commands.describe(canal="Canal onde o bot vai enviar as mensagens de level up")
+async def set_levelup_channel(interaction: discord.Interaction, canal: discord.TextChannel):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
 
-    data.setdefault("config", {})["levelup_channel"] = channel.id
-    save_data_to_github("Set level up channel")
+    dados.setdefault("config", {})["canal_levelup"] = canal.id
+    salvar_dados_github("Set level up channel")
 
-    await interaction.response.send_message(f"✅ Canal de level up definido para {channel.mention}.", ephemeral=False)
+    await interaction.response.send_message(f"✅ Canal de level up definido para {canal.mention}.", ephemeral=False)
 
 # REACTION ROLES GROUP
 reactionrole_group = app_commands.Group(name="reajir_com_emoji", description="Gerenciar reaction roles (admin)")
 
 @reactionrole_group.command(name="criar", description="Cria mensagem com reação e mapeia para um cargo (admin)")
-@app_commands.describe(channel="Canal para enviar a mensagem", content="Conteúdo da mensagem", emoji="Emoji (custom <:_name_:id> ou unicode)", role="Cargo a ser atribuído")
-async def rr_create(interaction: discord.Interaction, channel: discord.TextChannel, content: str, emoji: str, role: discord.Role):
-    if not is_admin_check(interaction):
+@app_commands.describe(canal="Canal para enviar a mensagem", conteudo="Conteúdo da mensagem", emoji="Emoji (custom <:_name_:id> ou unicode)", cargo="Cargo a ser atribuído")
+async def rr_create(interaction: discord.Interaction, canal: discord.TextChannel, conteudo: str, emoji: str, cargo: discord.Role):
+    if not verificar_admin(interaction):
         await interaction.response.send_message("Você não tem permissão.", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=False)
     
-    parsed = parse_emoji_str(emoji, guild=interaction.guild)
+    emoji_processado = processar_emoji_str(emoji, guild=interaction.guild)
     
     try:
-        sent = await channel.send(content)
+        enviado = await canal.send(conteudo)
     except Exception as e:
         await interaction.followup.send(f"Falha ao enviar mensagem: {e}")
         return
     
     try:
-        if isinstance(parsed, discord.Emoji) or isinstance(parsed, discord.PartialEmoji):
-            await sent.add_reaction(parsed)
-            key = str(parsed.id)
+        if isinstance(emoji_processado, discord.Emoji) or isinstance(emoji_processado, discord.PartialEmoji):
+            await enviado.add_reaction(emoji_processado)
+            chave = str(emoji_processado.id)
         else:
-            await sent.add_reaction(parsed)
-            key = str(parsed)
+            await enviado.add_reaction(emoji_processado)
+            chave = str(emoji_processado)
     except Exception as e:
         await interaction.followup.send(f"Falha ao reagir com o emoji: {e}")
         return
     
-    data.setdefault("reaction_roles", {}).setdefault(str(sent.id), {})[key] = str(role.id)
-    save_data_to_github("reactionrole create")
-    add_log(f"reactionrole created msg={sent.id} emoji={key} role={role.id}")
-    await interaction.followup.send(f"Mensagem criada em {channel.mention} com ID `{sent.id}`. Reaja para receber o cargo {role.mention}.")
+    dados.setdefault("reacoes_cargos", {}).setdefault(str(enviado.id), {})[chave] = str(cargo.id)
+    salvar_dados_github("reactionrole create")
+    adicionar_log(f"reactionrole criada msg={enviado.id} emoji={chave} cargo={cargo.id}")
+    await interaction.followup.send(f"Mensagem criada em {canal.mention} com ID `{enviado.id}`. Reaja para receber o cargo {cargo.mention}.")
 
 tree.add_command(reactionrole_group)
 
