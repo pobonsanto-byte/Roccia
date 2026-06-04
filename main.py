@@ -74,7 +74,7 @@ dados = {
     "reacoes_cargos": {},
     "config": {
         "canal_boas_vindas": None,
-        "mensagem": config.get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!"),
+        "mensagem_boas_vindas": "Olá {member}, seja bem-vindo(a)!",
         "fundo_boas_vindas": "",
         "taxa_xp": 3,
         "canal_levelup": None,
@@ -1366,7 +1366,9 @@ def dashboard():
                     <h2>📋 Lista de Espera</h2>
                     <div style="overflow-x: auto;">
                         <table style="width:100%">
-                            <thead><tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr></thead>
+                            <thead>
+                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr>
+                            </thead>
                             <tbody id="fila-tabela"><tr><td colspan="5">Carregando...</td></tr></tbody>
                         </table>
                     </div>
@@ -1980,7 +1982,7 @@ async def on_member_join(member: discord.Member):
     if not canal:
         return
     
-    msg = dados.get("config", {}).get("mensagem_boas_vindas", "Olá {{member}}, seja bem-vindo(a)!")
+    msg = dados.get("config", {}).get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!")
     msg = msg.replace("{member}", member.mention)
     
     fundo_url = dados.get("config", {}).get("fundo_boas_vindas", "")
