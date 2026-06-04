@@ -2328,9 +2328,7 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
         else:
             canal_menção = "nenhum canal configurado"
         await interaction.response.send_message(
-            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!\n"
-            f"Configure isso no painel de controle.\n"
-            f"💡 Dica: Selecione o mesmo canal duas vezes no painel para remover a restrição.",
+            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!",
             ephemeral=True
         )
         return
@@ -2411,9 +2409,7 @@ async def slash_rank(interaction: discord.Interaction):
         else:
             canal_menção = "nenhum canal configurado"
         await interaction.response.send_message(
-            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!\n"
-            f"Configure isso no painel de controle.\n"
-            f"💡 Dica: Selecione o mesmo canal duas vezes no painel para remover a restrição.",
+            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!",
             ephemeral=True
         )
         return
