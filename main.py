@@ -892,10 +892,10 @@ def home():
     </head>
     <body>
         <div class="container">
-            <h1>🎮 Painel de Controle</h1>
+            <h1> Painel de Controle</h1>
             <div class="status {classe_bot}">{status_bot}</div>
             <div class="features">
-                <h3>✨ Funcionalidades:</h3>
+                <h3> Funcionalidades:</h3>
                 <ul>
                     <li>Sistema de XP e Níveis</li>
                     <li>Reação com Cargos</li>
@@ -903,9 +903,9 @@ def home():
                     <li>Sistema de Moderação</li>
                     <li>Botões de Cargos</li>
                     <li>Sistema de Fila de Serviços</li>
-                    <li>🛡️ Anti-Spam Automático</li>
-                    <li>🚫 Comandos da Mudae NÃO ganham XP</li>
-                    <li>📢 Comandos /perfil e /rank podem ser configurados para canais específicos</li>
+                    <li>Anti-Spam Automático</li>
+                    <li>Comandos da Mudae NÃO ganham XP</li>
+                    <li>Comandos /perfil e /rank podem ser configurados para canais específicos</li>
                 </ul>
             </div>
             {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn">🚀 Painel</a><a href="/fila" class="btn">📋 Fila</a><a href="/logout" class="btn">🚪 Sair</a>'}
@@ -1393,7 +1393,7 @@ def dashboard():
     <body>
         <header>
             <div class="header-content">
-                <h1>🎮 Painel de Controle</h1>
+                <h1> Painel de Controle</h1>
                 <div class="user-info">
                     <img src="https://cdn.discordapp.com/avatars/{usuario['id']}/{usuario.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
                     <span>{usuario['nome_usuario']}</span>
@@ -1411,7 +1411,7 @@ def dashboard():
                 <button class="tab-btn" onclick="showTab('antispam')">🛡️ Anti-Spam</button>
                 <button class="tab-btn" onclick="showTab('boasvindas')">👋 Boas-vindas</button>
                 <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
-                <button class="tab-btn" onclick="showTab('cargos')">🎭 Cargos</button>
+                <button class="tab-btn" onclick="showTab('cargos')">🪪 Cargos</button>
                 <button class="tab-btn" onclick="showTab('moderacao')">🛡️ Moderação</button>
                 <button class="tab-btn" onclick="showTab('fila')">📋 Fila</button>
                 <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos Rápidos</button>
@@ -1434,9 +1434,8 @@ def dashboard():
                         <p><strong>Processador:</strong> {'✅ Ativo' if processador_acoes_rodando else '❌ Inativo'}</p>
                         <p><strong>Ações na fila:</strong> {len(acoes_fila_bot)}</p>
                         <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
-                        <p><strong>Comandos da Mudae:</strong> 🚫 NÃO ganham XP</p>
+                        <p><strong>Comandos da Mudae:</strong>  NÃO ganham XP</p>
                         <p><strong>Comandos Discord:</strong> /perfil e /rank (apenas nos canais configurados)</p>
-                        <p><strong>💡 Dica:</strong> Selecione o mesmo canal duas vezes para remover a restrição!</p>
                     </div>
                 </div>
             </div>
@@ -1592,7 +1591,7 @@ def dashboard():
                 </div>
                 
                 <div class="card">
-                    <h2>🎭 Cargos por Nível</h2>
+                    <h2>🪪 Cargos por Nível</h2>
                     <div id="cargos-nivel-lista"></div>
                     <div class="form-group">
                         <label>Adicionar Cargo por Nível</label>
@@ -1609,7 +1608,7 @@ def dashboard():
             <div id="cargos" class="tab">
                 <div class="grid-2">
                     <div class="card">
-                        <h2>🎭 Reação com Cargo</h2>
+                        <h2>🪪 Reação com Cargo</h2>
                         <div class="form-group">
                             <label>Canal</label>
                             <select id="rr-canal" class="form-control"></select>
