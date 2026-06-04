@@ -89,8 +89,26 @@ dados = {
     },
     "cargos_nivel": {},
     "canais_links_bloqueados": [],
-    "botoes_cargos": {}
+    "botoes_cargos": {},
+    "anti_spam": {
+        "ativado": True,
+        "limite_mensagens": 5,
+        "intervalo_segundos": 5,
+        "tempo_mute_minutos": 2,
+        "remover_xp": True,
+        "xp_penalidade": 50,
+        "deletar_mensagens": True,
+        "cargos_ignorados": ["Administrador", "Moderador", "Staff", "Dono"],
+        "comandos_ignorados": [
+            "$w", "$wa", "$wg", "$h", "$ha", "$hg",
+            "$W", "$WA", "$WG", "$H", "$HA", "$HG",
+            "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
+        ]
+    }
 }
+
+# Dicionário para armazenar mensagens recentes dos usuários
+mensagens_recentes = {}  # {user_id: [timestamps]}
 
 # ========================
 # FUNÇÕES UTILITÁRIAS
@@ -124,6 +142,22 @@ def carregar_dados_github():
                     dados["cargos_nivel"] = {}
                 if "canais_links_bloqueados" not in dados:
                     dados["canais_links_bloqueados"] = []
+                if "anti_spam" not in dados:
+                    dados["anti_spam"] = {
+                        "ativado": True,
+                        "limite_mensagens": 5,
+                        "intervalo_segundos": 5,
+                        "tempo_mute_minutos": 2,
+                        "remover_xp": True,
+                        "xp_penalidade": 50,
+                        "deletar_mensagens": True,
+                        "cargos_ignorados": ["Administrador", "Moderador", "Staff", "Dono"],
+                        "comandos_ignorados": [
+                            "$w", "$wa", "$wg", "$h", "$ha", "$hg",
+                            "$W", "$WA", "$WG", "$H", "$HA", "$HG",
+                            "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
+                        ]
+                    }
                 print("✅ Dados carregados do GitHub.")
                 return True
         else:
@@ -184,57 +218,129 @@ def escape_html(texto):
         .replace("'", "&#39;")
     )
 
-EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
-EMOJI_NOME_RE = re.compile(r":([a-zA-Z0-9_]+):")
+# ========================
+# FUNÇÕES ANTI-SPAM
+# ========================
 
-def processar_emoji_str(emoji_str, guild: discord.Guild = None):
-    if not emoji_str:
-        return None
+def verificar_comando_ignorado(conteudo: str) -> bool:
+    """Verifica se a mensagem é um comando ignorado (não conta como spam)"""
+    conteudo_lower = conteudo.lower().strip()
+    comandos_ignorados = dados.get("anti_spam", {}).get("comandos_ignorados", [])
     
-    emoji_str = emoji_str.strip()
+    for comando in comandos_ignorados:
+        if conteudo_lower.startswith(comando.lower()):
+            return True
+        if conteudo_lower == comando.lower():
+            return True
     
-    m = EMOJI_RE.match(emoji_str)
-    if m:
-        nome, id_str = m.groups()
+    return False
+
+def verificar_cargo_ignorado(member: discord.Member) -> bool:
+    """Verifica se o membro tem cargo que ignora o anti-spam"""
+    cargos_ignorados = dados.get("anti_spam", {}).get("cargos_ignorados", [])
+    cargos_membro = [role.name for role in member.roles]
+    for cargo_ignorado in cargos_ignorados:
+        if cargo_ignorado in cargos_membro:
+            return True
+    return False
+
+def limpar_mensagens_antigas(user_id: int):
+    """Remove mensagens mais antigas que o intervalo configurado"""
+    if user_id not in mensagens_recentes:
+        return
+    
+    intervalo = dados.get("anti_spam", {}).get("intervalo_segundos", 5)
+    agora = time.time()
+    mensagens_recentes[user_id] = [
+        ts for ts in mensagens_recentes[user_id] 
+        if agora - ts < intervalo
+    ]
+    
+    if not mensagens_recentes[user_id]:
+        del mensagens_recentes[user_id]
+
+def registrar_mensagem(user_id: int) -> int:
+    """Registra uma mensagem e retorna quantas mensagens o usuário enviou no intervalo"""
+    agora = time.time()
+    
+    if user_id not in mensagens_recentes:
+        mensagens_recentes[user_id] = []
+    
+    mensagens_recentes[user_id].append(agora)
+    limpar_mensagens_antigas(user_id)
+    
+    return len(mensagens_recentes.get(user_id, []))
+
+async def aplicar_mute(member: discord.Member, duracao_minutos: int = 2):
+    """Aplica mute temporário no membro"""
+    guild = member.guild
+    
+    mute_role = discord.utils.get(guild.roles, name="Muted")
+    
+    if not mute_role:
         try:
-            eid = int(id_str)
-            animado = emoji_str.startswith('<a:')
-            if guild:
-                e = discord.utils.get(guild.emojis, id=eid)
-                if e:
-                    return e
-            return discord.PartialEmoji(name=nome, id=eid, animated=animado)
-        except:
-            pass
+            mute_role = await guild.create_role(name="Muted", permissions=discord.Permissions.none())
+            for channel in guild.channels:
+                try:
+                    await channel.set_permissions(mute_role, send_messages=False, add_reactions=False, speak=False)
+                except:
+                    pass
+            print(f"✅ Cargo 'Muted' criado no servidor {guild.name}")
+        except Exception as e:
+            print(f"❌ Erro ao criar cargo de mute: {e}")
+            return False
     
-    m2 = EMOJI_NOME_RE.match(emoji_str)
-    if m2:
-        nome_emoji = m2.group(1)
-        if guild:
-            emoji = discord.utils.get(guild.emojis, name=nome_emoji)
-            if emoji:
-                return emoji
+    try:
+        await member.add_roles(mute_role, reason=f"Anti-spam: {duracao_minutos} minutos de mute")
         
-        emojis_padrao = {
-            "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
-            "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
-            "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉",
-            "eyes": "👀", "smile": "😄", "sunglasses": "😎", "thinking": "🤔",
-            "partying_face": "🥳", "ok_hand": "👌", "clap": "👏", "muscle": "💪",
-            "pray": "🙏", "100": "💯", "poop": "💩", "skull": "💀"
-        }
+        async def remover_mute():
+            await asyncio.sleep(duracao_minutos * 60)
+            try:
+                await member.remove_roles(mute_role, reason="Fim do mute por spam")
+            except:
+                pass
         
-        if nome_emoji.lower() in emojis_padrao:
-            return emojis_padrao[nome_emoji.lower()]
-        return emoji_str
+        asyncio.create_task(remover_mute())
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao aplicar mute: {e}")
+        return False
+
+async def deletar_mensagens_spam(member: discord.Member, channel: discord.TextChannel, quantidade: int):
+    """Deleta as mensagens de spam do usuário"""
+    if not dados.get("anti_spam", {}).get("deletar_mensagens", True):
+        return
     
-    if len(emoji_str) <= 10:
-        import unicodedata
-        tem_caractere_emoji = any('EMOJI' in unicodedata.name(c, '') for c in emoji_str)
-        if tem_caractere_emoji or any(c in emoji_str for c in ['👍', '👎', '✅', '❌', '⚠️', '❗', '❓', '⭐', '❤️', '🔥', '🚀', '🎉']):
-            return emoji_str
+    try:
+        async for msg in channel.history(limit=quantidade + 5):
+            if msg.author == member:
+                try:
+                    await msg.delete()
+                    await asyncio.sleep(0.5)
+                except:
+                    pass
+    except:
+        pass
+
+async def remover_xp_por_spam(member: discord.Member):
+    """Remove XP do usuário por spam"""
+    if not dados.get("anti_spam", {}).get("remover_xp", True):
+        return False
     
-    return emoji_str
+    uid = str(member.id)
+    penalidade = dados.get("anti_spam", {}).get("xp_penalidade", 50)
+    xp_atual = dados.get("xp", {}).get(uid, 0)
+    
+    novo_xp = max(0, xp_atual - penalidade)
+    dados["xp"][uid] = novo_xp
+    
+    # Recalcula o nível
+    novo_nivel = xp_para_nivel(novo_xp)
+    dados["nivel"][uid] = novo_nivel
+    
+    salvar_dados_github(f"Anti-spam: {penalidade} XP removido de {member.name}")
+    
+    return True
 
 # ========================
 # SISTEMA DE FILA
@@ -461,46 +567,67 @@ async def executar_acao_bot_interno(acao):
             if par_atual.strip():
                 pares.append(par_atual.strip())
             
+            import re
+            EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
+            EMOJI_NOME_RE = re.compile(r":([a-zA-Z0-9_]+):")
+            
+            def processar_emoji_str(emoji_str, guild):
+                if not emoji_str:
+                    return None
+                emoji_str = emoji_str.strip()
+                m = EMOJI_RE.match(emoji_str)
+                if m:
+                    nome, id_str = m.groups()
+                    try:
+                        eid = int(id_str)
+                        animado = emoji_str.startswith('<a:')
+                        if guild:
+                            e = discord.utils.get(guild.emojis, id=eid)
+                            if e:
+                                return e
+                        return discord.PartialEmoji(name=nome, id=eid, animated=animado)
+                    except:
+                        pass
+                m2 = EMOJI_NOME_RE.match(emoji_str)
+                if m2:
+                    nome_emoji = m2.group(1)
+                    if guild:
+                        emoji = discord.utils.get(guild.emojis, name=nome_emoji)
+                        if emoji:
+                            return emoji
+                    emojis_padrao = {
+                        "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
+                        "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
+                        "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉"
+                    }
+                    if nome_emoji.lower() in emojis_padrao:
+                        return emojis_padrao[nome_emoji.lower()]
+                    return emoji_str
+                return emoji_str
+            
             dados_reacoes = {}
             for par in pares:
                 par = par.strip()
                 if not par:
                     continue
-                
-                indice_divisao = -1
-                profundidade = 0
-                for i, char in enumerate(par):
-                    if char == '<':
-                        profundidade += 1
-                    elif char == '>':
-                        profundidade -= 1
-                    elif char == ':' and profundidade == 0:
-                        indice_divisao = i
-                
-                if indice_divisao == -1:
-                    continue
-                
-                try:
-                    emoji_str = par[:indice_divisao].strip()
-                    nome_cargo = par[indice_divisao+1:].strip()
-                    cargo = discord.utils.get(guild.roles, name=nome_cargo)
-                    if not cargo:
+                if ":" in par:
+                    try:
+                        emoji_str, nome_cargo = par.split(":", 1)
+                        cargo = discord.utils.get(guild.roles, name=nome_cargo.strip())
+                        if not cargo:
+                            continue
+                        emoji_processado = processar_emoji_str(emoji_str.strip(), guild)
+                        if not emoji_processado:
+                            continue
+                        if isinstance(emoji_processado, (discord.Emoji, discord.PartialEmoji)):
+                            await mensagem.add_reaction(emoji_processado)
+                            chave = str(emoji_processado.id)
+                        else:
+                            await mensagem.add_reaction(emoji_processado)
+                            chave = str(emoji_processado)
+                        dados_reacoes[chave] = str(cargo.id)
+                    except:
                         continue
-                    
-                    emoji_processado = processar_emoji_str(emoji_str, guild)
-                    if not emoji_processado:
-                        continue
-                    
-                    if isinstance(emoji_processado, (discord.Emoji, discord.PartialEmoji)):
-                        await mensagem.add_reaction(emoji_processado)
-                        chave = str(emoji_processado.id)
-                    else:
-                        await mensagem.add_reaction(emoji_processado)
-                        chave = str(emoji_processado)
-                    
-                    dados_reacoes[chave] = str(cargo.id)
-                except:
-                    continue
             
             if dados_reacoes:
                 dados.setdefault("reacoes_cargos", {})[mensagem_id] = dados_reacoes
@@ -532,6 +659,33 @@ async def executar_acao_bot_interno(acao):
                         pass
             
             if dicionario_botoes:
+                class PersistentRoleButton(ui.Button):
+                    def __init__(self, label: str, cargo_id: int, mensagem_id: int):
+                        super().__init__(label=label, style=ButtonStyle.primary)
+                        self.cargo_id = cargo_id
+                        self.mensagem_id = mensagem_id
+                    async def callback(self, interaction: Interaction):
+                        guild = interaction.guild
+                        membro = interaction.user
+                        cargo = guild.get_role(self.cargo_id)
+                        if not cargo:
+                            await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
+                            return
+                        if cargo in membro.roles:
+                            await membro.remove_roles(cargo, reason="Botão de cargo")
+                            await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
+                        else:
+                            await membro.add_roles(cargo, reason="Botão de cargo")
+                            await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
+                        adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
+                
+                class PersistentRoleButtonView(ui.View):
+                    def __init__(self, mensagem_id: int, dicionario_botoes: dict):
+                        super().__init__(timeout=None)
+                        self.mensagem_id = mensagem_id
+                        for label, cargo_id in dicionario_botoes.items():
+                            self.add_item(PersistentRoleButton(label=label, cargo_id=cargo_id, mensagem_id=mensagem_id))
+                
                 view = PersistentRoleButtonView(0, dicionario_botoes)
                 enviado = await canal.send(dados_acao["conteudo"], view=view)
                 view.mensagem_id = enviado.id
@@ -601,6 +755,29 @@ async def executar_acao_bot_interno(acao):
             salvar_dados_github(f"Bloqueio de links alternado no canal {canal_id}")
             return True
         
+        elif tipo_acao == "configurar_anti_spam":
+            anti_spam = dados.setdefault("anti_spam", {})
+            if 'ativado' in dados_acao:
+                anti_spam["ativado"] = dados_acao['ativado']
+            if 'limite_mensagens' in dados_acao:
+                anti_spam["limite_mensagens"] = dados_acao['limite_mensagens']
+            if 'intervalo_segundos' in dados_acao:
+                anti_spam["intervalo_segundos"] = dados_acao['intervalo_segundos']
+            if 'tempo_mute_minutos' in dados_acao:
+                anti_spam["tempo_mute_minutos"] = dados_acao['tempo_mute_minutos']
+            if 'remover_xp' in dados_acao:
+                anti_spam["remover_xp"] = dados_acao['remover_xp']
+            if 'xp_penalidade' in dados_acao:
+                anti_spam["xp_penalidade"] = dados_acao['xp_penalidade']
+            if 'deletar_mensagens' in dados_acao:
+                anti_spam["deletar_mensagens"] = dados_acao['deletar_mensagens']
+            if 'cargos_ignorados' in dados_acao:
+                anti_spam["cargos_ignorados"] = [c.strip() for c in dados_acao['cargos_ignorados'].split(",") if c.strip()]
+            if 'comandos_ignorados' in dados_acao:
+                anti_spam["comandos_ignorados"] = [c.strip() for c in dados_acao['comandos_ignorados'].split(",") if c.strip()]
+            salvar_dados_github("Config anti-spam atualizada")
+            return True
+        
         else:
             print(f"❌ Tipo de ação desconhecido: {tipo_acao}")
             return False
@@ -647,39 +824,6 @@ def iniciar_processador_acoes():
         return False
 
 # ========================
-# CLASSES DE BOTÕES
-# ========================
-class PersistentRoleButtonView(ui.View):
-    def __init__(self, mensagem_id: int, dicionario_botoes: dict):
-        super().__init__(timeout=None)
-        self.mensagem_id = mensagem_id
-        for label, cargo_id in dicionario_botoes.items():
-            self.add_item(PersistentRoleButton(label=label, cargo_id=cargo_id, mensagem_id=mensagem_id))
-
-class PersistentRoleButton(ui.Button):
-    def __init__(self, label: str, cargo_id: int, mensagem_id: int):
-        super().__init__(label=label, style=ButtonStyle.primary)
-        self.cargo_id = cargo_id
-        self.mensagem_id = mensagem_id
-
-    async def callback(self, interaction: Interaction):
-        guild = interaction.guild
-        membro = interaction.user
-        cargo = guild.get_role(self.cargo_id)
-        if not cargo:
-            await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
-            return
-
-        if cargo in membro.roles:
-            await membro.remove_roles(cargo, reason="Botão de cargo")
-            await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
-        else:
-            await membro.add_roles(cargo, reason="Botão de cargo")
-            await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
-
-        adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
-
-# ========================
 # ROTAS DO SITE
 # ========================
 
@@ -724,6 +868,7 @@ def home():
                     <li>Sistema de Moderação</li>
                     <li>Botões de Cargos</li>
                     <li>Sistema de Fila de Serviços</li>
+                    <li>🛡️ Anti-Spam Automático</li>
                 </ul>
             </div>
             {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn">🚀 Painel</a><a href="/fila" class="btn">📋 Fila</a><a href="/logout" class="btn">🚪 Sair</a>'}
@@ -976,6 +1121,36 @@ def api_servidor_membros():
     membros = [{"id": str(m.id), "nome": m.display_name} for m in guild.members if not m.bot][:100]
     return jsonify({"sucesso": True, "membros": membros})
 
+@app.route("/api/anti_spam", methods=["GET", "POST"])
+def api_anti_spam():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        anti_spam = dados.get("anti_spam", {})
+        return jsonify({
+            "sucesso": True,
+            "config": {
+                "ativado": anti_spam.get("ativado", True),
+                "limite_mensagens": anti_spam.get("limite_mensagens", 5),
+                "intervalo_segundos": anti_spam.get("intervalo_segundos", 5),
+                "tempo_mute_minutos": anti_spam.get("tempo_mute_minutos", 2),
+                "remover_xp": anti_spam.get("remover_xp", True),
+                "xp_penalidade": anti_spam.get("xp_penalidade", 50),
+                "deletar_mensagens": anti_spam.get("deletar_mensagens", True),
+                "cargos_ignorados": ",".join(anti_spam.get("cargos_ignorados", ["Administrador", "Moderador", "Staff", "Dono"])),
+                "comandos_ignorados": ",".join(anti_spam.get("comandos_ignorados", [
+                    "$w", "$wa", "$wg", "$h", "$ha", "$hg",
+                    "$W", "$WA", "$WG", "$H", "$HA", "$HG",
+                    "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
+                ]))
+            }
+        })
+    
+    req = request.json
+    executar_acao_bot("configurar_anti_spam", **req)
+    return jsonify({"sucesso": True, "mensagem": "Configuração anti-spam salva!"})
+
 @app.route("/api/config/boasvindas", methods=["GET", "POST"])
 def api_config_boasvindas():
     if 'usuario' not in session:
@@ -1101,6 +1276,7 @@ def dashboard():
     usuario = session['usuario']
     config = dados.get("config", {})
     fila = obter_dados_fila()
+    anti_spam = dados.get("anti_spam", {})
     
     return f'''
     <!DOCTYPE html>
@@ -1147,7 +1323,14 @@ def dashboard():
             th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid var(--gray); }}
             th {{ background: var(--gray); }}
             .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }}
-            @media (max-width: 768px) {{ .grid-2 {{ grid-template-columns: 1fr; }} }}
+            .grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
+            @media (max-width: 768px) {{ .grid-2, .grid-3 {{ grid-template-columns: 1fr; }} }}
+            .switch {{ position: relative; display: inline-block; width: 60px; height: 34px; }}
+            .switch input {{ opacity: 0; width: 0; height: 0; }}
+            .slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }}
+            .slider:before {{ position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }}
+            input:checked + .slider {{ background-color: #2196F3; }}
+            input:checked + .slider:before {{ transform: translateX(26px); }}
         </style>
     </head>
     <body>
@@ -1167,6 +1350,7 @@ def dashboard():
         <div class="container">
             <div class="tab-nav">
                 <button class="tab-btn active" onclick="showTab('inicio')">🏠 Início</button>
+                <button class="tab-btn" onclick="showTab('antispam')">🛡️ Anti-Spam</button>
                 <button class="tab-btn" onclick="showTab('boasvindas')">👋 Boas-vindas</button>
                 <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
                 <button class="tab-btn" onclick="showTab('cargos')">🎭 Cargos</button>
@@ -1192,6 +1376,7 @@ def dashboard():
                         <p><strong>Bot:</strong> {'✅ Online' if bot.is_ready() else '❌ Offline'}</p>
                         <p><strong>Processador:</strong> {'✅ Ativo' if processador_acoes_rodando else '❌ Inativo'}</p>
                         <p><strong>Ações na fila:</strong> {len(acoes_fila_bot)}</p>
+                        <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
                         <p><strong>Comandos Discord:</strong> /perfil e /rank</p>
                     </div>
                 </div>
@@ -1200,6 +1385,69 @@ def dashboard():
                     <p><strong>Fila Pública:</strong> <a href="/fila" style="color:#5865F2;">{request.host_url}fila</a></p>
                     <p><strong>Fila Embed (OBS):</strong> <a href="/fila/embed" style="color:#5865F2;">{request.host_url}fila/embed</a></p>
                     <p><strong>API da Fila:</strong> <a href="/fila/api" style="color:#5865F2;">{request.host_url}fila/api</a></p>
+                </div>
+            </div>
+            
+            <!-- Aba Anti-Spam -->
+            <div id="antispam" class="tab">
+                <div class="card">
+                    <h2>🛡️ Configuração Anti-Spam</h2>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Status do Anti-Spam</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-ativado" {'checked' if anti_spam.get('ativado', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Remover XP por Spam</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-remover-xp" {'checked' if anti_spam.get('remover_xp', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Deletar Mensagens de Spam</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-deletar" {'checked' if anti_spam.get('deletar_mensagens', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Limite de Mensagens</label>
+                            <input type="number" id="as-limite" class="form-control" value="{anti_spam.get('limite_mensagens', 5)}" min="2" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Intervalo (segundos)</label>
+                            <input type="number" id="as-intervalo" class="form-control" value="{anti_spam.get('intervalo_segundos', 5)}" min="2" max="30">
+                        </div>
+                        <div class="form-group">
+                            <label>Tempo de Mute (minutos)</label>
+                            <input type="number" id="as-mute" class="form-control" value="{anti_spam.get('tempo_mute_minutos', 2)}" min="1" max="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Penalidade de XP</label>
+                            <input type="number" id="as-xp-penalidade" class="form-control" value="{anti_spam.get('xp_penalidade', 50)}" min="10" max="500">
+                        </div>
+                        <div class="form-group">
+                            <label>Cargos Ignorados (separar por vírgula)</label>
+                            <input type="text" id="as-cargos" class="form-control" value="{anti_spam.get('cargos_ignorados', ['Administrador', 'Moderador', 'Staff', 'Dono'])}">
+                        </div>
+                        <div class="form-group">
+                            <label>Comandos Ignorados (separar por vírgula)</label>
+                            <input type="text" id="as-comandos" class="form-control" value="{','.join(anti_spam.get('comandos_ignorados', ['$w','$wa','$wg','$h','$ha','$hg','$tu','$dk','$mmi','$vote','$rolls','$k','$mu']))}">
+                        </div>
+                    </div>
+                    <button onclick="salvarAntiSpam()" class="btn btn-primary">💾 Salvar Configurações</button>
+                    <div id="as-alert" class="alert"></div>
+                </div>
+                <div class="card">
+                    <h2>📋 Comandos Ignorados (ex: Mudae)</h2>
+                    <p>Estes comandos NÃO contam como spam e NÃO removem XP:</p>
+                    <div id="lista-comandos" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;"></div>
                 </div>
             </div>
             
@@ -1370,7 +1618,7 @@ def dashboard():
                             <thead>
                                 <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr>
                             </thead>
-                            <tbody id="fila-tabela"><tr><td colspan="5">Carregando......</td></tr></tbody>
+                            <tbody id="fila-tabela"><tr><td colspan="5">Carregando...</td></tr></tbody>
                         </table>
                     </div>
                     <div style="margin-top: 10px;"><button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button></div>
@@ -1418,13 +1666,14 @@ def dashboard():
             
             async function carregarDados() {{
                 try {{
-                    const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes] = await Promise.all([
+                    const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes] = await Promise.all([
                         fetch('/api/servidor/canais'),
                         fetch('/api/servidor/cargos'),
                         fetch('/api/servidor/membros'),
                         fetch('/api/config/boasvindas'),
                         fetch('/api/config/xp'),
-                        fetch('/api/config/links')
+                        fetch('/api/config/links'),
+                        fetch('/api/anti_spam')
                     ]);
                     
                     const canaisData = await canaisRes.json();
@@ -1433,6 +1682,7 @@ def dashboard():
                     const configBV = await configBoasVindas.json();
                     const configXPdata = await configXP.json();
                     const linksData = await linksRes.json();
+                    const antiSpamData = await antiSpamRes.json();
                     
                     if (canaisData.sucesso) canais = canaisData.canais;
                     if (cargosData.sucesso) cargos = cargosData.cargos;
@@ -1462,6 +1712,22 @@ def dashboard():
                             }}).join(', ');
                             linksStatus.innerHTML = nomes ? 'Canais bloqueados: ' + nomes : 'Nenhum canal bloqueado';
                         }}
+                    }}
+                    
+                    if (antiSpamData.sucesso && antiSpamData.config) {{
+                        document.getElementById('as-ativado').checked = antiSpamData.config.ativado;
+                        document.getElementById('as-remover-xp').checked = antiSpamData.config.remover_xp;
+                        document.getElementById('as-deletar').checked = antiSpamData.config.deletar_mensagens;
+                        document.getElementById('as-limite').value = antiSpamData.config.limite_mensagens;
+                        document.getElementById('as-intervalo').value = antiSpamData.config.intervalo_segundos;
+                        document.getElementById('as-mute').value = antiSpamData.config.tempo_mute_minutos;
+                        document.getElementById('as-xp-penalidade').value = antiSpamData.config.xp_penalidade;
+                        document.getElementById('as-cargos').value = antiSpamData.config.cargos_ignorados;
+                        document.getElementById('as-comandos').value = antiSpamData.config.comandos_ignorados;
+                        
+                        const listaDiv = document.getElementById('lista-comandos');
+                        const comandos = antiSpamData.config.comandos_ignorados.split(',');
+                        listaDiv.innerHTML = comandos.map(c => `<span style="background:#333; padding:4px 12px; border-radius:20px;">${{c.trim()}}</span>`).join('');
                     }}
                     
                     carregarCargosNivel();
@@ -1517,6 +1783,29 @@ def dashboard():
                 event.target.classList.add('active');
                 if (tabId === 'fila') carregarFila();
                 if (tabId === 'moderacao') carregarAdvertencias();
+            }}
+            
+            async function salvarAntiSpam() {{
+                const data = {{
+                    ativado: document.getElementById('as-ativado').checked,
+                    remover_xp: document.getElementById('as-remover-xp').checked,
+                    deletar_mensagens: document.getElementById('as-deletar').checked,
+                    limite_mensagens: parseInt(document.getElementById('as-limite').value),
+                    intervalo_segundos: parseInt(document.getElementById('as-intervalo').value),
+                    tempo_mute_minutos: parseInt(document.getElementById('as-mute').value),
+                    xp_penalidade: parseInt(document.getElementById('as-xp-penalidade').value),
+                    cargos_ignorados: document.getElementById('as-cargos').value,
+                    comandos_ignorados: document.getElementById('as-comandos').value
+                }};
+                try {{
+                    const resp = await fetch('/api/anti_spam', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('as-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        const comandos = data.comandos_ignorados.split(',');
+                        document.getElementById('lista-comandos').innerHTML = comandos.map(c => `<span style="background:#333; padding:4px 12px; border-radius:20px;">${{c.trim()}}</span>`).join('');
+                    }}
+                }} catch(e) {{ showAlert('as-alert', 'Erro: ' + e.message, false); }}
             }}
             
             async function salvarBoasVindas() {{
@@ -1752,7 +2041,7 @@ def dashboard():
                                         <button onclick="concluir('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
                                         <button onclick="remover('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
                                     </td>
-                                 </tr>
+                                </tr>
                             `).join('');
                         }}
                         document.getElementById('fila-status').innerHTML = `Status: ${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}} | ${{fila.contagem}}/${{fila.tamanho_maximo}}`;
@@ -1819,7 +2108,7 @@ def api_membro_advertencias():
     return jsonify({"sucesso": True, "advertencias": warns})
 
 # ========================
-# COMANDOS SLASH DO DISCORD (APENAS PERFIL E RANK)
+# COMANDOS SLASH DO DISCORD
 # ========================
 
 @tree.command(name="perfil", description="Mostra o seu perfil com XP e nível")
@@ -1961,6 +2250,33 @@ async def on_ready():
                     try:
                         mensagem = await channel.fetch_message(msg_id)
                         if mensagem:
+                            class PersistentRoleButton(ui.Button):
+                                def __init__(self, label: str, cargo_id: int, mensagem_id: int):
+                                    super().__init__(label=label, style=ButtonStyle.primary)
+                                    self.cargo_id = cargo_id
+                                    self.mensagem_id = mensagem_id
+                                async def callback(self, interaction: Interaction):
+                                    guild = interaction.guild
+                                    membro = interaction.user
+                                    cargo = guild.get_role(self.cargo_id)
+                                    if not cargo:
+                                        await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
+                                        return
+                                    if cargo in membro.roles:
+                                        await membro.remove_roles(cargo, reason="Botão de cargo")
+                                        await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
+                                    else:
+                                        await membro.add_roles(cargo, reason="Botão de cargo")
+                                        await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
+                                    adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
+                            
+                            class PersistentRoleButtonView(ui.View):
+                                def __init__(self, mensagem_id: int, dicionario_botoes: dict):
+                                    super().__init__(timeout=None)
+                                    self.mensagem_id = mensagem_id
+                                    for label, cargo_id in dicionario_botoes.items():
+                                        self.add_item(PersistentRoleButton(label=label, cargo_id=cargo_id, mensagem_id=mensagem_id))
+                            
                             view = PersistentRoleButtonView(msg_id, dicionario_botoes)
                             await mensagem.edit(view=view)
                             restaurados += 1
@@ -1978,6 +2294,7 @@ async def on_ready():
     
     print(f"{'='*50}")
     print(f"✨ BOT PRONTO! Comandos: /perfil e /rank")
+    print(f"🛡️ Anti-Spam: {'ATIVADO' if dados.get('anti_spam', {}).get('ativado', True) else 'DESATIVADO'}")
     print(f"{'='*50}\n")
 
 @bot.event
@@ -2102,10 +2419,56 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
     
-    uid = str(message.author.id)
     conteudo = message.content.strip()
+    anti_spam_config = dados.get("anti_spam", {})
     
+    # ========================
+    # ANTI-SPAM
+    # ========================
+    if anti_spam_config.get("ativado", True):
+        # Verifica se o comando é ignorado (ex: comandos da Mudae)
+        if verificar_comando_ignorado(conteudo):
+            # Comandos ignorados não contam para spam
+            await bot.process_commands(message)
+            return
+        
+        # Verifica se o membro tem cargo ignorado
+        if not verificar_cargo_ignorado(message.author):
+            # Registra a mensagem e verifica limite
+            quantidade = registrar_mensagem(message.author.id)
+            limite = anti_spam_config.get("limite_mensagens", 5)
+            
+            if quantidade > limite:
+                # Aplica mute
+                duracao = anti_spam_config.get("tempo_mute_minutos", 2)
+                sucesso = await aplicar_mute(message.author, duracao)
+                
+                if sucesso:
+                    # Deleta as mensagens de spam
+                    if anti_spam_config.get("deletar_mensagens", True):
+                        await deletar_mensagens_spam(message.author, message.channel, quantidade)
+                    
+                    # Remove XP
+                    xp_removido = False
+                    if anti_spam_config.get("remover_xp", True):
+                        xp_removido = await remover_xp_por_spam(message.author)
+                    
+                    # Notifica o usuário
+                    xp_msg = f" e teve **{anti_spam_config.get('xp_penalidade', 50)} XP removido**" if xp_removido else ""
+                    try:
+                        await message.author.send(f"⚠️ **Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}\nPor favor, evite enviar muitas mensagens repetidas em um curto período.\n\n💡 **Comandos da Mudae NÃO contam como spam!**")
+                    except:
+                        await message.channel.send(f"⚠️ {message.author.mention}, você foi mutado por **{duracao} minutos** por spam!{xp_msg}")
+                    
+                    # Registra no log
+                    adicionar_log(f"anti_spam: {message.author.name} mutado por {duracao} min | {quantidade} msgs em {anti_spam_config.get('intervalo_segundos', 5)}s | XP removido: {xp_removido}")
+                
+                # Não processa a mensagem que causou o mute
+                return
+    
+    # ========================
     # Verificar bloqueio de links
+    # ========================
     canais_bloqueados = dados.get("canais_links_bloqueados", [])
     if message.channel.id in canais_bloqueados:
         url_pattern = r"https?://[^\s]+"
@@ -2119,20 +2482,22 @@ async def on_message(message: discord.Message):
                     pass
                 return
     
+    # ========================
     # Sistema de XP
+    # ========================
     dados.setdefault("xp", {})
     dados.setdefault("nivel", {})
     
     taxa_xp = dados.get("config", {}).get("taxa_xp", 3)
     ganho_xp = max(1, xp_por_mensagem() // taxa_xp)
-    dados["xp"][uid] = dados["xp"].get(uid, 0) + ganho_xp
+    dados["xp"][str(message.author.id)] = dados["xp"].get(str(message.author.id), 0) + ganho_xp
     
-    xp_atual = dados["xp"][uid]
+    xp_atual = dados["xp"][str(message.author.id)]
     nivel_atual = xp_para_nivel(xp_atual)
-    nivel_anterior = dados["nivel"].get(uid, 1)
+    nivel_anterior = dados["nivel"].get(str(message.author.id), 1)
     
     if nivel_atual > nivel_anterior:
-        dados["nivel"][uid] = nivel_atual
+        dados["nivel"][str(message.author.id)] = nivel_atual
         
         canal_levelup_id = dados.get("config", {}).get("canal_levelup")
         if canal_levelup_id:
