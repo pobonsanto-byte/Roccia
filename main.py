@@ -78,7 +78,9 @@ dados = {
         "fundo_boas_vindas": "",
         "taxa_xp": 3,
         "canal_levelup": None,
-        "canal_logs": None
+        "canal_logs": None,
+        "canal_perfil": None,  # Canal onde o /perfil pode ser usado
+        "canal_rank": None     # Canal onde o /rank pode ser usado
     },
     "logs": [],
     "fila": {
@@ -100,13 +102,11 @@ dados = {
         "deletar_mensagens": True,
         "cargos_ignorados": ["Administrador", "Moderador", "Staff", "Dono"],
         "comandos_ignorados": [
-            # Comandos da Mudae
             "$w", "$wa", "$wg", "$h", "$ha", "$hg",
             "$W", "$WA", "$WG", "$H", "$HA", "$HG",
             "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu",
             "$daily", "$Daily", "$rep", "$Rep", "$rep+", "$Rep+",
             "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
-            # Adicione mais comandos que devem ser ignorados
         ]
     }
 }
@@ -161,6 +161,17 @@ def carregar_dados_github():
                             "$W", "$WA", "$WG", "$H", "$HA", "$HG",
                             "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
                         ]
+                    }
+                if "config" not in dados:
+                    dados["config"] = {
+                        "canal_boas_vindas": None,
+                        "mensagem_boas_vindas": "Olá {member}, seja bem-vindo(a)!",
+                        "fundo_boas_vindas": "",
+                        "taxa_xp": 3,
+                        "canal_levelup": None,
+                        "canal_logs": None,
+                        "canal_perfil": None,
+                        "canal_rank": None
                     }
                 print("✅ Dados carregados do GitHub.")
                 return True
@@ -232,10 +243,8 @@ def verificar_comando_ignorado(conteudo: str) -> bool:
     comandos_ignorados = dados.get("anti_spam", {}).get("comandos_ignorados", [])
     
     for comando in comandos_ignorados:
-        # Verifica se o conteúdo começa com o comando (ex: "$w" em "$waife")
         if conteudo_lower.startswith(comando.lower()):
             return True
-        # Verifica se é exatamente igual
         if conteudo_lower == comando.lower():
             return True
     
@@ -340,7 +349,6 @@ async def remover_xp_por_spam(member: discord.Member):
     novo_xp = max(0, xp_atual - penalidade)
     dados["xp"][uid] = novo_xp
     
-    # Recalcula o nível
     novo_nivel = xp_para_nivel(novo_xp)
     dados["nivel"][uid] = novo_nivel
     
@@ -738,6 +746,15 @@ async def executar_acao_bot_interno(acao):
             salvar_dados_github("Config XP atualizada")
             return True
         
+        elif tipo_acao == "configurar_comandos":
+            config = dados.setdefault("config", {})
+            if 'canal_perfil' in dados_acao:
+                config["canal_perfil"] = dados_acao['canal_perfil']
+            if 'canal_rank' in dados_acao:
+                config["canal_rank"] = dados_acao['canal_rank']
+            salvar_dados_github("Config canais de comandos atualizada")
+            return True
+        
         elif tipo_acao == "adicionar_cargo_nivel":
             dados.setdefault("cargos_nivel", {})[str(dados_acao['nivel'])] = dados_acao['cargo_id']
             salvar_dados_github(f"Cargo para nível {dados_acao['nivel']} adicionado")
@@ -875,10 +892,11 @@ def home():
                     <li>Sistema de Fila de Serviços</li>
                     <li>🛡️ Anti-Spam Automático</li>
                     <li>🚫 Comandos da Mudae NÃO ganham XP</li>
+                    <li>📢 Comandos /perfil e /rank podem ser configurados para canais específicos</li>
                 </ul>
             </div>
             {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn">🚀 Painel</a><a href="/fila" class="btn">📋 Fila</a><a href="/logout" class="btn">🚪 Sair</a>'}
-            <p style="margin-top: 20px; color: #888;">Use <code>/perfil</code> e <code>/rank</code> no Discord</p>
+            <p style="margin-top: 20px; color: #888;">Use <code>/perfil</code> e <code>/rank</code> no Discord (apenas nos canais configurados)</p>
         </div>
     </body>
     </html>
@@ -1192,6 +1210,23 @@ def api_config_xp():
     executar_acao_bot("configurar_xp", **req)
     return jsonify({"sucesso": True, "mensagem": "Configuração salva!"})
 
+@app.route("/api/config/comandos", methods=["GET", "POST"])
+def api_config_comandos():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        config = dados.get("config", {})
+        return jsonify({
+            "sucesso": True,
+            "canal_perfil": config.get("canal_perfil", ""),
+            "canal_rank": config.get("canal_rank", "")
+        })
+    
+    req = request.json
+    executar_acao_bot("configurar_comandos", **req)
+    return jsonify({"sucesso": True, "mensagem": "Configuração de comandos salva!"})
+
 @app.route("/api/cargos/nivel", methods=["GET", "POST", "DELETE"])
 def api_cargos_nivel():
     if 'usuario' not in session:
@@ -1357,6 +1392,7 @@ def dashboard():
         <div class="container">
             <div class="tab-nav">
                 <button class="tab-btn active" onclick="showTab('inicio')">🏠 Início</button>
+                <button class="tab-btn" onclick="showTab('comandos_canais')">📢 Canais de Comandos</button>
                 <button class="tab-btn" onclick="showTab('antispam')">🛡️ Anti-Spam</button>
                 <button class="tab-btn" onclick="showTab('boasvindas')">👋 Boas-vindas</button>
                 <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
@@ -1384,8 +1420,46 @@ def dashboard():
                         <p><strong>Ações na fila:</strong> {len(acoes_fila_bot)}</p>
                         <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
                         <p><strong>Comandos da Mudae:</strong> 🚫 NÃO ganham XP</p>
-                        <p><strong>Comandos Discord:</strong> /perfil e /rank</p>
+                        <p><strong>Comandos Discord:</strong> /perfil e /rank (apenas nos canais configurados)</p>
                     </div>
+                </div>
+            </div>
+            
+            <!-- Aba Canais de Comandos -->
+            <div id="comandos_canais" class="tab">
+                <div class="card">
+                    <h2>📢 Configurar Canais dos Comandos</h2>
+                    <div class="info-box">
+                        💡 <strong>Configure em quais canais os comandos /perfil e /rank podem ser usados.</strong><br>
+                        Se não selecionar nenhum canal, os comandos funcionarão em todos os canais.
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Canal para o comando /perfil</label>
+                            <select id="canal-perfil" class="form-control">
+                                <option value="">🔓 Todos os canais</option>
+                            </select>
+                            <small>Selecione um canal específico para restringir o uso do /perfil apenas lá.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Canal para o comando /rank</label>
+                            <select id="canal-rank" class="form-control">
+                                <option value="">🔓 Todos os canais</option>
+                            </select>
+                            <small>Selecione um canal específico para restringir o uso do /rank apenas lá.</small>
+                        </div>
+                    </div>
+                    <button onclick="salvarConfigComandos()" class="btn btn-primary">💾 Salvar Configurações</button>
+                    <div id="comandos-alert" class="alert"></div>
+                </div>
+                <div class="card">
+                    <h2>ℹ️ Informações</h2>
+                    <p>Comandos disponíveis no Discord:</p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><code>/perfil [membro]</code> - Mostra o perfil com XP e nível</li>
+                        <li><code>/rank</code> - Mostra o ranking de XP do servidor</li>
+                    </ul>
+                    <p style="margin-top: 10px; color: #a8e6cf;">Os comandos só funcionarão nos canais que você configurar acima!</p>
                 </div>
             </div>
             
@@ -1673,14 +1747,15 @@ def dashboard():
             
             async function carregarDados() {{
                 try {{
-                    const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes] = await Promise.all([
+                    const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes, configComandosRes] = await Promise.all([
                         fetch('/api/servidor/canais'),
                         fetch('/api/servidor/cargos'),
                         fetch('/api/servidor/membros'),
                         fetch('/api/config/boasvindas'),
                         fetch('/api/config/xp'),
                         fetch('/api/config/links'),
-                        fetch('/api/anti_spam')
+                        fetch('/api/anti_spam'),
+                        fetch('/api/config/comandos')
                     ]);
                     
                     const canaisData = await canaisRes.json();
@@ -1690,6 +1765,7 @@ def dashboard():
                     const configXPdata = await configXP.json();
                     const linksData = await linksRes.json();
                     const antiSpamData = await antiSpamRes.json();
+                    const configComandosData = await configComandosRes.json();
                     
                     if (canaisData.sucesso) canais = canaisData.canais;
                     if (cargosData.sucesso) cargos = cargosData.cargos;
@@ -1708,6 +1784,13 @@ def dashboard():
                         document.getElementById('xp-taxa').value = configXPdata.taxa || 3;
                         const xpCanal = document.getElementById('xp-canal');
                         if (xpCanal) xpCanal.value = configXPdata.canal || '';
+                    }}
+                    
+                    if (configComandosData.sucesso) {{
+                        const canalPerfil = document.getElementById('canal-perfil');
+                        const canalRank = document.getElementById('canal-rank');
+                        if (canalPerfil) canalPerfil.value = configComandosData.canal_perfil || '';
+                        if (canalRank) canalRank.value = configComandosData.canal_rank || '';
                     }}
                     
                     if (linksData.sucesso && linksData.canais) {{
@@ -1743,11 +1826,11 @@ def dashboard():
             }}
             
             function popularSelects() {{
-                const selects = ['welcome-canal', 'xp-canal', 'rr-canal', 'btn-canal', 'embed-canal', 'links-canal'];
+                const selects = ['welcome-canal', 'xp-canal', 'rr-canal', 'btn-canal', 'embed-canal', 'links-canal', 'canal-perfil', 'canal-rank'];
                 selects.forEach(id => {{
                     const select = document.getElementById(id);
                     if (select) {{
-                        select.innerHTML = '<option value="">Selecione um canal</option>';
+                        select.innerHTML = '<option value="">🔓 Todos os canais</option>';
                         canais.forEach(c => {{
                             const option = document.createElement('option');
                             option.value = c.id;
@@ -1835,6 +1918,18 @@ def dashboard():
                     const result = await resp.json();
                     showAlert('xp-alert', result.mensagem, result.sucesso);
                 }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarConfigComandos() {{
+                const data = {{
+                    canal_perfil: document.getElementById('canal-perfil').value,
+                    canal_rank: document.getElementById('canal-rank').value
+                }};
+                try {{
+                    const resp = await fetch('/api/config/comandos', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('comandos-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('comandos-alert', 'Erro: ' + e.message, false); }}
             }}
             
             async function carregarCargosNivel() {{
@@ -2048,7 +2143,7 @@ def dashboard():
                                         <button onclick="concluir('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
                                         <button onclick="remover('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
                                     </td>
-                                </tr>
+                                </table>
                             `).join('');
                         }}
                         document.getElementById('fila-status').innerHTML = `Status: ${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}} | ${{fila.contagem}}/${{fila.tamanho_maximo}}`;
@@ -2115,12 +2210,43 @@ def api_membro_advertencias():
     return jsonify({"sucesso": True, "advertencias": warns})
 
 # ========================
-# COMANDOS SLASH DO DISCORD
+# FUNÇÃO PARA VERIFICAR CANAL PERMITIDO
+# ========================
+
+async def verificar_canal_permitido(interaction: discord.Interaction, comando: str) -> bool:
+    """Verifica se o comando pode ser usado no canal atual"""
+    config = dados.get("config", {})
+    canal_permitido = config.get(f"canal_{comando}", None)
+    
+    # Se não houver canal configurado, permite em todos os canais
+    if not canal_permitido:
+        return True
+    
+    # Verifica se o canal atual é o permitido
+    if str(interaction.channel_id) == str(canal_permitido):
+        return True
+    
+    return False
+
+# ========================
+# COMANDOS SLASH DO DISCORD (COM VERIFICAÇÃO DE CANAL)
 # ========================
 
 @tree.command(name="perfil", description="Mostra o seu perfil com XP e nível")
 @app_commands.describe(membro="Membro para ver o perfil (opcional)")
 async def slash_perfil(interaction: discord.Interaction, membro: discord.Member = None):
+    # Verifica se o comando pode ser usado neste canal
+    if not await verificar_canal_permitido(interaction, "perfil"):
+        config = dados.get("config", {})
+        canal_permitido = config.get("canal_perfil")
+        canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
+        await interaction.response.send_message(
+            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!\n"
+            f"Configure isso no painel de controle.",
+            ephemeral=True
+        )
+        return
+    
     await interaction.response.defer(thinking=True)
     
     alvo = membro or interaction.user
@@ -2188,6 +2314,18 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
 
 @tree.command(name="rank", description="Mostra o ranking dos 10 maiores XP")
 async def slash_rank(interaction: discord.Interaction):
+    # Verifica se o comando pode ser usado neste canal
+    if not await verificar_canal_permitido(interaction, "rank"):
+        config = dados.get("config", {})
+        canal_permitido = config.get("canal_rank")
+        canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
+        await interaction.response.send_message(
+            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!\n"
+            f"Configure isso no painel de controle.",
+            ephemeral=True
+        )
+        return
+    
     await interaction.response.defer()
     
     ranking = sorted(dados.get("xp", {}).items(), key=lambda t: t[1], reverse=True)[:10]
@@ -2299,10 +2437,13 @@ async def on_ready():
     await asyncio.sleep(2)
     iniciar_processador_acoes()
     
+    config = dados.get("config", {})
     print(f"{'='*50}")
     print(f"✨ BOT PRONTO! Comandos: /perfil e /rank")
     print(f"🛡️ Anti-Spam: {'ATIVADO' if dados.get('anti_spam', {}).get('ativado', True) else 'DESATIVADO'}")
     print(f"🚫 Comandos da Mudae: NÃO ganham XP e NÃO contam como spam")
+    print(f"📢 Canal do /perfil: {config.get('canal_perfil') or 'TODOS OS CANAIS'}")
+    print(f"📢 Canal do /rank: {config.get('canal_rank') or 'TODOS OS CANAIS'}")
     print(f"{'='*50}\n")
 
 @bot.event
