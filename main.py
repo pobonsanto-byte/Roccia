@@ -100,9 +100,13 @@ dados = {
         "deletar_mensagens": True,
         "cargos_ignorados": ["Administrador", "Moderador", "Staff", "Dono"],
         "comandos_ignorados": [
+            # Comandos da Mudae
             "$w", "$wa", "$wg", "$h", "$ha", "$hg",
             "$W", "$WA", "$WG", "$H", "$HA", "$HG",
-            "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
+            "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu",
+            "$daily", "$Daily", "$rep", "$Rep", "$rep+", "$Rep+",
+            "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
+            # Adicione mais comandos que devem ser ignorados
         ]
     }
 }
@@ -219,17 +223,19 @@ def escape_html(texto):
     )
 
 # ========================
-# FUNÇÕES ANTI-SPAM
+# FUNÇÕES ANTI-SPAM E IGNORADOS
 # ========================
 
 def verificar_comando_ignorado(conteudo: str) -> bool:
-    """Verifica se a mensagem é um comando ignorado (não conta como spam)"""
+    """Verifica se a mensagem é um comando ignorado (não conta como spam e NÃO ganha XP)"""
     conteudo_lower = conteudo.lower().strip()
     comandos_ignorados = dados.get("anti_spam", {}).get("comandos_ignorados", [])
     
     for comando in comandos_ignorados:
+        # Verifica se o conteúdo começa com o comando (ex: "$w" em "$waife")
         if conteudo_lower.startswith(comando.lower()):
             return True
+        # Verifica se é exatamente igual
         if conteudo_lower == comando.lower():
             return True
     
@@ -567,7 +573,6 @@ async def executar_acao_bot_interno(acao):
             if par_atual.strip():
                 pares.append(par_atual.strip())
             
-            import re
             EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
             EMOJI_NOME_RE = re.compile(r":([a-zA-Z0-9_]+):")
             
@@ -869,6 +874,7 @@ def home():
                     <li>Botões de Cargos</li>
                     <li>Sistema de Fila de Serviços</li>
                     <li>🛡️ Anti-Spam Automático</li>
+                    <li>🚫 Comandos da Mudae NÃO ganham XP</li>
                 </ul>
             </div>
             {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn">🚀 Painel</a><a href="/fila" class="btn">📋 Fila</a><a href="/logout" class="btn">🚪 Sair</a>'}
@@ -1331,6 +1337,7 @@ def dashboard():
             .slider:before {{ position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }}
             input:checked + .slider {{ background-color: #2196F3; }}
             input:checked + .slider:before {{ transform: translateX(26px); }}
+            .info-box {{ background: #1a1a2e; border-left: 4px solid #5865F2; padding: 1rem; margin: 1rem 0; border-radius: 5px; }}
         </style>
     </head>
     <body>
@@ -1368,7 +1375,6 @@ def dashboard():
                             <div class="stat-card"><h3>{len(dados.get("xp", {}))}</h3><p>Usuários com XP</p></div>
                             <div class="stat-card"><h3>{sum(len(w) for w in dados.get("advertencias", {}).values())}</h3><p>Advertências</p></div>
                             <div class="stat-card"><h3>{len(fila["entradas"])}</h3><p>Na Fila</p></div>
-                            <div class="stat-card"><h3>{len(dados.get("reacoes_cargos", {}))}</h3><p>Reaction Roles</p></div>
                         </div>
                     </div>
                     <div class="card">
@@ -1377,14 +1383,9 @@ def dashboard():
                         <p><strong>Processador:</strong> {'✅ Ativo' if processador_acoes_rodando else '❌ Inativo'}</p>
                         <p><strong>Ações na fila:</strong> {len(acoes_fila_bot)}</p>
                         <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
+                        <p><strong>Comandos da Mudae:</strong> 🚫 NÃO ganham XP</p>
                         <p><strong>Comandos Discord:</strong> /perfil e /rank</p>
                     </div>
-                </div>
-                <div class="card">
-                    <h2>📝 Links Úteis</h2>
-                    <p><strong>Fila Pública:</strong> <a href="/fila" style="color:#5865F2;">{request.host_url}fila</a></p>
-                    <p><strong>Fila Embed (OBS):</strong> <a href="/fila/embed" style="color:#5865F2;">{request.host_url}fila/embed</a></p>
-                    <p><strong>API da Fila:</strong> <a href="/fila/api" style="color:#5865F2;">{request.host_url}fila/api</a></p>
                 </div>
             </div>
             
@@ -1392,6 +1393,9 @@ def dashboard():
             <div id="antispam" class="tab">
                 <div class="card">
                     <h2>🛡️ Configuração Anti-Spam</h2>
+                    <div class="info-box">
+                        💡 <strong>Comandos da Mudae são ignorados automaticamente</strong> - Eles NÃO contam como spam e NÃO ganham XP!
+                    </div>
                     <div class="grid-2">
                         <div class="form-group">
                             <label>Status do Anti-Spam</label>
@@ -1434,7 +1438,7 @@ def dashboard():
                         </div>
                         <div class="form-group">
                             <label>Cargos Ignorados (separar por vírgula)</label>
-                            <input type="text" id="as-cargos" class="form-control" value="{anti_spam.get('cargos_ignorados', ['Administrador', 'Moderador', 'Staff', 'Dono'])}">
+                            <input type="text" id="as-cargos" class="form-control" value="{','.join(anti_spam.get('cargos_ignorados', ['Administrador', 'Moderador', 'Staff', 'Dono']))}">
                         </div>
                         <div class="form-group">
                             <label>Comandos Ignorados (separar por vírgula)</label>
@@ -1445,8 +1449,8 @@ def dashboard():
                     <div id="as-alert" class="alert"></div>
                 </div>
                 <div class="card">
-                    <h2>📋 Comandos Ignorados (ex: Mudae)</h2>
-                    <p>Estes comandos NÃO contam como spam e NÃO removem XP:</p>
+                    <h2>📋 Comandos Ignorados (NÃO ganham XP e NÃO contam como spam)</h2>
+                    <p>Estes comandos são ignorados completamente pelo sistema:</p>
                     <div id="lista-comandos" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;"></div>
                 </div>
             </div>
@@ -1477,6 +1481,9 @@ def dashboard():
             <div id="xp" class="tab">
                 <div class="card">
                     <h2>⭐ Sistema de XP</h2>
+                    <div class="info-box">
+                        💡 <strong>Atenção:</strong> Comandos da Mudae NÃO ganham XP!
+                    </div>
                     <div class="form-group">
                         <label>Taxa de XP (1=fácil, 10=difícil)</label>
                         <input type="number" id="xp-taxa" class="form-control" min="1" max="10">
@@ -2295,6 +2302,7 @@ async def on_ready():
     print(f"{'='*50}")
     print(f"✨ BOT PRONTO! Comandos: /perfil e /rank")
     print(f"🛡️ Anti-Spam: {'ATIVADO' if dados.get('anti_spam', {}).get('ativado', True) else 'DESATIVADO'}")
+    print(f"🚫 Comandos da Mudae: NÃO ganham XP e NÃO contam como spam")
     print(f"{'='*50}\n")
 
 @bot.event
@@ -2423,15 +2431,20 @@ async def on_message(message: discord.Message):
     anti_spam_config = dados.get("anti_spam", {})
     
     # ========================
-    # ANTI-SPAM
+    # VERIFICAR SE É COMANDO IGNORADO (ex: Mudae)
+    # ========================
+    eh_comando_ignorado = verificar_comando_ignorado(conteudo)
+    
+    # Se for comando ignorado, NÃO processa anti-spam e NÃO dá XP
+    if eh_comando_ignorado:
+        # Apenas processa comandos do bot se houver
+        await bot.process_commands(message)
+        return
+    
+    # ========================
+    # ANTI-SPAM (apenas para mensagens que NÃO são comandos ignorados)
     # ========================
     if anti_spam_config.get("ativado", True):
-        # Verifica se o comando é ignorado (ex: comandos da Mudae)
-        if verificar_comando_ignorado(conteudo):
-            # Comandos ignorados não contam para spam
-            await bot.process_commands(message)
-            return
-        
         # Verifica se o membro tem cargo ignorado
         if not verificar_cargo_ignorado(message.author):
             # Registra a mensagem e verifica limite
@@ -2456,7 +2469,7 @@ async def on_message(message: discord.Message):
                     # Notifica o usuário
                     xp_msg = f" e teve **{anti_spam_config.get('xp_penalidade', 50)} XP removido**" if xp_removido else ""
                     try:
-                        await message.author.send(f"⚠️ **Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}\nPor favor, evite enviar muitas mensagens repetidas em um curto período.\n\n💡 **Comandos da Mudae NÃO contam como spam!**")
+                        await message.author.send(f"⚠️ **Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}\nPor favor, evite enviar muitas mensagens repetidas em um curto período.\n\n💡 **Comandos da Mudae NÃO contam como spam e NÃO ganham XP!**")
                     except:
                         await message.channel.send(f"⚠️ {message.author.mention}, você foi mutado por **{duracao} minutos** por spam!{xp_msg}")
                     
@@ -2483,7 +2496,7 @@ async def on_message(message: discord.Message):
                 return
     
     # ========================
-    # Sistema de XP
+    # Sistema de XP (apenas para mensagens que NÃO são comandos ignorados)
     # ========================
     dados.setdefault("xp", {})
     dados.setdefault("nivel", {})
