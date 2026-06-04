@@ -1323,6 +1323,7 @@ def dashboard():
                         </div>
                         <button onclick="alternarBloqueioLinks()" class="btn btn-danger">🔒 Alternar Bloqueio</button>
                         <div id="links-status" style="margin-top: 1rem; padding: 0.5rem; background: #1a1a1a; border-radius: 5px;"></div>
+                        <div id="links-alert" class="alert"></div>
                     </div>
                 </div>
                 
@@ -1369,7 +1370,7 @@ def dashboard():
                             <thead>
                                 <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Entrada</th><th>Ações</th></tr>
                             </thead>
-                            <tbody id="fila-tabela"><tr><td colspan="5">Carregando...</td></tr></tbody>
+                            <tbody id="fila-tabela"><tr><td colspan="5">Carregando......</td></tr></tbody>
                         </table>
                     </div>
                     <div style="margin-top: 10px;"><button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button></div>
@@ -1679,7 +1680,10 @@ def dashboard():
             
             async function alternarBloqueioLinks() {{
                 const canalId = document.getElementById('links-canal').value;
-                if (!canalId) {{ alert('Selecione um canal'); return; }}
+                if (!canalId) {{ 
+                    showAlert('links-alert', 'Selecione um canal', false);
+                    return; 
+                }}
                 try {{
                     const resp = await fetch('/api/config/links', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{canal_id: canalId}})}});
                     const result = await resp.json();
@@ -1692,8 +1696,12 @@ def dashboard():
                         }}).join(', ');
                         document.getElementById('links-status').innerHTML = nomes ? 'Canais bloqueados: ' + nomes : 'Nenhum canal bloqueado';
                         showAlert('links-alert', result.mensagem, true);
+                    }} else {{
+                        showAlert('links-alert', 'Erro ao alternar bloqueio', false);
                     }}
-                }} catch(e) {{ alert('Erro: ' + e.message); }}
+                }} catch(e) {{ 
+                    showAlert('links-alert', 'Erro: ' + e.message, false);
+                }}
             }}
             
             async function criarEmbed() {{
@@ -1744,7 +1752,7 @@ def dashboard():
                                         <button onclick="concluir('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
                                         <button onclick="remover('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
                                     </td>
-                                </tr>
+                                 </tr>
                             `).join('');
                         }}
                         document.getElementById('fila-status').innerHTML = `Status: ${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}} | ${{fila.contagem}}/${{fila.tamanho_maximo}}`;
@@ -1787,6 +1795,7 @@ def dashboard():
             
             function showAlert(id, msg, sucesso) {{
                 const el = document.getElementById(id);
+                if (!el) return;
                 el.textContent = msg;
                 el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
                 el.style.display = 'block';
