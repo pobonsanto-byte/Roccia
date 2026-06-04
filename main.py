@@ -748,10 +748,23 @@ async def executar_acao_bot_interno(acao):
         
         elif tipo_acao == "configurar_comandos":
             config = dados.setdefault("config", {})
+            # Lógica de toggle: se o canal selecionado for o mesmo que já está configurado, remove a configuração
             if 'canal_perfil' in dados_acao:
-                config["canal_perfil"] = dados_acao['canal_perfil']
+                canal_perfil_atual = config.get("canal_perfil")
+                novo_canal_perfil = dados_acao['canal_perfil']
+                if novo_canal_perfil and canal_perfil_atual == novo_canal_perfil:
+                    config["canal_perfil"] = None  # Remove a configuração (toggle off)
+                else:
+                    config["canal_perfil"] = novo_canal_perfil if novo_canal_perfil else None
+            
             if 'canal_rank' in dados_acao:
-                config["canal_rank"] = dados_acao['canal_rank']
+                canal_rank_atual = config.get("canal_rank")
+                novo_canal_rank = dados_acao['canal_rank']
+                if novo_canal_rank and canal_rank_atual == novo_canal_rank:
+                    config["canal_rank"] = None  # Remove a configuração (toggle off)
+                else:
+                    config["canal_rank"] = novo_canal_rank if novo_canal_rank else None
+            
             salvar_dados_github("Config canais de comandos atualizada")
             return True
         
@@ -1373,6 +1386,8 @@ def dashboard():
             input:checked + .slider {{ background-color: #2196F3; }}
             input:checked + .slider:before {{ transform: translateX(26px); }}
             .info-box {{ background: #1a1a2e; border-left: 4px solid #5865F2; padding: 1rem; margin: 1rem 0; border-radius: 5px; }}
+            .config-badge {{ display: inline-block; background: #2196F3; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 5px; }}
+            .config-removed {{ background: #f44336; }}
         </style>
     </head>
     <body>
@@ -1421,6 +1436,7 @@ def dashboard():
                         <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
                         <p><strong>Comandos da Mudae:</strong> 🚫 NÃO ganham XP</p>
                         <p><strong>Comandos Discord:</strong> /perfil e /rank (apenas nos canais configurados)</p>
+                        <p><strong>💡 Dica:</strong> Selecione o mesmo canal duas vezes para remover a restrição!</p>
                     </div>
                 </div>
             </div>
@@ -1430,8 +1446,10 @@ def dashboard():
                 <div class="card">
                     <h2>📢 Configurar Canais dos Comandos</h2>
                     <div class="info-box">
-                        💡 <strong>Configure em quais canais os comandos /perfil e /rank podem ser usados.</strong><br>
-                        Se não selecionar nenhum canal, os comandos funcionarão em todos os canais.
+                        💡 <strong>Como funciona:</strong><br>
+                        • Selecione um canal → O comando só funcionará naquele canal<br>
+                        • Selecione o <strong>mesmo canal novamente</strong> → Remove a restrição (volta a funcionar em todos os canais)<br>
+                        • Deixe em "🔓 Todos os canais" → O comando funciona em qualquer lugar
                     </div>
                     <div class="grid-2">
                         <div class="form-group">
@@ -1439,14 +1457,16 @@ def dashboard():
                             <select id="canal-perfil" class="form-control">
                                 <option value="">🔓 Todos os canais</option>
                             </select>
-                            <small>Selecione um canal específico para restringir o uso do /perfil apenas lá.</small>
+                            <small>Clique no mesmo canal duas vezes para remover a restrição.</small>
+                            <div id="perfil-status" style="margin-top: 8px;"></div>
                         </div>
                         <div class="form-group">
                             <label>Canal para o comando /rank</label>
                             <select id="canal-rank" class="form-control">
                                 <option value="">🔓 Todos os canais</option>
                             </select>
-                            <small>Selecione um canal específico para restringir o uso do /rank apenas lá.</small>
+                            <small>Clique no mesmo canal duas vezes para remover a restrição.</small>
+                            <div id="rank-status" style="margin-top: 8px;"></div>
                         </div>
                     </div>
                     <button onclick="salvarConfigComandos()" class="btn btn-primary">💾 Salvar Configurações</button>
@@ -1460,6 +1480,7 @@ def dashboard():
                         <li><code>/rank</code> - Mostra o ranking de XP do servidor</li>
                     </ul>
                     <p style="margin-top: 10px; color: #a8e6cf;">Os comandos só funcionarão nos canais que você configurar acima!</p>
+                    <p style="margin-top: 5px; color: #ffd93d;">🔄 <strong>Toggle:</strong> Selecione o mesmo canal duas vezes para remover a configuração.</p>
                 </div>
             </div>
             
@@ -1744,6 +1765,7 @@ def dashboard():
             let canais = [];
             let cargos = [];
             let membros = [];
+            let configAtual = {{}};
             
             async function carregarDados() {{
                 try {{
@@ -1787,10 +1809,17 @@ def dashboard():
                     }}
                     
                     if (configComandosData.sucesso) {{
+                        configAtual = configComandosData;
                         const canalPerfil = document.getElementById('canal-perfil');
                         const canalRank = document.getElementById('canal-rank');
-                        if (canalPerfil) canalPerfil.value = configComandosData.canal_perfil || '';
-                        if (canalRank) canalRank.value = configComandosData.canal_rank || '';
+                        if (canalPerfil) {{
+                            canalPerfil.value = configComandosData.canal_perfil || '';
+                            atualizarStatusPerfil(configComandosData.canal_perfil);
+                        }}
+                        if (canalRank) {{
+                            canalRank.value = configComandosData.canal_rank || '';
+                            atualizarStatusRank(configComandosData.canal_rank);
+                        }}
                     }}
                     
                     if (linksData.sucesso && linksData.canais) {{
@@ -1823,6 +1852,26 @@ def dashboard():
                     carregarCargosNivel();
                     carregarFila();
                 }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function atualizarStatusPerfil(canalId) {{
+                const div = document.getElementById('perfil-status');
+                if (!canalId) {{
+                    div.innerHTML = '<span class="config-badge" style="background:#00b894;">🔓 Funciona em TODOS os canais</span>';
+                }} else {{
+                    const canal = canais.find(c => c.id == canalId);
+                    div.innerHTML = `<span class="config-badge">📢 /perfil funciona apenas em <strong>#${{canal ? canal.nome : canalId}}</strong></span> <span style="color:#ffd93d;">(Clique novamente para remover)</span>`;
+                }}
+            }}
+            
+            function atualizarStatusRank(canalId) {{
+                const div = document.getElementById('rank-status');
+                if (!canalId) {{
+                    div.innerHTML = '<span class="config-badge" style="background:#00b894;">🔓 Funciona em TODOS os canais</span>';
+                }} else {{
+                    const canal = canais.find(c => c.id == canalId);
+                    div.innerHTML = `<span class="config-badge">📢 /rank funciona apenas em <strong>#${{canal ? canal.nome : canalId}}</strong></span> <span style="color:#ffd93d;">(Clique novamente para remover)</span>`;
+                }}
             }}
             
             function popularSelects() {{
@@ -1921,14 +1970,49 @@ def dashboard():
             }}
             
             async function salvarConfigComandos() {{
+                const canalPerfil = document.getElementById('canal-perfil').value;
+                const canalRank = document.getElementById('canal-rank').value;
+                
+                // Lógica de toggle no frontend
+                let perfilFinal = canalPerfil;
+                let rankFinal = canalRank;
+                
+                // Se o canal selecionado for o mesmo que já estava configurado, envia vazio para remover
+                if (canalPerfil && configAtual.canal_perfil === canalPerfil) {{
+                    perfilFinal = '';
+                }}
+                if (canalRank && configAtual.canal_rank === canalRank) {{
+                    rankFinal = '';
+                }}
+                
                 const data = {{
-                    canal_perfil: document.getElementById('canal-perfil').value,
-                    canal_rank: document.getElementById('canal-rank').value
+                    canal_perfil: perfilFinal,
+                    canal_rank: rankFinal
                 }};
                 try {{
                     const resp = await fetch('/api/config/comandos', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
                     const result = await resp.json();
                     showAlert('comandos-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        // Atualiza a configuração atual
+                        if (perfilFinal !== canalPerfil) {{
+                            // Removeu a configuração
+                            document.getElementById('canal-perfil').value = '';
+                            atualizarStatusPerfil('');
+                            configAtual.canal_perfil = '';
+                        }} else {{
+                            atualizarStatusPerfil(perfilFinal);
+                            configAtual.canal_perfil = perfilFinal;
+                        }}
+                        if (rankFinal !== canalRank) {{
+                            document.getElementById('canal-rank').value = '';
+                            atualizarStatusRank('');
+                            configAtual.canal_rank = '';
+                        }} else {{
+                            atualizarStatusRank(rankFinal);
+                            configAtual.canal_rank = rankFinal;
+                        }}
+                    }}
                 }} catch(e) {{ showAlert('comandos-alert', 'Erro: ' + e.message, false); }}
             }}
             
@@ -2143,7 +2227,7 @@ def dashboard():
                                         <button onclick="concluir('${{e.id}}')" class="btn btn-success" style="padding:4px 8px;">✅</button>
                                         <button onclick="remover('${{e.id}}')" class="btn btn-danger" style="padding:4px 8px;">❌</button>
                                     </td>
-                                </table>
+                                </tr>
                             `).join('');
                         }}
                         document.getElementById('fila-status').innerHTML = `Status: ${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}} | ${{fila.contagem}}/${{fila.tamanho_maximo}}`;
@@ -2239,9 +2323,14 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
     if not await verificar_canal_permitido(interaction, "perfil"):
         config = dados.get("config", {})
         canal_permitido = config.get("canal_perfil")
-        canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
+        if canal_permitido:
+            canal_menção = f"<#{canal_permitido}>"
+        else:
+            canal_menção = "nenhum canal configurado"
         await interaction.response.send_message(
-            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!",
+            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!\n"
+            f"Configure isso no painel de controle.\n"
+            f"💡 Dica: Selecione o mesmo canal duas vezes no painel para remover a restrição.",
             ephemeral=True
         )
         return
@@ -2317,9 +2406,14 @@ async def slash_rank(interaction: discord.Interaction):
     if not await verificar_canal_permitido(interaction, "rank"):
         config = dados.get("config", {})
         canal_permitido = config.get("canal_rank")
-        canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
+        if canal_permitido:
+            canal_menção = f"<#{canal_permitido}>"
+        else:
+            canal_menção = "nenhum canal configurado"
         await interaction.response.send_message(
-            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!\n",
+            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!\n"
+            f"Configure isso no painel de controle.\n"
+            f"💡 Dica: Selecione o mesmo canal duas vezes no painel para remover a restrição.",
             ephemeral=True
         )
         return
@@ -2442,6 +2536,7 @@ async def on_ready():
     print(f"🚫 Comandos da Mudae: NÃO ganham XP e NÃO contam como spam")
     print(f"📢 Canal do /perfil: {config.get('canal_perfil') or 'TODOS OS CANAIS'}")
     print(f"📢 Canal do /rank: {config.get('canal_rank') or 'TODOS OS CANAIS'}")
+    print(f"💡 Dica: Selecione o mesmo canal duas vezes no painel para remover a restrição!")
     print(f"{'='*50}\n")
 
 @bot.event
