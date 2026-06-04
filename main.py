@@ -2241,8 +2241,7 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
         canal_permitido = config.get("canal_perfil")
         canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
         await interaction.response.send_message(
-            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!\n"
-            f"Configure isso no painel de controle.",
+            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!",
             ephemeral=True
         )
         return
@@ -2320,8 +2319,7 @@ async def slash_rank(interaction: discord.Interaction):
         canal_permitido = config.get("canal_rank")
         canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
         await interaction.response.send_message(
-            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!\n"
-            f"Configure isso no painel de controle.",
+            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!\n",
             ephemeral=True
         )
         return
