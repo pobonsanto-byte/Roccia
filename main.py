@@ -1829,7 +1829,7 @@ def dashboard():
                     
                     <div class="form-group">
                         <label>Novo Botão - Nome</label>
-                        <input type="text" id="novo-botao-nome" class="form-control" placeholder="Ex: Tabela de Preços, Planilha VIP, Preços Loja">
+                        <input type="text" id="novo-botao-nome" class="form-control" placeholder="Ex: Tabela de Preços, Preços WuWa, Preços Mongil">
                     </div>
                     <div class="form-group">
                         <label>Novo Botão - URL</label>
