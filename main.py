@@ -1,11 +1,4 @@
-# ========================
-# IMPORTS E CONFIGURAÇÃO INICIAL
-# ========================
-
 import os
-os.environ["DISCORD_NO_VOICE"] = "1"
-
-import sys
 import json
 import base64
 import re
@@ -14,19 +7,12 @@ import time
 import secrets
 import hashlib
 import hmac
-import uuid
 from io import BytesIO
 from threading import Thread
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from urllib.parse import urlencode
 import asyncio
-
-from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, flash
-from flask_wtf.csrf import CSRFProtect
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -50,13 +36,17 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI", "https://seu-site.onrender.com/callback")
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
+if not BOT_TOKEN or not GITHUB_TOKEN:
+    raise SystemExit("Defina BOT_TOKEN e GITHUB_TOKEN nas variáveis de ambiente.")
+
+GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
+
 # ========================
-# LOGS DE DIAGNÓSTICO
+# Sistema de ações
 # ========================
-print(f"🤖 BOT_TOKEN está configurado: {BOT_TOKEN is not None}")
-print(f"🤖 BOT_TOKEN começa com: {BOT_TOKEN[:10] if BOT_TOKEN else 'N/A'}...")
-print(f"📂 GITHUB_TOKEN está configurado: {GITHUB_TOKEN is not None}")
-print(f"🏠 GUILD_ID: {GUILD_ID}")
+acoes_fila_bot = []
+processador_acoes_task = None
+processador_acoes_rodando = False
 
 # ========================
 # FLASK APP
@@ -65,28 +55,19 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 # ========================
-# SEGURANÇA
+# BOT SETUP
 # ========================
-csrf = CSRFProtect(app)
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.reactions = True
 
-# Flask-Limiter corrigido
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://"
-)
+bot = commands.Bot(command_prefix="/", intents=intents)
+tree = bot.tree
 
 # ========================
-# FUNÇÕES DO GITHUB
+# ESTRUTURA DE DADOS
 # ========================
-
-def _gh_headers():
-    return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-
-GITHUB_API_CONTENT = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FILE}"
-
-# Estrutura inicial dos dados
 dados = {
     "xp": {},
     "nivel": {},
@@ -133,33 +114,49 @@ dados = {
             "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
         ]
     },
+    # NOVAS ESTRUTURAS DA LOJA
     "usuarios": {},
-    "categorias": [
-        {"id": "cat1", "nome": "League of Legends", "slug": "league-of-legends", "ativo": True},
-        {"id": "cat2", "nome": "Valorant", "slug": "valorant", "ativo": True},
-        {"id": "cat3", "nome": "CS2", "slug": "cs2", "ativo": True},
-        {"id": "cat4", "nome": "Fortnite", "slug": "fortnite", "ativo": True},
-        {"id": "cat5", "nome": "Coaching", "slug": "coaching", "ativo": True},
-        {"id": "cat6", "nome": "Boost", "slug": "boost", "ativo": True},
-        {"id": "cat7", "nome": "Outros", "slug": "outros", "ativo": True}
-    ],
     "servicos": [],
+    "categorias": ["League of Legends", "Valorant", "CS2", "Fortnite", "Coaching", "Boost", "Outros"],
     "pedidos": [],
     "pagamentos": [],
-    "transacoes_pontos": [],
-    "recompensas": [
-        {"id": "rec1", "nome": "5% de Desconto", "descricao": "Ganhe 5% de desconto na próxima compra", "pontos_necessarios": 100, "tipo": "desconto", "valor": 5, "status": "ativo", "ordem": 1},
-        {"id": "rec2", "nome": "10% de Desconto", "descricao": "Ganhe 10% de desconto na próxima compra", "pontos_necessarios": 250, "tipo": "desconto", "valor": 10, "status": "ativo", "ordem": 2},
-        {"id": "rec3", "nome": "20% de Desconto", "descricao": "Ganhe 20% de desconto na próxima compra", "pontos_necessarios": 500, "tipo": "desconto", "valor": 20, "status": "ativo", "ordem": 3},
-        {"id": "rec4", "nome": "Serviço Grátis", "descricao": "Ganhe um serviço gratuito (valor até R$50)", "pontos_necessarios": 1000, "tipo": "servico_gratuito", "valor": 50, "status": "ativo", "ordem": 4}
-    ],
-    "resgates": [],
     "cupons": [],
-    "cupons_utilizados": []
+    "recompensas": [
+        {"id": 1, "nome": "Cupom 5%", "descricao": "Ganhe 5% de desconto na próxima compra", "custo_pontos": 100, "tipo": "desconto", "valor": 5},
+        {"id": 2, "nome": "Cupom 10%", "descricao": "Ganhe 10% de desconto na próxima compra", "custo_pontos": 250, "tipo": "desconto", "valor": 10},
+        {"id": 3, "nome": "Cupom 20%", "descricao": "Ganhe 20% de desconto na próxima compra", "custo_pontos": 500, "tipo": "desconto", "valor": 20},
+        {"id": 4, "nome": "Serviço Grátis", "descricao": "Ganhe um serviço grátis!", "custo_pontos": 1000, "tipo": "servico_gratis", "valor": 0}
+    ],
+    "config_loja": {
+        "nome_loja": "Minha Loja",
+        "logo": "",
+        "banner": "",
+        "pontos_por_real": 10,
+        "gateway_pix": "mercadopago",
+        "mercadopago_token": "",
+        "mercadopago_webhook": "",
+        "cores": {"primaria": "#5865F2", "secundaria": "#4752C4", "fundo": "#121212"},
+        "redes_sociais": {"discord": "", "twitter": "", "instagram": "", "youtube": ""}
+    },
+    "financeiro": {
+        "total_vendido": 0,
+        "total_pedidos": 0,
+        "clientes_ativos": 0
+    }
 }
 
+mensagens_recentes = {}
+
+# ========================
+# FUNÇÕES UTILITÁRIAS
+# ========================
+def agora_br():
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-3)))
+
+def _gh_headers():
+    return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+
 def carregar_dados_github():
-    global dados
     try:
         r = requests.get(GITHUB_API_CONTENT, headers=_gh_headers(), params={"ref": BRANCH}, timeout=15)
         if r.status_code == 200:
@@ -170,78 +167,36 @@ def carregar_dados_github():
                 carregado = json.loads(raw.decode("utf-8"))
                 dados.update(carregado)
                 
-                if "usuarios" not in dados:
-                    dados["usuarios"] = {}
-                if "servicos" not in dados:
-                    dados["servicos"] = []
-                if "pedidos" not in dados:
-                    dados["pedidos"] = []
-                if "pagamentos" not in dados:
-                    dados["pagamentos"] = []
-                if "transacoes_pontos" not in dados:
-                    dados["transacoes_pontos"] = []
-                if "recompensas" not in dados:
-                    dados["recompensas"] = [
-                        {"id": "rec1", "nome": "5% de Desconto", "descricao": "Ganhe 5% de desconto na próxima compra", "pontos_necessarios": 100, "tipo": "desconto", "valor": 5, "status": "ativo", "ordem": 1},
-                        {"id": "rec2", "nome": "10% de Desconto", "descricao": "Ganhe 10% de desconto na próxima compra", "pontos_necessarios": 250, "tipo": "desconto", "valor": 10, "status": "ativo", "ordem": 2},
-                        {"id": "rec3", "nome": "20% de Desconto", "descricao": "Ganhe 20% de desconto na próxima compra", "pontos_necessarios": 500, "tipo": "desconto", "valor": 20, "status": "ativo", "ordem": 3},
-                        {"id": "rec4", "nome": "Serviço Grátis", "descricao": "Ganhe um serviço gratuito (valor até R$50)", "pontos_necessarios": 1000, "tipo": "servico_gratuito", "valor": 50, "status": "ativo", "ordem": 4}
-                    ]
-                if "resgates" not in dados:
-                    dados["resgates"] = []
-                if "cupons" not in dados:
-                    dados["cupons"] = []
-                if "cupons_utilizados" not in dados:
-                    dados["cupons_utilizados"] = []
-                if "categorias" not in dados:
-                    dados["categorias"] = [
-                        {"id": "cat1", "nome": "League of Legends", "slug": "league-of-legends", "ativo": True},
-                        {"id": "cat2", "nome": "Valorant", "slug": "valorant", "ativo": True},
-                        {"id": "cat3", "nome": "CS2", "slug": "cs2", "ativo": True},
-                        {"id": "cat4", "nome": "Fortnite", "slug": "fortnite", "ativo": True},
-                        {"id": "cat5", "nome": "Coaching", "slug": "coaching", "ativo": True},
-                        {"id": "cat6", "nome": "Boost", "slug": "boost", "ativo": True},
-                        {"id": "cat7", "nome": "Outros", "slug": "outros", "ativo": True}
-                    ]
-                
-                if "fila" not in dados:
-                    dados["fila"] = {
-                        "nome": "Fila de Serviços",
-                        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
-                        "entradas": [],
-                        "historico": []
-                    }
-                if "botoes_cargos" not in dados:
-                    dados["botoes_cargos"] = {}
-                if "cargos_nivel" not in dados:
-                    dados["cargos_nivel"] = {}
-                if "canais_links_bloqueados" not in dados:
-                    dados["canais_links_bloqueados"] = []
-                if "links_fila" not in dados:
-                    dados["links_fila"] = {"discord_convite": "", "botoes_precos": []}
-                if "anti_spam" not in dados:
-                    dados["anti_spam"] = {
-                        "ativado": True,
-                        "limite_mensagens": 5,
-                        "intervalo_segundos": 5,
-                        "tempo_mute_minutos": 2,
-                        "remover_xp": True,
-                        "xp_penalidade": 50,
-                        "deletar_mensagens": True,
-                        "cargos_ignorados": ["Administrador", "Moderador", "Staff", "Dono"],
-                        "comandos_ignorados": ["$w", "$wa", "$wg", "$h", "$ha", "$hg"]
-                    }
-                if "config" not in dados:
-                    dados["config"] = {
-                        "canal_boas_vindas": None,
-                        "mensagem_boas_vindas": "Olá {member}, seja bem-vindo(a)!",
-                        "fundo_boas_vindas": "",
-                        "taxa_xp": 3,
-                        "canal_levelup": None,
-                        "canal_logs": None,
-                        "canal_perfil": None,
-                        "canal_rank": None
-                    }
+                # Inicializar estruturas da loja se não existirem
+                estruturas_loja = ["usuarios", "servicos", "categorias", "pedidos", "pagamentos", 
+                                  "cupons", "recompensas", "config_loja", "financeiro"]
+                for estrutura in estruturas_loja:
+                    if estrutura not in dados:
+                        if estrutura == "categorias":
+                            dados["categorias"] = ["League of Legends", "Valorant", "CS2", "Fortnite", "Coaching", "Boost", "Outros"]
+                        elif estrutura == "recompensas":
+                            dados["recompensas"] = [
+                                {"id": 1, "nome": "Cupom 5%", "descricao": "Ganhe 5% de desconto na próxima compra", "custo_pontos": 100, "tipo": "desconto", "valor": 5},
+                                {"id": 2, "nome": "Cupom 10%", "descricao": "Ganhe 10% de desconto na próxima compra", "custo_pontos": 250, "tipo": "desconto", "valor": 10},
+                                {"id": 3, "nome": "Cupom 20%", "descricao": "Ganhe 20% de desconto na próxima compra", "custo_pontos": 500, "tipo": "desconto", "valor": 20},
+                                {"id": 4, "nome": "Serviço Grátis", "descricao": "Ganhe um serviço grátis!", "custo_pontos": 1000, "tipo": "servico_gratis", "valor": 0}
+                            ]
+                        elif estrutura == "config_loja":
+                            dados["config_loja"] = {
+                                "nome_loja": "Minha Loja",
+                                "logo": "",
+                                "banner": "",
+                                "pontos_por_real": 10,
+                                "gateway_pix": "mercadopago",
+                                "mercadopago_token": "",
+                                "mercadopago_webhook": "",
+                                "cores": {"primaria": "#5865F2", "secundaria": "#4752C4", "fundo": "#121212"},
+                                "redes_sociais": {"discord": "", "twitter": "", "instagram": "", "youtube": ""}
+                            }
+                        elif estrutura == "financeiro":
+                            dados["financeiro"] = {"total_vendido": 0, "total_pedidos": 0, "clientes_ativos": 0}
+                        else:
+                            dados[estrutura] = {} if estrutura == "usuarios" else []
                 
                 print("✅ Dados carregados do GitHub.")
                 return True
@@ -277,80 +232,2516 @@ def salvar_dados_github(mensagem="Atualização do bot"):
         print(f"❌ Exception saving to GitHub: {e}")
     return False
 
-# ========================
-# FUNÇÕES DE UTILIDADE
-# ========================
+def adicionar_log(entrada):
+    ts = agora_br().isoformat()
+    dados.setdefault("logs", []).append({"ts": ts, "entrada": entrada})
+    try:
+        salvar_dados_github(f"log: {entrada}")
+    except Exception:
+        pass
 
-def agora_br():
-    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-3)))
+def xp_por_mensagem():
+    return 15
 
-def gerar_id():
-    return str(uuid.uuid4().hex[:8])
+def xp_para_nivel(xp):
+    nivel = int((xp / 100) ** 0.6) + 1
+    return max(nivel, 1)
 
-def gerar_numero_pedido():
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    codigo = str(uuid.uuid4().hex[:6].upper())
-    return f"PED-{timestamp}-{codigo}"
+def escape_html(texto):
+    if not texto:
+        return ""
+    return (texto
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 def gerar_codigo_cupom():
-    return str(uuid.uuid4().hex[:8].upper())
+    import random
+    import string
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
-def calcular_pontos(valor, taxa=10):
-    return int(valor * taxa)
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'usuario' not in session or not session['usuario'].get('is_admin', False):
-            flash('Acesso negado. Área restrita a administradores.', 'danger')
-            return redirect(url_for('home'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'usuario' not in session:
-            flash('Faça login para acessar esta página.', 'warning')
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-def obter_usuario_sessao():
-    if 'usuario' not in session:
-        return None
-    discord_id = session['usuario'].get('discord_id')
-    if discord_id:
-        return dados["usuarios"].get(discord_id)
-    return None
-
-def obter_ou_criar_usuario(discord_data):
-    discord_id = str(discord_data['id'])
-    if discord_id not in dados["usuarios"]:
-        dados["usuarios"][discord_id] = {
-            "discord_id": discord_id,
-            "discord_nome": discord_data['username'],
-            "discord_avatar": discord_data.get('avatar'),
-            "email": None,
-            "data_cadastro": datetime.utcnow().isoformat(),
-            "ultimo_login": datetime.utcnow().isoformat(),
-            "pontos": 0,
-            "total_pontos_ganhos": 0,
-            "total_pontos_gastos": 0,
-            "is_admin": False,
-            "is_active": True
-        }
-        salvar_dados_github(f"Novo usuário: {discord_data['username']}")
-    else:
-        dados["usuarios"][discord_id]["discord_nome"] = discord_data['username']
-        dados["usuarios"][discord_id]["discord_avatar"] = discord_data.get('avatar')
-        dados["usuarios"][discord_id]["ultimo_login"] = datetime.utcnow().isoformat()
-        salvar_dados_github(f"Login: {discord_data['username']}")
-    
-    return dados["usuarios"][discord_id]
+def calcular_pontos(valor):
+    """Calcula pontos baseado no valor pago"""
+    return int(valor * dados.get("config_loja", {}).get("pontos_por_real", 10))
 
 # ========================
-# FUNÇÕES DE FILA
+# FUNÇÕES DA LOJA
+# ========================
+
+def criar_usuario(discord_id, nome, avatar):
+    """Cria um novo usuário no sistema"""
+    if str(discord_id) in dados["usuarios"]:
+        return dados["usuarios"][str(discord_id)]
+    
+    usuario = {
+        "id": str(discord_id),
+        "nome": nome,
+        "avatar": avatar,
+        "data_cadastro": agora_br().isoformat(),
+        "pontos": 0,
+        "total_gasto": 0,
+        "historico": [],
+        "pedidos": [],
+        "cupons": [],
+        "descontos": []
+    }
+    dados["usuarios"][str(discord_id)] = usuario
+    salvar_dados_github(f"Novo usuário: {nome}")
+    return usuario
+
+def obter_usuario(discord_id):
+    """Obtém dados de um usuário"""
+    uid = str(discord_id)
+    if uid not in dados["usuarios"]:
+        return None
+    return dados["usuarios"][uid]
+
+def adicionar_pontos(discord_id, pontos, motivo=""):
+    """Adiciona pontos a um usuário"""
+    uid = str(discord_id)
+    if uid not in dados["usuarios"]:
+        return False
+    
+    dados["usuarios"][uid]["pontos"] += pontos
+    dados["usuarios"][uid]["historico"].append({
+        "tipo": "pontos_adicionados",
+        "pontos": pontos,
+        "motivo": motivo,
+        "data": agora_br().isoformat()
+    })
+    salvar_dados_github(f"Pontos adicionados: +{pontos} para {dados['usuarios'][uid]['nome']}")
+    return True
+
+def remover_pontos(discord_id, pontos, motivo=""):
+    """Remove pontos de um usuário"""
+    uid = str(discord_id)
+    if uid not in dados["usuarios"]:
+        return False
+    
+    if dados["usuarios"][uid]["pontos"] < pontos:
+        return False
+    
+    dados["usuarios"][uid]["pontos"] -= pontos
+    dados["usuarios"][uid]["historico"].append({
+        "tipo": "pontos_removidos",
+        "pontos": pontos,
+        "motivo": motivo,
+        "data": agora_br().isoformat()
+    })
+    salvar_dados_github(f"Pontos removidos: -{pontos} para {dados['usuarios'][uid]['nome']}")
+    return True
+
+def criar_servico(nome, categoria, preco, descricao="", imagem="", tempo_estimado="", destaque=False, ordem=0):
+    """Cria um novo serviço"""
+    servico = {
+        "id": len(dados["servicos"]) + 1,
+        "nome": nome,
+        "categoria": categoria,
+        "preco": float(preco),
+        "descricao": descricao,
+        "imagem": imagem,
+        "tempo_estimado": tempo_estimado,
+        "status": "ativo",
+        "destaque": destaque,
+        "ordem": ordem,
+        "data_criacao": agora_br().isoformat()
+    }
+    dados["servicos"].append(servico)
+    salvar_dados_github(f"Serviço criado: {nome}")
+    return servico
+
+def atualizar_servico(servico_id, **kwargs):
+    """Atualiza um serviço existente"""
+    for i, servico in enumerate(dados["servicos"]):
+        if servico["id"] == servico_id:
+            for chave, valor in kwargs.items():
+                if chave == "preco":
+                    servico[chave] = float(valor)
+                elif chave == "destaque":
+                    servico[chave] = bool(valor)
+                else:
+                    servico[chave] = valor
+            salvar_dados_github(f"Serviço atualizado: {servico['nome']}")
+            return True
+    return False
+
+def remover_servico(servico_id):
+    """Remove um serviço"""
+    for i, servico in enumerate(dados["servicos"]):
+        if servico["id"] == servico_id:
+            dados["servicos"].pop(i)
+            salvar_dados_github(f"Serviço removido: {servico['nome']}")
+            return True
+    return False
+
+def criar_pedido(cliente_id, servico_id, discord_username):
+    """Cria um novo pedido"""
+    servico = None
+    for s in dados["servicos"]:
+        if s["id"] == servico_id:
+            servico = s
+            break
+    
+    if not servico:
+        return None, "Serviço não encontrado"
+    
+    numero_pedido = f"#{len(dados['pedidos']) + 1:06d}"
+    
+    pedido = {
+        "numero": numero_pedido,
+        "cliente_id": str(cliente_id),
+        "cliente_nome": discord_username,
+        "servico_id": servico_id,
+        "servico_nome": servico["nome"],
+        "valor": servico["preco"],
+        "status": "Aguardando pagamento",
+        "data_criacao": agora_br().isoformat(),
+        "data_pagamento": None,
+        "data_conclusao": None,
+        "pix_codigo": None,
+        "pix_qr": None,
+        "historico": [{"status": "Aguardando pagamento", "data": agora_br().isoformat()}],
+        "cupom_aplicado": None,
+        "desconto_aplicado": 0,
+        "valor_final": servico["preco"]
+    }
+    
+    dados["pedidos"].append(pedido)
+    dados["financeiro"]["total_pedidos"] += 1
+    
+    # Adicionar ao histórico do usuário
+    uid = str(cliente_id)
+    if uid in dados["usuarios"]:
+        dados["usuarios"][uid]["pedidos"].append(numero_pedido)
+    
+    salvar_dados_github(f"Pedido criado: {numero_pedido} - {servico['nome']}")
+    return pedido, None
+
+def atualizar_status_pedido(pedido_numero, novo_status):
+    """Atualiza o status de um pedido"""
+    for pedido in dados["pedidos"]:
+        if pedido["numero"] == pedido_numero:
+            pedido["status"] = novo_status
+            pedido["historico"].append({"status": novo_status, "data": agora_br().isoformat()})
+            
+            if novo_status == "Pago":
+                pedido["data_pagamento"] = agora_br().isoformat()
+                # Adicionar pontos
+                pontos = calcular_pontos(pedido["valor_final"])
+                uid = pedido["cliente_id"]
+                if uid in dados["usuarios"]:
+                    dados["usuarios"][uid]["pontos"] += pontos
+                    dados["usuarios"][uid]["total_gasto"] += pedido["valor_final"]
+                    dados["usuarios"][uid]["historico"].append({
+                        "tipo": "compra",
+                        "pedido": pedido_numero,
+                        "valor": pedido["valor_final"],
+                        "pontos_ganhos": pontos,
+                        "data": agora_br().isoformat()
+                    })
+                    dados["financeiro"]["total_vendido"] += pedido["valor_final"]
+                    
+                    # Adicionar à fila automaticamente
+                    adicionar_fila(
+                        nome_usuario=pedido["cliente_nome"],
+                        servico=pedido["servico_nome"],
+                        jogo="",
+                        usuario_id=pedido["cliente_id"]
+                    )
+                    
+                    # Notificar no Discord
+                    enviar_notificacao_discord(
+                        f"✅ **PEDIDO PAGO!**\n"
+                        f"Cliente: {pedido['cliente_nome']}\n"
+                        f"Serviço: {pedido['servico_nome']}\n"
+                        f"Valor: R$ {pedido['valor_final']:.2f}\n"
+                        f"Pontos ganhos: {pontos}\n"
+                        f"Pedido: {pedido_numero}"
+                    )
+            
+            elif novo_status == "Concluído":
+                pedido["data_conclusao"] = agora_br().isoformat()
+                enviar_notificacao_discord(
+                    f"✅ **PEDIDO CONCLUÍDO!**\n"
+                    f"Cliente: {pedido['cliente_nome']}\n"
+                    f"Serviço: {pedido['servico_nome']}\n"
+                    f"Pedido: {pedido_numero}"
+                )
+            
+            salvar_dados_github(f"Status do pedido {pedido_numero} atualizado: {novo_status}")
+            return True
+    return False
+
+def criar_cupom(tipo, valor, quantidade=1, validade_dias=30, usuario_id=None):
+    """Cria um novo cupom"""
+    codigo = gerar_codigo_cupom()
+    cupom = {
+        "codigo": codigo,
+        "tipo": tipo,  # "desconto" ou "servico_gratis"
+        "valor": valor,
+        "quantidade_maxima": quantidade,
+        "quantidade_usada": 0,
+        "validade": (agora_br() + timedelta(days=validade_dias)).isoformat(),
+        "status": "ativo",
+        "usuario_id": str(usuario_id) if usuario_id else None,
+        "data_criacao": agora_br().isoformat()
+    }
+    dados["cupons"].append(cupom)
+    
+    if usuario_id:
+        uid = str(usuario_id)
+        if uid in dados["usuarios"]:
+            dados["usuarios"][uid]["cupons"].append(codigo)
+            enviar_notificacao_discord(
+                f"🎫 **CUPOM CRIADO!**\n"
+                f"Usuário: {dados['usuarios'][uid]['nome']}\n"
+                f"Código: `{codigo}`\n"
+                f"Tipo: {tipo}\n"
+                f"Valor: {valor}%\n"
+                f"Validade: {cupom['validade']}"
+            )
+    
+    salvar_dados_github(f"Cupom criado: {codigo}")
+    return cupom
+
+def aplicar_cupom(codigo, pedido_numero):
+    """Aplica um cupom a um pedido"""
+    cupom = None
+    for c in dados["cupons"]:
+        if c["codigo"] == codigo and c["status"] == "ativo":
+            cupom = c
+            break
+    
+    if not cupom:
+        return False, "Cupom inválido ou expirado"
+    
+    # Verificar validade
+    if datetime.fromisoformat(cupom["validade"]) < agora_br():
+        cupom["status"] = "expirado"
+        salvar_dados_github(f"Cupom expirado: {codigo}")
+        return False, "Cupom expirado"
+    
+    # Verificar quantidade
+    if cupom["quantidade_usada"] >= cupom["quantidade_maxima"]:
+        return False, "Cupom esgotado"
+    
+    # Aplicar ao pedido
+    for pedido in dados["pedidos"]:
+        if pedido["numero"] == pedido_numero:
+            if cupom["tipo"] == "desconto":
+                desconto = pedido["valor"] * (cupom["valor"] / 100)
+                pedido["desconto_aplicado"] = desconto
+                pedido["valor_final"] = pedido["valor"] - desconto
+            elif cupom["tipo"] == "servico_gratis":
+                pedido["desconto_aplicado"] = pedido["valor"]
+                pedido["valor_final"] = 0
+            
+            pedido["cupom_aplicado"] = codigo
+            cupom["quantidade_usada"] += 1
+            
+            if cupom["quantidade_usada"] >= cupom["quantidade_maxima"]:
+                cupom["status"] = "esgotado"
+            
+            salvar_dados_github(f"Cupom aplicado: {codigo} ao pedido {pedido_numero}")
+            return True, f"Cupom aplicado! Desconto de R$ {pedido['desconto_aplicado']:.2f}"
+    
+    return False, "Pedido não encontrado"
+
+def resgatar_recompensa(usuario_id, recompensa_id):
+    """Resgata uma recompensa usando pontos"""
+    recompensa = None
+    for r in dados["recompensas"]:
+        if r["id"] == recompensa_id:
+            recompensa = r
+            break
+    
+    if not recompensa:
+        return False, "Recompensa não encontrada"
+    
+    uid = str(usuario_id)
+    if uid not in dados["usuarios"]:
+        return False, "Usuário não encontrado"
+    
+    if dados["usuarios"][uid]["pontos"] < recompensa["custo_pontos"]:
+        return False, "Pontos insuficientes"
+    
+    # Remover pontos
+    dados["usuarios"][uid]["pontos"] -= recompensa["custo_pontos"]
+    
+    # Criar cupom
+    if recompensa["tipo"] == "desconto":
+        cupom = criar_cupom(
+            tipo="desconto",
+            valor=recompensa["valor"],
+            quantidade=1,
+            validade_dias=30,
+            usuario_id=usuario_id
+        )
+    elif recompensa["tipo"] == "servico_gratis":
+        cupom = criar_cupom(
+            tipo="servico_gratis",
+            valor=0,
+            quantidade=1,
+            validade_dias=30,
+            usuario_id=usuario_id
+        )
+    
+    # Registrar histórico
+    dados["usuarios"][uid]["historico"].append({
+        "tipo": "resgate_recompensa",
+        "recompensa": recompensa["nome"],
+        "custo_pontos": recompensa["custo_pontos"],
+        "cupom": cupom["codigo"],
+        "data": agora_br().isoformat()
+    })
+    
+    salvar_dados_github(f"Recompensa resgatada: {recompensa['nome']} por {dados['usuarios'][uid]['nome']}")
+    return True, f"Recompensa resgatada! Cupom: {cupom['codigo']}"
+
+def enviar_notificacao_discord(mensagem):
+    """Envia uma notificação para o Discord"""
+    if not bot.is_ready():
+        return
+    
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
+    if not guild:
+        return
+    
+    # Tentar enviar para o canal de logs
+    config = dados.get("config", {})
+    canal_logs_id = config.get("canal_logs")
+    if canal_logs_id:
+        canal = guild.get_channel(int(canal_logs_id))
+        if canal:
+            asyncio.create_task(canal.send(mensagem))
+
+def gerar_pix_mercadopago(valor, descricao, pedido_numero):
+    """Gera um QR Code PIX usando Mercado Pago"""
+    config = dados.get("config_loja", {})
+    token = config.get("mercadopago_token")
+    
+    if not token:
+        return None, "Token do Mercado Pago não configurado"
+    
+    try:
+        url = "https://api.mercadopago.com/v1/payments"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Gerar ID externo único
+        external_id = f"pedido_{pedido_numero}_{int(time.time())}"
+        
+        payload = {
+            "transaction_amount": float(valor),
+            "description": descricao,
+            "payment_method_id": "pix",
+            "payer": {
+                "email": "cliente@exemplo.com"
+            },
+            "external_reference": external_id,
+            "notification_url": config.get("mercadopago_webhook", "")
+        }
+        
+        response = requests.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 201:
+            data = response.json()
+            return {
+                "qr_code": data["point_of_interaction"]["transaction_data"]["qr_code"],
+                "qr_code_base64": data["point_of_interaction"]["transaction_data"]["qr_code_base64"],
+                "id": data["id"]
+            }, None
+        else:
+            return None, f"Erro ao gerar PIX: {response.text}"
+    except Exception as e:
+        return None, str(e)
+
+# ========================
+# WEBHOOK DO MERCADO PAGO
+# ========================
+
+@app.route("/webhook/mercadopago", methods=["POST"])
+def webhook_mercadopago():
+    """Webhook para receber confirmações de pagamento do Mercado Pago"""
+    try:
+        data = request.json
+        
+        # Verificar autenticidade (opcional)
+        # Implementar verificação de assinatura aqui
+        
+        if data.get("type") == "payment":
+            payment_id = data["data"]["id"]
+            
+            # Buscar o pagamento
+            config = dados.get("config_loja", {})
+            token = config.get("mercadopago_token")
+            
+            url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+            headers = {"Authorization": f"Bearer {token}"}
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                payment = response.json()
+                
+                if payment["status"] == "approved":
+                    external_ref = payment.get("external_reference", "")
+                    # Extrair número do pedido do external_reference
+                    if "pedido_" in external_ref:
+                        pedido_numero = external_ref.split("_")[1]
+                        # Atualizar status do pedido
+                        atualizar_status_pedido(f"#{pedido_numero}", "Pago")
+                        
+                        # Registrar pagamento
+                        dados["pagamentos"].append({
+                            "id": payment_id,
+                            "pedido": f"#{pedido_numero}",
+                            "valor": payment["transaction_amount"],
+                            "status": "aprovado",
+                            "data": agora_br().isoformat(),
+                            "dados": payment
+                        })
+                        salvar_dados_github(f"Pagamento aprovado: {payment_id}")
+        
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        print(f"❌ Erro no webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+# ========================
+# ROTAS PÚBLICAS DA LOJA
+# ========================
+
+@app.route("/")
+def home():
+    """Página inicial da loja"""
+    status_bot = "✅ Bot Online" if bot.is_ready() else "❌ Bot Offline"
+    classe_bot = "online" if bot.is_ready() else "offline"
+    usuario = session.get('usuario')
+    servicos_destaque = [s for s in dados.get("servicos", []) if s.get("destaque", False)][:6]
+    config_loja = dados.get("config_loja", {})
+    categorias = dados.get("categorias", [])
+    
+    # Contar serviços por categoria
+    servicos_por_categoria = {}
+    for cat in categorias:
+        servicos_por_categoria[cat] = len([s for s in dados.get("servicos", []) if s.get("categoria") == cat])
+    
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ config_loja.nome_loja }}</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+            .navbar { background: #1a1a1a; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+            .navbar .logo { font-size: 1.5rem; font-weight: bold; color: #5865F2; text-decoration: none; }
+            .navbar .nav-links a { color: #ccc; text-decoration: none; margin-left: 2rem; transition: 0.3s; }
+            .navbar .nav-links a:hover { color: #5865F2; }
+            .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s; border: none; cursor: pointer; }
+            .btn-primary { background: #5865F2; color: white; }
+            .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
+            .btn-success { background: #10b981; color: white; }
+            .btn-success:hover { background: #059669; transform: translateY(-2px); }
+            .btn-outline { background: transparent; color: white; border: 2px solid #5865F2; }
+            .btn-outline:hover { background: #5865F2; color: white; transform: translateY(-2px); }
+            .btn-danger { background: #ef4444; color: white; }
+            .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
+            .container { max-width: 1200px; margin: 0 auto; padding: 0 1rem; }
+            .hero { padding: 4rem 0; text-align: center; background: linear-gradient(135deg, #1a1a2e, #16213e); border-radius: 20px; margin: 2rem 0; }
+            .hero h1 { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #5865F2, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            .hero p { font-size: 1.2rem; color: #aaa; max-width: 600px; margin: 0 auto 2rem; }
+            .hero .btn-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+            .servicos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin: 2rem 0; }
+            .servico-card { background: #1a1a1a; border-radius: 12px; overflow: hidden; border: 1px solid #333; transition: 0.3s; }
+            .servico-card:hover { transform: translateY(-5px); border-color: #5865F2; }
+            .servico-card .imagem { width: 100%; height: 200px; background: #2a2a2a; display: flex; align-items: center; justify-content: center; font-size: 3rem; }
+            .servico-card .info { padding: 1.5rem; }
+            .servico-card .info h3 { margin-bottom: 0.5rem; color: #fff; }
+            .servico-card .info .preco { font-size: 1.5rem; color: #10b981; font-weight: bold; }
+            .servico-card .info .categoria { display: inline-block; background: #333; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; margin: 0.5rem 0; }
+            .servico-card .info .descricao { color: #aaa; margin: 0.5rem 0; }
+            .servico-card .info .btn { width: 100%; text-align: center; margin-top: 0.5rem; }
+            .beneficios { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin: 3rem 0; text-align: center; }
+            .beneficio { padding: 2rem; background: #1a1a1a; border-radius: 12px; border: 1px solid #333; }
+            .beneficio .icon { font-size: 3rem; margin-bottom: 1rem; }
+            .beneficio h4 { color: #fff; margin-bottom: 0.5rem; }
+            .beneficio p { color: #888; }
+            .footer { background: #1a1a1a; padding: 3rem 0; margin-top: 3rem; border-top: 1px solid #333; text-align: center; }
+            .footer .social { display: flex; gap: 1rem; justify-content: center; margin-bottom: 1rem; }
+            .footer .social a { color: #888; font-size: 1.5rem; text-decoration: none; transition: 0.3s; }
+            .footer .social a:hover { color: #5865F2; }
+            .footer p { color: #666; }
+            .badge-destaque { position: absolute; top: 10px; right: 10px; background: #f59e0b; color: #000; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: bold; }
+            .categorias { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+            .categoria-tag { background: #2a2a2a; padding: 0.5rem 1rem; border-radius: 20px; color: #ccc; font-size: 0.9rem; border: 1px solid #333; }
+            .categoria-tag .count { color: #5865F2; font-weight: bold; }
+            .user-info { display: flex; align-items: center; gap: 1rem; }
+            .user-info .avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #5865F2; }
+            .user-info .nome { color: #fff; }
+            .dropdown { position: relative; display: inline-block; }
+            .dropdown-content { display: none; position: absolute; right: 0; background: #1a1a1a; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid #333; z-index: 1; }
+            .dropdown:hover .dropdown-content { display: block; }
+            .dropdown-content a { color: #ccc; padding: 12px 16px; text-decoration: none; display: block; }
+            .dropdown-content a:hover { background: #2a2a2a; color: #5865F2; }
+            @media (max-width: 768px) {
+                .hero h1 { font-size: 2rem; }
+                .navbar .nav-links a { margin-left: 1rem; font-size: 0.9rem; }
+                .servicos-grid { grid-template-columns: 1fr; }
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <a href="/" class="logo">{{ config_loja.nome_loja }}</a>
+            <div class="nav-links">
+                <a href="/">Início</a>
+                <a href="/servicos">Serviços</a>
+                <a href="/fila">Fila</a>
+                {% if 'usuario' in session %}
+                <a href="/cliente">Minha Conta</a>
+                {% endif %}
+                {% if 'usuario' in session and usuario.get('eh_admin') %}
+                <a href="/dashboard" style="color: #f59e0b;">Painel Admin</a>
+                {% endif %}
+                <div class="dropdown" style="display:inline-block;">
+                    {% if 'usuario' in session %}
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="nome">{{ usuario.nome_usuario }}</span>
+                        <span style="color:#5865F2;">▼</span>
+                    </div>
+                    <div class="dropdown-content">
+                        <a href="/cliente">👤 Minha Conta</a>
+                        <a href="/pedidos">📦 Meus Pedidos</a>
+                        <a href="/logout">🚪 Sair</a>
+                    </div>
+                    {% else %}
+                    <a href="/login" class="btn btn-primary" style="padding:0.5rem 1rem;">Entrar</a>
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div class="hero">
+                <h1>Bem-vindo à {{ config_loja.nome_loja }}</h1>
+                <p>Os melhores serviços para você, com pagamento seguro via PIX e sistema de pontos exclusivo!</p>
+                <div class="btn-group">
+                    <a href="/servicos" class="btn btn-primary">🛒 Ver Serviços</a>
+                    <a href="/fila" class="btn btn-outline">📋 Ver Fila</a>
+                    {% if 'usuario' not in session %}
+                    <a href="/login" class="btn btn-success">🔐 Entrar com Discord</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div style="margin: 2rem 0;">
+                <h2 style="color:#fff; margin-bottom: 1rem;">📂 Categorias</h2>
+                <div class="categorias">
+                    {% for cat in categorias %}
+                    <span class="categoria-tag">{{ cat }} <span class="count">({{ servicos_por_categoria.get(cat, 0) }})</span></span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <h2 style="color:#fff; margin: 2rem 0 1rem;">⭐ Serviços em Destaque</h2>
+            <div class="servicos-grid">
+                {% for servico in servicos_destaque %}
+                <div class="servico-card" style="position:relative;">
+                    <div class="imagem">🎮</div>
+                    <div class="info">
+                        <h3>{{ servico.nome }}</h3>
+                        <span class="categoria">{{ servico.categoria }}</span>
+                        <p class="descricao">{{ servico.descricao[:100] }}{% if servico.descricao|length > 100 %}...{% endif %}</p>
+                        <div class="preco">R$ {{ "%.2f"|format(servico.preco) }}</div>
+                        <a href="/servico/{{ servico.id }}" class="btn btn-primary">Comprar</a>
+                    </div>
+                    {% if servico.destaque %}
+                    <span class="badge-destaque">⭐ Destaque</span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p style="color:#666; grid-column: 1/-1; text-align:center;">Nenhum serviço em destaque no momento.</p>
+                {% endfor %}
+            </div>
+
+            <div class="beneficios">
+                <div class="beneficio">
+                    <div class="icon">💳</div>
+                    <h4>Pagamento PIX</h4>
+                    <p>Pagamento seguro e rápido via PIX</p>
+                </div>
+                <div class="beneficio">
+                    <div class="icon">⭐</div>
+                    <h4>Sistema de Pontos</h4>
+                    <p>Ganhe pontos a cada compra e troque por descontos</p>
+                </div>
+                <div class="beneficio">
+                    <div class="icon">🛡️</div>
+                    <h4>100% Confiável</h4>
+                    <p>Mais de {{ dados.financeiro.total_pedidos }} pedidos concluídos</p>
+                </div>
+                <div class="beneficio">
+                    <div class="icon">🤖</div>
+                    <h4>Integração Discord</h4>
+                    <p>Acompanhe tudo pelo nosso servidor</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="container">
+                <div class="social">
+                    {% if config_loja.redes_sociais.discord %}
+                    <a href="{{ config_loja.redes_sociais.discord }}" target="_blank">💬 Discord</a>
+                    {% endif %}
+                    {% if config_loja.redes_sociais.twitter %}
+                    <a href="{{ config_loja.redes_sociais.twitter }}" target="_blank">🐦 Twitter</a>
+                    {% endif %}
+                    {% if config_loja.redes_sociais.instagram %}
+                    <a href="{{ config_loja.redes_sociais.instagram }}" target="_blank">📸 Instagram</a>
+                    {% endif %}
+                    {% if config_loja.redes_sociais.youtube %}
+                    <a href="{{ config_loja.redes_sociais.youtube }}" target="_blank">▶️ YouTube</a>
+                    {% endif %}
+                </div>
+                <p>© 2024 {{ config_loja.nome_loja }} - Todos os direitos reservados</p>
+                <p style="font-size:0.8rem; color:#444;">{{ dados.financeiro.total_pedidos }} pedidos • R$ {{ "%.2f"|format(dados.financeiro.total_vendido) }} em vendas</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """, usuario=session.get('usuario'), config_loja=config_loja, servicos_destaque=servicos_destaque, categorias=categorias, servicos_por_categoria=servicos_por_categoria, dados=dados)
+
+@app.route("/servicos")
+def lista_servicos():
+    """Página com todos os serviços"""
+    usuario = session.get('usuario')
+    config_loja = dados.get("config_loja", {})
+    servicos = dados.get("servicos", [])
+    categorias = dados.get("categorias", [])
+    
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Serviços - {{ config_loja.nome_loja }}</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+            .navbar { background: #1a1a1a; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+            .navbar .logo { font-size: 1.5rem; font-weight: bold; color: #5865F2; text-decoration: none; }
+            .navbar .nav-links a { color: #ccc; text-decoration: none; margin-left: 2rem; transition: 0.3s; }
+            .navbar .nav-links a:hover { color: #5865F2; }
+            .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s; border: none; cursor: pointer; }
+            .btn-primary { background: #5865F2; color: white; }
+            .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
+            .btn-success { background: #10b981; color: white; }
+            .btn-success:hover { background: #059669; transform: translateY(-2px); }
+            .container { max-width: 1200px; margin: 0 auto; padding: 0 1rem; }
+            .servicos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin: 2rem 0; }
+            .servico-card { background: #1a1a1a; border-radius: 12px; overflow: hidden; border: 1px solid #333; transition: 0.3s; }
+            .servico-card:hover { transform: translateY(-5px); border-color: #5865F2; }
+            .servico-card .imagem { width: 100%; height: 200px; background: #2a2a2a; display: flex; align-items: center; justify-content: center; font-size: 3rem; }
+            .servico-card .info { padding: 1.5rem; }
+            .servico-card .info h3 { margin-bottom: 0.5rem; color: #fff; }
+            .servico-card .info .preco { font-size: 1.5rem; color: #10b981; font-weight: bold; }
+            .servico-card .info .categoria { display: inline-block; background: #333; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; margin: 0.5rem 0; }
+            .servico-card .info .descricao { color: #aaa; margin: 0.5rem 0; }
+            .servico-card .info .btn { width: 100%; text-align: center; margin-top: 0.5rem; }
+            .badge-destaque { position: absolute; top: 10px; right: 10px; background: #f59e0b; color: #000; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: bold; }
+            .filtros { display: flex; gap: 1rem; flex-wrap: wrap; margin: 2rem 0; background: #1a1a1a; padding: 1rem; border-radius: 12px; border: 1px solid #333; }
+            .filtros select, .filtros input { padding: 0.5rem 1rem; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; }
+            .filtros select:focus, .filtros input:focus { outline: none; border-color: #5865F2; }
+            .user-info { display: flex; align-items: center; gap: 1rem; }
+            .user-info .avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #5865F2; }
+            .dropdown { position: relative; display: inline-block; }
+            .dropdown-content { display: none; position: absolute; right: 0; background: #1a1a1a; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid #333; z-index: 1; }
+            .dropdown:hover .dropdown-content { display: block; }
+            .dropdown-content a { color: #ccc; padding: 12px 16px; text-decoration: none; display: block; }
+            .dropdown-content a:hover { background: #2a2a2a; color: #5865F2; }
+            .busca { flex: 1; min-width: 200px; }
+            .badge-status { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 20px; font-size: 0.7rem; }
+            .badge-ativo { background: #10b981; color: white; }
+            .badge-inativo { background: #ef4444; color: white; }
+            @media (max-width: 768px) {
+                .servicos-grid { grid-template-columns: 1fr; }
+                .navbar .nav-links a { margin-left: 1rem; font-size: 0.9rem; }
+                .filtros { flex-direction: column; }
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <a href="/" class="logo">{{ config_loja.nome_loja }}</a>
+            <div class="nav-links">
+                <a href="/">Início</a>
+                <a href="/servicos">Serviços</a>
+                <a href="/fila">Fila</a>
+                {% if 'usuario' in session %}
+                <a href="/cliente">Minha Conta</a>
+                {% endif %}
+                {% if 'usuario' in session and usuario.get('eh_admin') %}
+                <a href="/dashboard" style="color: #f59e0b;">Painel Admin</a>
+                {% endif %}
+                <div class="dropdown" style="display:inline-block;">
+                    {% if 'usuario' in session %}
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="nome">{{ usuario.nome_usuario }}</span>
+                        <span style="color:#5865F2;">▼</span>
+                    </div>
+                    <div class="dropdown-content">
+                        <a href="/cliente">👤 Minha Conta</a>
+                        <a href="/pedidos">📦 Meus Pedidos</a>
+                        <a href="/logout">🚪 Sair</a>
+                    </div>
+                    {% else %}
+                    <a href="/login" class="btn btn-primary" style="padding:0.5rem 1rem;">Entrar</a>
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <h2 style="color:#fff; margin: 2rem 0 0.5rem;">🛒 Nossos Serviços</h2>
+            
+            <div class="filtros">
+                <input type="text" id="busca" class="busca" placeholder="🔍 Buscar serviço..." oninput="filtrar()">
+                <select id="filtro-categoria" onchange="filtrar()">
+                    <option value="">Todas categorias</option>
+                    {% for cat in categorias %}
+                    <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                </select>
+                <select id="filtro-status" onchange="filtrar()">
+                    <option value="">Todos</option>
+                    <option value="ativo">Ativos</option>
+                    <option value="inativo">Inativos</option>
+                </select>
+                <select id="filtro-ordem" onchange="filtrar()">
+                    <option value="ordem">Ordem</option>
+                    <option value="preco_asc">Preço (menor)</option>
+                    <option value="preco_desc">Preço (maior)</option>
+                    <option value="nome">Nome</option>
+                </select>
+            </div>
+
+            <div class="servicos-grid" id="servicos-grid">
+                {% for servico in servicos %}
+                <div class="servico-card" style="position:relative;" data-nome="{{ servico.nome|lower }}" data-categoria="{{ servico.categoria }}" data-status="{{ servico.status }}" data-preco="{{ servico.preco }}">
+                    <div class="imagem">{{ servico.imagem or '🎮' }}</div>
+                    <div class="info">
+                        <h3>{{ servico.nome }}</h3>
+                        <span class="categoria">{{ servico.categoria }}</span>
+                        <span class="badge-status badge-{{ servico.status }}">{{ servico.status|upper }}</span>
+                        <p class="descricao">{{ servico.descricao[:100] }}{% if servico.descricao|length > 100 %}...{% endif %}</p>
+                        <div class="preco">R$ {{ "%.2f"|format(servico.preco) }}</div>
+                        {% if servico.tempo_estimado %}
+                        <div style="color:#888; font-size:0.8rem;">⏱️ {{ servico.tempo_estimado }}</div>
+                        {% endif %}
+                        <a href="/servico/{{ servico.id }}" class="btn btn-primary">Comprar</a>
+                    </div>
+                    {% if servico.destaque %}
+                    <span class="badge-destaque">⭐ Destaque</span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p style="color:#666; grid-column: 1/-1; text-align:center; padding:3rem 0;">Nenhum serviço disponível no momento.</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        <script>
+            function filtrar() {
+                const busca = document.getElementById('busca').value.toLowerCase();
+                const categoria = document.getElementById('filtro-categoria').value;
+                const status = document.getElementById('filtro-status').value;
+                const ordem = document.getElementById('filtro-ordem').value;
+                
+                const cards = document.querySelectorAll('.servico-card');
+                let visiveis = [];
+                
+                cards.forEach(card => {
+                    const nome = card.dataset.nome || '';
+                    const cat = card.dataset.categoria || '';
+                    const stat = card.dataset.status || '';
+                    
+                    let mostrar = true;
+                    if (busca && !nome.includes(busca)) mostrar = false;
+                    if (categoria && cat !== categoria) mostrar = false;
+                    if (status && stat !== status) mostrar = false;
+                    
+                    card.style.display = mostrar ? 'block' : 'none';
+                    if (mostrar) visiveis.push(card);
+                });
+                
+                // Ordenar
+                if (ordem && visiveis.length > 1) {
+                    const grid = document.getElementById('servicos-grid');
+                    visiveis.sort((a, b) => {
+                        if (ordem === 'preco_asc') return parseFloat(a.dataset.preco) - parseFloat(b.dataset.preco);
+                        if (ordem === 'preco_desc') return parseFloat(b.dataset.preco) - parseFloat(a.dataset.preco);
+                        if (ordem === 'nome') return a.dataset.nome.localeCompare(b.dataset.nome);
+                        return 0;
+                    });
+                    visiveis.forEach(card => grid.appendChild(card));
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """, usuario=usuario, config_loja=config_loja, servicos=servicos, categorias=categorias)
+
+@app.route("/servico/<int:servico_id>")
+def detalhe_servico(servico_id):
+    """Página de detalhes de um serviço"""
+    usuario = session.get('usuario')
+    config_loja = dados.get("config_loja", {})
+    
+    servico = None
+    for s in dados.get("servicos", []):
+        if s["id"] == servico_id:
+            servico = s
+            break
+    
+    if not servico:
+        return "Serviço não encontrado", 404
+    
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ servico.nome }} - {{ config_loja.nome_loja }}</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+            .navbar { background: #1a1a1a; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+            .navbar .logo { font-size: 1.5rem; font-weight: bold; color: #5865F2; text-decoration: none; }
+            .navbar .nav-links a { color: #ccc; text-decoration: none; margin-left: 2rem; transition: 0.3s; }
+            .navbar .nav-links a:hover { color: #5865F2; }
+            .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s; border: none; cursor: pointer; }
+            .btn-primary { background: #5865F2; color: white; }
+            .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
+            .btn-success { background: #10b981; color: white; }
+            .btn-success:hover { background: #059669; transform: translateY(-2px); }
+            .btn-outline { background: transparent; color: white; border: 2px solid #5865F2; }
+            .btn-outline:hover { background: #5865F2; color: white; }
+            .container { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+            .card { background: #1a1a1a; border-radius: 12px; padding: 2rem; border: 1px solid #333; }
+            .card .imagem { width: 100%; height: 300px; background: #2a2a2a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 5rem; margin-bottom: 1.5rem; }
+            .card h1 { color: #fff; margin-bottom: 0.5rem; }
+            .card .categoria { display: inline-block; background: #333; padding: 0.25rem 1rem; border-radius: 20px; font-size: 0.9rem; }
+            .card .preco { font-size: 2.5rem; color: #10b981; font-weight: bold; margin: 1rem 0; }
+            .card .descricao { color: #aaa; line-height: 1.8; margin: 1rem 0; }
+            .card .tempo { color: #888; margin: 0.5rem 0; }
+            .card .status { display: inline-block; padding: 0.25rem 1rem; border-radius: 20px; font-size: 0.8rem; margin: 0.5rem 0; }
+            .status-ativo { background: #10b981; color: white; }
+            .status-inativo { background: #ef4444; color: white; }
+            .cupom-area { background: #2a2a2a; padding: 1rem; border-radius: 8px; margin: 1rem 0; display: flex; gap: 1rem; flex-wrap: wrap; }
+            .cupom-area input { flex: 1; padding: 0.75rem; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; min-width: 150px; }
+            .cupom-area input:focus { outline: none; border-color: #5865F2; }
+            .user-info { display: flex; align-items: center; gap: 1rem; }
+            .user-info .avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #5865F2; }
+            .dropdown { position: relative; display: inline-block; }
+            .dropdown-content { display: none; position: absolute; right: 0; background: #1a1a1a; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid #333; z-index: 1; }
+            .dropdown:hover .dropdown-content { display: block; }
+            .dropdown-content a { color: #ccc; padding: 12px 16px; text-decoration: none; display: block; }
+            .dropdown-content a:hover { background: #2a2a2a; color: #5865F2; }
+            .alert { padding: 1rem; border-radius: 8px; margin: 1rem 0; display: none; }
+            .alert-success { background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }
+            .alert-error { background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }
+            .pix-area { text-align: center; margin: 2rem 0; }
+            .pix-area img { max-width: 300px; border-radius: 8px; }
+            .pix-area .codigo { background: #0a0a0a; padding: 1rem; border-radius: 8px; font-family: monospace; word-break: break-all; margin: 1rem 0; border: 1px solid #333; }
+            @media (max-width: 768px) {
+                .navbar .nav-links a { margin-left: 1rem; font-size: 0.9rem; }
+                .cupom-area { flex-direction: column; }
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <a href="/" class="logo">{{ config_loja.nome_loja }}</a>
+            <div class="nav-links">
+                <a href="/">Início</a>
+                <a href="/servicos">Serviços</a>
+                <a href="/fila">Fila</a>
+                {% if 'usuario' in session %}
+                <a href="/cliente">Minha Conta</a>
+                {% endif %}
+                {% if 'usuario' in session and usuario.get('eh_admin') %}
+                <a href="/dashboard" style="color: #f59e0b;">Painel Admin</a>
+                {% endif %}
+                <div class="dropdown" style="display:inline-block;">
+                    {% if 'usuario' in session %}
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="nome">{{ usuario.nome_usuario }}</span>
+                        <span style="color:#5865F2;">▼</span>
+                    </div>
+                    <div class="dropdown-content">
+                        <a href="/cliente">👤 Minha Conta</a>
+                        <a href="/pedidos">📦 Meus Pedidos</a>
+                        <a href="/logout">🚪 Sair</a>
+                    </div>
+                    {% else %}
+                    <a href="/login" class="btn btn-primary" style="padding:0.5rem 1rem;">Entrar</a>
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div class="card">
+                <div class="imagem">{{ servico.imagem or '🎮' }}</div>
+                <span class="categoria">{{ servico.categoria }}</span>
+                <span class="status status-{{ servico.status }}">{{ servico.status|upper }}</span>
+                <h1>{{ servico.nome }}</h1>
+                <div class="preco">R$ {{ "%.2f"|format(servico.preco) }}</div>
+                {% if servico.tempo_estimado %}
+                <div class="tempo">⏱️ Tempo estimado: {{ servico.tempo_estimado }}</div>
+                {% endif %}
+                <div class="descricao">{{ servico.descricao }}</div>
+
+                <div class="cupom-area">
+                    <input type="text" id="cupom-input" placeholder="🎫 Digite seu cupom">
+                    <button onclick="aplicarCupom({{ servico.id }})" class="btn btn-outline">Aplicar Cupom</button>
+                </div>
+
+                <div id="alert" class="alert"></div>
+
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <button onclick="comprar({{ servico.id }})" class="btn btn-success" style="flex:1; text-align:center;">
+                        💳 Comprar com PIX
+                    </button>
+                    <a href="/servicos" class="btn btn-outline">← Voltar</a>
+                </div>
+
+                <div id="pix-area" class="pix-area" style="display:none;">
+                    <h3 style="color:#fff;">📱 Pagamento via PIX</h3>
+                    <img id="pix-qr" src="" alt="QR Code PIX">
+                    <div class="codigo" id="pix-codigo"></div>
+                    <button onclick="copiarPIX()" class="btn btn-primary">📋 Copiar Código</button>
+                    <p style="color:#888; margin-top: 1rem;">⏳ Aguarde o pagamento ser confirmado automaticamente</p>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let pedidoAtual = null;
+
+            async function comprar(servicoId) {
+                {% if 'usuario' not in session %}
+                if (confirm('Você precisa estar logado para comprar. Deseja fazer login?')) {
+                    window.location.href = '/login';
+                }
+                return;
+                {% endif %}
+
+                const alert = document.getElementById('alert');
+                alert.style.display = 'none';
+
+                try {
+                    const response = await fetch('/api/pedido/criar', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({servico_id: servicoId})
+                    });
+                    const data = await response.json();
+
+                    if (data.sucesso) {
+                        pedidoAtual = data.pedido;
+                        showAlert('✅ Pedido criado! Gerando PIX...', 'success');
+                        
+                        // Gerar PIX
+                        const pixResponse = await fetch('/api/pedido/pix', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({pedido_numero: data.pedido.numero})
+                        });
+                        const pixData = await pixResponse.json();
+                        
+                        if (pixData.sucesso) {
+                            document.getElementById('pix-area').style.display = 'block';
+                            document.getElementById('pix-qr').src = pixData.qr_code_base64 || 'data:image/png;base64,' + pixData.qr_code;
+                            document.getElementById('pix-codigo').textContent = pixData.qr_code || pixData.codigo;
+                            showAlert('💳 PIX gerado! Faça o pagamento para confirmar.', 'success');
+                        } else {
+                            showAlert('❌ Erro ao gerar PIX: ' + pixData.mensagem, 'error');
+                        }
+                    } else {
+                        showAlert('❌ ' + data.mensagem, 'error');
+                    }
+                } catch (e) {
+                    showAlert('❌ Erro: ' + e.message, 'error');
+                }
+            }
+
+            async function aplicarCupom(servicoId) {
+                const codigo = document.getElementById('cupom-input').value.trim();
+                if (!codigo) {
+                    showAlert('Digite um código de cupom', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/pedido/cupom', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            servico_id: servicoId,
+                            cupom: codigo
+                        })
+                    });
+                    const data = await response.json();
+                    
+                    if (data.sucesso) {
+                        showAlert('✅ ' + data.mensagem, 'success');
+                        // Atualizar preço
+                        document.querySelector('.preco').textContent = 'R$ ' + data.valor_final.toFixed(2);
+                    } else {
+                        showAlert('❌ ' + data.mensagem, 'error');
+                    }
+                } catch (e) {
+                    showAlert('❌ Erro: ' + e.message, 'error');
+                }
+            }
+
+            function copiarPIX() {
+                const codigo = document.getElementById('pix-codigo').textContent;
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(codigo);
+                    showAlert('📋 Código copiado!', 'success');
+                } else {
+                    alert('Copie o código manualmente: ' + codigo);
+                }
+            }
+
+            function showAlert(msg, tipo) {
+                const alert = document.getElementById('alert');
+                alert.textContent = msg;
+                alert.className = 'alert alert-' + tipo;
+                alert.style.display = 'block';
+                setTimeout(() => alert.style.display = 'none', 10000);
+            }
+
+            // Verificar status do pedido periodicamente
+            setInterval(async () => {
+                if (!pedidoAtual) return;
+                try {
+                    const response = await fetch(`/api/pedido/status/${pedidoAtual.numero}`);
+                    const data = await response.json();
+                    if (data.status === 'Pago') {
+                        showAlert('✅ Pagamento confirmado! Seu pedido foi aprovado.', 'success');
+                        document.getElementById('pix-area').style.display = 'none';
+                        pedidoAtual = null;
+                    }
+                } catch (e) {}
+            }, 5000);
+        </script>
+    </body>
+    </html>
+    """, usuario=usuario, config_loja=config_loja, servico=servico)
+
+@app.route("/cliente")
+def area_cliente():
+    """Área do cliente"""
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    usuario = session.get('usuario')
+    uid = str(usuario['id'])
+    dados_usuario = dados.get("usuarios", {}).get(uid, {})
+    config_loja = dados.get("config_loja", {})
+    
+    # Buscar pedidos do usuário
+    pedidos_usuario = [p for p in dados.get("pedidos", []) if p.get("cliente_id") == uid]
+    
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Minha Conta - {{ config_loja.nome_loja }}</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+            .navbar { background: #1a1a1a; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+            .navbar .logo { font-size: 1.5rem; font-weight: bold; color: #5865F2; text-decoration: none; }
+            .navbar .nav-links a { color: #ccc; text-decoration: none; margin-left: 2rem; transition: 0.3s; }
+            .navbar .nav-links a:hover { color: #5865F2; }
+            .btn { display: inline-block; padding: 0.5rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s; border: none; cursor: pointer; }
+            .btn-primary { background: #5865F2; color: white; }
+            .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
+            .btn-success { background: #10b981; color: white; }
+            .btn-success:hover { background: #059669; transform: translateY(-2px); }
+            .btn-outline { background: transparent; color: white; border: 2px solid #5865F2; }
+            .btn-outline:hover { background: #5865F2; color: white; }
+            .btn-danger { background: #ef4444; color: white; }
+            .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
+            .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+            .perfil-header { display: flex; align-items: center; gap: 2rem; background: #1a1a1a; padding: 2rem; border-radius: 12px; border: 1px solid #333; margin-bottom: 2rem; }
+            .perfil-header .avatar { width: 100px; height: 100px; border-radius: 50%; border: 3px solid #5865F2; }
+            .perfil-header .info h1 { color: #fff; }
+            .perfil-header .info .stats { display: flex; gap: 2rem; margin-top: 0.5rem; flex-wrap: wrap; }
+            .perfil-header .info .stats span { color: #aaa; }
+            .perfil-header .info .stats strong { color: #fff; }
+            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
+            .card { background: #1a1a1a; border-radius: 12px; padding: 1.5rem; border: 1px solid #333; }
+            .card h3 { color: #5865F2; margin-bottom: 1rem; }
+            .card .item { padding: 0.5rem 0; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+            .card .item:last-child { border-bottom: none; }
+            .card .item .label { color: #888; }
+            .card .item .value { color: #fff; }
+            .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; }
+            .status-Aguardando { background: #f59e0b; color: #000; }
+            .status-Pago { background: #10b981; color: #fff; }
+            .status-Concluído { background: #5865F2; color: #fff; }
+            .status-Cancelado { background: #ef4444; color: #fff; }
+            .user-info { display: flex; align-items: center; gap: 1rem; }
+            .user-info .avatar-small { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #5865F2; }
+            .dropdown { position: relative; display: inline-block; }
+            .dropdown-content { display: none; position: absolute; right: 0; background: #1a1a1a; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid #333; z-index: 1; }
+            .dropdown:hover .dropdown-content { display: block; }
+            .dropdown-content a { color: #ccc; padding: 12px 16px; text-decoration: none; display: block; }
+            .dropdown-content a:hover { background: #2a2a2a; color: #5865F2; }
+            .recompensas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem; }
+            .recompensa-item { background: #2a2a2a; padding: 1rem; border-radius: 8px; text-align: center; border: 1px solid #333; transition: 0.3s; }
+            .recompensa-item:hover { border-color: #5865F2; transform: translateY(-2px); }
+            .recompensa-item .custo { color: #f59e0b; font-weight: bold; }
+            .recompensa-item .btn { width: 100%; margin-top: 0.5rem; }
+            @media (max-width: 768px) {
+                .perfil-header { flex-direction: column; text-align: center; }
+                .perfil-header .info .stats { justify-content: center; }
+                .navbar .nav-links a { margin-left: 1rem; font-size: 0.9rem; }
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <a href="/" class="logo">{{ config_loja.nome_loja }}</a>
+            <div class="nav-links">
+                <a href="/">Início</a>
+                <a href="/servicos">Serviços</a>
+                <a href="/fila">Fila</a>
+                <a href="/cliente">Minha Conta</a>
+                {% if usuario.get('eh_admin') %}
+                <a href="/dashboard" style="color: #f59e0b;">Painel Admin</a>
+                {% endif %}
+                <div class="dropdown" style="display:inline-block;">
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar-small" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="nome">{{ usuario.nome_usuario }}</span>
+                        <span style="color:#5865F2;">▼</span>
+                    </div>
+                    <div class="dropdown-content">
+                        <a href="/cliente">👤 Minha Conta</a>
+                        <a href="/pedidos">📦 Meus Pedidos</a>
+                        <a href="/logout">🚪 Sair</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div class="perfil-header">
+                <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                <div class="info">
+                    <h1>{{ dados_usuario.nome or usuario.nome_usuario }}</h1>
+                    <div class="stats">
+                        <span>⭐ <strong>{{ dados_usuario.pontos or 0 }}</strong> pontos</span>
+                        <span>💰 <strong>R$ {{ "%.2f"|format(dados_usuario.total_gasto or 0) }}</strong> gastos</span>
+                        <span>📦 <strong>{{ pedidos_usuario|length }}</strong> pedidos</span>
+                        <span>🎫 <strong>{{ dados_usuario.cupons|length or 0 }}</strong> cupons</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="card">
+                    <h3>🎫 Meus Cupons</h3>
+                    {% if dados_usuario.cupons %}
+                        {% for codigo in dados_usuario.cupons %}
+                            {% set cupom = None %}
+                            {% for c in dados.cupons %}
+                                {% if c.codigo == codigo %}
+                                    {% set cupom = c %}
+                                {% endif %}
+                            {% endfor %}
+                            {% if cupom %}
+                            <div class="item">
+                                <span>{{ cupom.codigo }}</span>
+                                <span style="color:#10b981;">{{ cupom.tipo }} {{ cupom.valor }}%</span>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    {% else %}
+                    <p style="color:#666;">Nenhum cupom disponível</p>
+                    {% endif %}
+                </div>
+
+                <div class="card">
+                    <h3>⭐ Recompensas</h3>
+                    <div class="recompensas-grid">
+                        {% for rec in dados.recompensas %}
+                        <div class="recompensa-item">
+                            <div style="font-size:1.5rem;">🎁</div>
+                            <div><strong>{{ rec.nome }}</strong></div>
+                            <div class="custo">{{ rec.custo_pontos }} pontos</div>
+                            <button onclick="resgatar({{ rec.id }})" class="btn btn-primary btn-sm" style="padding:0.25rem 0.75rem; font-size:0.8rem;">
+                                Resgatar
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="card" style="grid-column: 1/-1;">
+                    <h3>📦 Últimos Pedidos</h3>
+                    {% if pedidos_usuario %}
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid #333;">
+                                        <th style="padding:0.5rem; text-align:left;">Pedido</th>
+                                        <th style="padding:0.5rem; text-align:left;">Serviço</th>
+                                        <th style="padding:0.5rem; text-align:left;">Valor</th>
+                                        <th style="padding:0.5rem; text-align:left;">Status</th>
+                                        <th style="padding:0.5rem; text-align:left;">Data</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for p in pedidos_usuario[:10] %}
+                                    <tr style="border-bottom: 1px solid #2a2a2a;">
+                                        <td style="padding:0.5rem;">{{ p.numero }}</td>
+                                        <td style="padding:0.5rem;">{{ p.servico_nome }}</td>
+                                        <td style="padding:0.5rem;">R$ {{ "%.2f"|format(p.valor_final or p.valor) }}</td>
+                                        <td style="padding:0.5rem;"><span class="status-badge status-{{ p.status }}">{{ p.status }}</span></td>
+                                        <td style="padding:0.5rem;">{{ p.data_criacao[:10] }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p style="color:#666;">Nenhum pedido realizado</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function resgatar(recompensaId) {
+                if (!confirm('Deseja resgatar esta recompensa?')) return;
+                
+                try {
+                    const response = await fetch('/api/recompensa/resgatar', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({recompensa_id: recompensaId})
+                    });
+                    const data = await response.json();
+                    alert(data.mensagem);
+                    if (data.sucesso) window.location.reload();
+                } catch (e) {
+                    alert('Erro: ' + e.message);
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """, usuario=usuario, dados_usuario=dados_usuario, config_loja=config_loja, pedidos_usuario=pedidos_usuario, dados=dados)
+
+@app.route("/pedidos")
+def meus_pedidos():
+    """Página com todos os pedidos do usuário"""
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    usuario = session.get('usuario')
+    uid = str(usuario['id'])
+    pedidos_usuario = [p for p in dados.get("pedidos", []) if p.get("cliente_id") == uid]
+    pedidos_usuario.sort(key=lambda x: x.get("data_criacao", ""), reverse=True)
+    
+    config_loja = dados.get("config_loja", {})
+    
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Meus Pedidos - {{ config_loja.nome_loja }}</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+            .navbar { background: #1a1a1a; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+            .navbar .logo { font-size: 1.5rem; font-weight: bold; color: #5865F2; text-decoration: none; }
+            .navbar .nav-links a { color: #ccc; text-decoration: none; margin-left: 2rem; transition: 0.3s; }
+            .navbar .nav-links a:hover { color: #5865F2; }
+            .btn { display: inline-block; padding: 0.5rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s; border: none; cursor: pointer; }
+            .btn-primary { background: #5865F2; color: white; }
+            .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
+            .btn-outline { background: transparent; color: white; border: 2px solid #5865F2; }
+            .btn-outline:hover { background: #5865F2; color: white; }
+            .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+            .card { background: #1a1a1a; border-radius: 12px; padding: 1.5rem; border: 1px solid #333; }
+            .card h2 { color: #fff; margin-bottom: 1rem; }
+            .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; }
+            .status-Aguardando { background: #f59e0b; color: #000; }
+            .status-Pago { background: #10b981; color: #fff; }
+            .status-Concluído { background: #5865F2; color: #fff; }
+            .status-Cancelado { background: #ef4444; color: #fff; }
+            .table-responsive { overflow-x: auto; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #2a2a2a; }
+            th { background: #2a2a2a; color: #aaa; font-weight: 600; }
+            .user-info { display: flex; align-items: center; gap: 1rem; }
+            .user-info .avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #5865F2; }
+            .dropdown { position: relative; display: inline-block; }
+            .dropdown-content { display: none; position: absolute; right: 0; background: #1a1a1a; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid #333; z-index: 1; }
+            .dropdown:hover .dropdown-content { display: block; }
+            .dropdown-content a { color: #ccc; padding: 12px 16px; text-decoration: none; display: block; }
+            .dropdown-content a:hover { background: #2a2a2a; color: #5865F2; }
+            .filtros { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+            .filtros select, .filtros input { padding: 0.5rem 1rem; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; }
+            .filtros select:focus, .filtros input:focus { outline: none; border-color: #5865F2; }
+            @media (max-width: 768px) {
+                .navbar .nav-links a { margin-left: 1rem; font-size: 0.9rem; }
+                th, td { padding: 0.5rem; font-size: 0.9rem; }
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <a href="/" class="logo">{{ config_loja.nome_loja }}</a>
+            <div class="nav-links">
+                <a href="/">Início</a>
+                <a href="/servicos">Serviços</a>
+                <a href="/fila">Fila</a>
+                <a href="/cliente">Minha Conta</a>
+                {% if usuario.get('eh_admin') %}
+                <a href="/dashboard" style="color: #f59e0b;">Painel Admin</a>
+                {% endif %}
+                <div class="dropdown" style="display:inline-block;">
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="nome">{{ usuario.nome_usuario }}</span>
+                        <span style="color:#5865F2;">▼</span>
+                    </div>
+                    <div class="dropdown-content">
+                        <a href="/cliente">👤 Minha Conta</a>
+                        <a href="/pedidos">📦 Meus Pedidos</a>
+                        <a href="/logout">🚪 Sair</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div class="card">
+                <h2>📦 Meus Pedidos</h2>
+                
+                <div class="filtros">
+                    <select id="filtro-status" onchange="filtrar()">
+                        <option value="">Todos os status</option>
+                        <option value="Aguardando pagamento">Aguardando</option>
+                        <option value="Pago">Pago</option>
+                        <option value="Concluído">Concluído</option>
+                        <option value="Cancelado">Cancelado</option>
+                    </select>
+                    <input type="text" id="filtro-busca" placeholder="🔍 Buscar pedido..." oninput="filtrar()">
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Pedido</th>
+                                <th>Serviço</th>
+                                <th>Valor</th>
+                                <th>Status</th>
+                                <th>Data</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabela-pedidos">
+                            {% for p in pedidos_usuario %}
+                            <tr data-status="{{ p.status }}" data-numero="{{ p.numero }}" data-servico="{{ p.servico_nome|lower }}">
+                                <td><strong>{{ p.numero }}</strong></td>
+                                <td>{{ p.servico_nome }}</td>
+                                <td>R$ {{ "%.2f"|format(p.valor_final or p.valor) }}</td>
+                                <td><span class="status-badge status-{{ p.status }}">{{ p.status }}</span></td>
+                                <td>{{ p.data_criacao[:10] }} {{ p.data_criacao[11:16] }}</td>
+                                <td>
+                                    <a href="/pedido/{{ p.numero }}" class="btn btn-primary" style="padding:0.25rem 0.75rem; font-size:0.8rem;">Detalhes</a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" style="text-align:center; color:#666; padding:2rem 0;">
+                                    Nenhum pedido encontrado.
+                                    <br><a href="/servicos" class="btn btn-primary" style="margin-top:1rem;">🛒 Fazer uma compra</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function filtrar() {
+                const status = document.getElementById('filtro-status').value;
+                const busca = document.getElementById('filtro-busca').value.toLowerCase();
+                const rows = document.querySelectorAll('#tabela-pedidos tr');
+                
+                rows.forEach(row => {
+                    let mostrar = true;
+                    if (status && row.dataset.status !== status) mostrar = false;
+                    if (busca && !row.dataset.numero.includes(busca) && !row.dataset.servico.includes(busca)) mostrar = false;
+                    row.style.display = mostrar ? '' : 'none';
+                });
+            }
+        </script>
+    </body>
+    </html>
+    """, usuario=usuario, pedidos_usuario=pedidos_usuario, config_loja=config_loja)
+
+# ========================
+# APIS DA LOJA
+# ========================
+
+@app.route("/api/pedido/criar", methods=["POST"])
+def api_criar_pedido():
+    """Cria um novo pedido"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Faça login primeiro"})
+    
+    data = request.json
+    servico_id = data.get("servico_id")
+    
+    # Buscar serviço
+    servico = None
+    for s in dados.get("servicos", []):
+        if s["id"] == servico_id:
+            servico = s
+            break
+    
+    if not servico:
+        return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
+    
+    if servico.get("status") != "ativo":
+        return jsonify({"sucesso": False, "mensagem": "Serviço indisponível"})
+    
+    usuario = session['usuario']
+    uid = str(usuario['id'])
+    
+    # Criar usuário se não existir
+    if uid not in dados.get("usuarios", {}):
+        criar_usuario(uid, usuario['nome_usuario'], usuario.get('avatar'))
+    
+    pedido, erro = criar_pedido(uid, servico_id, usuario['nome_usuario'])
+    
+    if erro:
+        return jsonify({"sucesso": False, "mensagem": erro})
+    
+    return jsonify({"sucesso": True, "pedido": pedido})
+
+@app.route("/api/pedido/pix", methods=["POST"])
+def api_gerar_pix():
+    """Gera um PIX para o pedido"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Faça login primeiro"})
+    
+    data = request.json
+    pedido_numero = data.get("pedido_numero")
+    
+    # Buscar pedido
+    pedido = None
+    for p in dados.get("pedidos", []):
+        if p["numero"] == pedido_numero:
+            pedido = p
+            break
+    
+    if not pedido:
+        return jsonify({"sucesso": False, "mensagem": "Pedido não encontrado"})
+    
+    if pedido["status"] != "Aguardando pagamento":
+        return jsonify({"sucesso": False, "mensagem": f"Pedido já está {pedido['status']}"})
+    
+    # Gerar PIX
+    config = dados.get("config_loja", {})
+    gateway = config.get("gateway_pix", "mercadopago")
+    
+    if gateway == "mercadopago":
+        pix_data, erro = gerar_pix_mercadopago(
+            valor=pedido["valor_final"],
+            descricao=f"Pedido {pedido_numero} - {pedido['servico_nome']}",
+            pedido_numero=pedido_numero.replace("#", "")
+        )
+        
+        if erro:
+            return jsonify({"sucesso": False, "mensagem": erro})
+        
+        # Salvar dados do PIX no pedido
+        pedido["pix_codigo"] = pix_data.get("qr_code")
+        pedido["pix_qr"] = pix_data.get("qr_code_base64")
+        salvar_dados_github(f"PIX gerado para {pedido_numero}")
+        
+        return jsonify({
+            "sucesso": True,
+            "qr_code": pix_data.get("qr_code"),
+            "qr_code_base64": pix_data.get("qr_code_base64"),
+            "codigo": pix_data.get("qr_code"),
+            "id": pix_data.get("id")
+        })
+    
+    return jsonify({"sucesso": False, "mensagem": f"Gateway {gateway} não implementado"})
+
+@app.route("/api/pedido/cupom", methods=["POST"])
+def api_aplicar_cupom():
+    """Aplica um cupom a um serviço (cria pedido com cupom)"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Faça login primeiro"})
+    
+    data = request.json
+    servico_id = data.get("servico_id")
+    codigo_cupom = data.get("cupom", "").strip().upper()
+    
+    if not codigo_cupom:
+        return jsonify({"sucesso": False, "mensagem": "Digite um código de cupom"})
+    
+    # Buscar serviço
+    servico = None
+    for s in dados.get("servicos", []):
+        if s["id"] == servico_id:
+            servico = s
+            break
+    
+    if not servico:
+        return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
+    
+    # Buscar cupom
+    cupom = None
+    for c in dados.get("cupons", []):
+        if c["codigo"] == codigo_cupom and c["status"] == "ativo":
+            cupom = c
+            break
+    
+    if not cupom:
+        return jsonify({"sucesso": False, "mensagem": "Cupom inválido ou expirado"})
+    
+    # Verificar validade
+    if datetime.fromisoformat(cupom["validade"]) < agora_br():
+        cupom["status"] = "expirado"
+        salvar_dados_github(f"Cupom expirado: {codigo_cupom}")
+        return jsonify({"sucesso": False, "mensagem": "Cupom expirado"})
+    
+    # Verificar quantidade
+    if cupom["quantidade_usada"] >= cupom["quantidade_maxima"]:
+        return jsonify({"sucesso": False, "mensagem": "Cupom esgotado"})
+    
+    # Verificar se o cupom é do usuário
+    usuario = session['usuario']
+    uid = str(usuario['id'])
+    if cupom.get("usuario_id") and cupom["usuario_id"] != uid:
+        return jsonify({"sucesso": False, "mensagem": "Este cupom não pertence a você"})
+    
+    # Calcular desconto
+    valor_final = servico["preco"]
+    desconto = 0
+    
+    if cupom["tipo"] == "desconto":
+        desconto = servico["preco"] * (cupom["valor"] / 100)
+        valor_final = servico["preco"] - desconto
+    elif cupom["tipo"] == "servico_gratis":
+        desconto = servico["preco"]
+        valor_final = 0
+    
+    return jsonify({
+        "sucesso": True,
+        "mensagem": f"Cupom aplicado! Desconto de R$ {desconto:.2f}",
+        "valor_original": servico["preco"],
+        "desconto": desconto,
+        "valor_final": valor_final,
+        "cupom": codigo_cupom
+    })
+
+@app.route("/api/pedido/status/<pedido_numero>")
+def api_status_pedido(pedido_numero):
+    """Verifica o status de um pedido"""
+    for p in dados.get("pedidos", []):
+        if p["numero"] == pedido_numero:
+            return jsonify({
+                "status": p["status"],
+                "numero": p["numero"],
+                "valor": p["valor_final"]
+            })
+    return jsonify({"status": "Não encontrado"})
+
+@app.route("/api/recompensa/resgatar", methods=["POST"])
+def api_resgatar_recompensa():
+    """Resgata uma recompensa"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Faça login primeiro"})
+    
+    data = request.json
+    recompensa_id = data.get("recompensa_id")
+    
+    usuario = session['usuario']
+    uid = str(usuario['id'])
+    
+    sucesso, mensagem = resgatar_recompensa(uid, recompensa_id)
+    return jsonify({"sucesso": sucesso, "mensagem": mensagem})
+
+# ========================
+# PAINEL ADMIN - NOVAS ROTAS
+# ========================
+
+@app.route("/dashboard")
+def dashboard_admin():
+    """Dashboard administrativo completo"""
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return redirect(url_for('login'))
+    
+    usuario = session['usuario']
+    config_loja = dados.get("config_loja", {})
+    
+    # Estatísticas
+    total_clientes = len(dados.get("usuarios", {}))
+    total_pedidos = len(dados.get("pedidos", []))
+    total_servicos = len(dados.get("servicos", []))
+    total_vendido = dados.get("financeiro", {}).get("total_vendido", 0)
+    
+    # Pedidos recentes
+    pedidos_recentes = sorted(dados.get("pedidos", []), key=lambda x: x.get("data_criacao", ""), reverse=True)[:10]
+    
+    # Estatísticas por status
+    pedidos_status = {}
+    for p in dados.get("pedidos", []):
+        status = p.get("status", "Desconhecido")
+        pedidos_status[status] = pedidos_status.get(status, 0) + 1
+    
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Dashboard Admin - {{ config_loja.nome_loja }}</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+            .navbar { background: #1a1a1a; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+            .navbar .logo { font-size: 1.5rem; font-weight: bold; color: #5865F2; text-decoration: none; }
+            .navbar .nav-links a { color: #ccc; text-decoration: none; margin-left: 2rem; transition: 0.3s; }
+            .navbar .nav-links a:hover { color: #5865F2; }
+            .btn { display: inline-block; padding: 0.5rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s; border: none; cursor: pointer; }
+            .btn-primary { background: #5865F2; color: white; }
+            .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
+            .btn-success { background: #10b981; color: white; }
+            .btn-success:hover { background: #059669; transform: translateY(-2px); }
+            .btn-danger { background: #ef4444; color: white; }
+            .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
+            .btn-warning { background: #f59e0b; color: #000; }
+            .btn-warning:hover { background: #d97706; transform: translateY(-2px); }
+            .btn-outline { background: transparent; color: white; border: 2px solid #5865F2; }
+            .btn-outline:hover { background: #5865F2; color: white; }
+            .btn-sm { padding: 0.25rem 0.75rem; font-size: 0.8rem; }
+            .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
+            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+            .stat-card { background: #1a1a1a; padding: 1.5rem; border-radius: 12px; border: 1px solid #333; text-align: center; }
+            .stat-card h3 { font-size: 2rem; color: #5865F2; }
+            .stat-card p { color: #888; }
+            .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+            .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+            .card { background: #1a1a1a; border-radius: 12px; padding: 1.5rem; border: 1px solid #333; }
+            .card h3 { color: #5865F2; margin-bottom: 1rem; }
+            .tab-nav { display: flex; gap: 0.5rem; margin-bottom: 2rem; flex-wrap: wrap; border-bottom: 2px solid #333; padding-bottom: 0.5rem; }
+            .tab-btn { padding: 0.5rem 1.5rem; background: transparent; border: none; color: #888; cursor: pointer; border-radius: 8px; transition: 0.3s; }
+            .tab-btn:hover { background: #2a2a2a; color: #fff; }
+            .tab-btn.active { background: #5865F2; color: #fff; }
+            .tab { display: none; }
+            .tab.active { display: block; animation: fadeIn 0.3s; }
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #2a2a2a; }
+            th { background: #2a2a2a; color: #aaa; font-weight: 600; }
+            .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; }
+            .status-Aguardando { background: #f59e0b; color: #000; }
+            .status-Pago { background: #10b981; color: #fff; }
+            .status-Concluído { background: #5865F2; color: #fff; }
+            .status-Cancelado { background: #ef4444; color: #fff; }
+            .form-group { margin-bottom: 1rem; }
+            .form-group label { display: block; margin-bottom: 0.25rem; color: #aaa; }
+            .form-control { width: 100%; padding: 0.75rem; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; }
+            .form-control:focus { outline: none; border-color: #5865F2; }
+            .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+            .alert { padding: 1rem; border-radius: 8px; margin: 1rem 0; display: none; }
+            .alert-success { background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }
+            .alert-error { background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }
+            .user-info { display: flex; align-items: center; gap: 1rem; }
+            .user-info .avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #5865F2; }
+            .dropdown { position: relative; display: inline-block; }
+            .dropdown-content { display: none; position: absolute; right: 0; background: #1a1a1a; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid #333; z-index: 1; }
+            .dropdown:hover .dropdown-content { display: block; }
+            .dropdown-content a { color: #ccc; padding: 12px 16px; text-decoration: none; display: block; }
+            .dropdown-content a:hover { background: #2a2a2a; color: #5865F2; }
+            .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; }
+            .modal-content { background: #1a1a1a; padding: 2rem; border-radius: 12px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; border: 1px solid #333; }
+            .modal-close { float: right; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; }
+            @media (max-width: 768px) {
+                .grid-2, .grid-3 { grid-template-columns: 1fr; }
+                .form-row { grid-template-columns: 1fr; }
+                .navbar .nav-links a { margin-left: 1rem; font-size: 0.9rem; }
+                .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <a href="/" class="logo">{{ config_loja.nome_loja }}</a>
+            <div class="nav-links">
+                <a href="/">Início</a>
+                <a href="/servicos">Serviços</a>
+                <a href="/fila">Fila</a>
+                <a href="/cliente">Minha Conta</a>
+                <a href="/dashboard" style="color: #f59e0b;">Painel Admin</a>
+                <div class="dropdown" style="display:inline-block;">
+                    <div class="user-info">
+                        <img src="https://cdn.discordapp.com/avatars/{{ usuario.id }}/{{ usuario.get('avatar', '') }}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="nome">{{ usuario.nome_usuario }}</span>
+                        <span style="color:#5865F2;">▼</span>
+                    </div>
+                    <div class="dropdown-content">
+                        <a href="/cliente">👤 Minha Conta</a>
+                        <a href="/pedidos">📦 Meus Pedidos</a>
+                        <a href="/logout">🚪 Sair</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <h2 style="color:#fff; margin-bottom: 1rem;">📊 Dashboard Administrativo</h2>
+
+            <div class="stats-grid">
+                <div class="stat-card"><h3>{{ total_clientes }}</h3><p>👥 Clientes</p></div>
+                <div class="stat-card"><h3>{{ total_pedidos }}</h3><p>📦 Pedidos</p></div>
+                <div class="stat-card"><h3>{{ total_servicos }}</h3><p>🛒 Serviços</p></div>
+                <div class="stat-card"><h3>R$ {{ "%.2f"|format(total_vendido) }}</h3><p>💰 Faturamento</p></div>
+            </div>
+
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="showTab('dashboard')">📊 Dashboard</button>
+                <button class="tab-btn" onclick="showTab('servicos')">🛒 Serviços</button>
+                <button class="tab-btn" onclick="showTab('pedidos')">📦 Pedidos</button>
+                <button class="tab-btn" onclick="showTab('clientes')">👥 Clientes</button>
+                <button class="tab-btn" onclick="showTab('config')">⚙️ Configurações</button>
+            </div>
+
+            <!-- Tab Dashboard -->
+            <div id="dashboard" class="tab active">
+                <div class="grid-2">
+                    <div class="card">
+                        <h3>📊 Pedidos por Status</h3>
+                        {% for status, count in pedidos_status.items() %}
+                        <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid #2a2a2a;">
+                            <span>{{ status }}</span>
+                            <span class="status-badge status-{{ status }}">{{ count }}</span>
+                        </div>
+                        {% else %}
+                        <p style="color:#666;">Nenhum pedido</p>
+                        {% endfor %}
+                    </div>
+                    <div class="card">
+                        <h3>📋 Últimos Pedidos</h3>
+                        {% for p in pedidos_recentes %}
+                        <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid #2a2a2a;">
+                            <span>{{ p.numero }} - {{ p.servico_nome }}</span>
+                            <span class="status-badge status-{{ p.status }}">{{ p.status }}</span>
+                        </div>
+                        {% else %}
+                        <p style="color:#666;">Nenhum pedido</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Serviços -->
+            <div id="servicos" class="tab">
+                <div class="card">
+                    <h3>🛒 Gerenciar Serviços</h3>
+                    <button onclick="abrirModal('servico')" class="btn btn-success" style="margin-bottom:1rem;">➕ Novo Serviço</button>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nome</th>
+                                    <th>Categoria</th>
+                                    <th>Preço</th>
+                                    <th>Status</th>
+                                    <th>Destaque</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for s in dados.servicos %}
+                                <tr>
+                                    <td>{{ s.id }}</td>
+                                    <td>{{ s.nome }}</td>
+                                    <td>{{ s.categoria }}</td>
+                                    <td>R$ {{ "%.2f"|format(s.preco) }}</td>
+                                    <td><span class="status-badge status-{{ s.status }}">{{ s.status }}</span></td>
+                                    <td>{% if s.destaque %}⭐{% endif %}</td>
+                                    <td>
+                                        <button onclick="editarServico({{ s.id }})" class="btn btn-primary btn-sm">✏️</button>
+                                        <button onclick="removerServico({{ s.id }})" class="btn btn-danger btn-sm">🗑️</button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="7" style="text-align:center; color:#666;">Nenhum serviço cadastrado</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Pedidos -->
+            <div id="pedidos" class="tab">
+                <div class="card">
+                    <h3>📦 Gerenciar Pedidos</h3>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Pedido</th>
+                                    <th>Cliente</th>
+                                    <th>Serviço</th>
+                                    <th>Valor</th>
+                                    <th>Status</th>
+                                    <th>Data</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in dados.pedidos|reverse %}
+                                <tr>
+                                    <td>{{ p.numero }}</td>
+                                    <td>{{ p.cliente_nome }}</td>
+                                    <td>{{ p.servico_nome }}</td>
+                                    <td>R$ {{ "%.2f"|format(p.valor_final or p.valor) }}</td>
+                                    <td><span class="status-badge status-{{ p.status }}">{{ p.status }}</span></td>
+                                    <td>{{ p.data_criacao[:10] }}</td>
+                                    <td>
+                                        <select onchange="atualizarStatus('{{ p.numero }}', this.value)" class="form-control" style="width:auto; display:inline-block; padding:0.25rem;">
+                                            <option value="Aguardando pagamento" {% if p.status == 'Aguardando pagamento' %}selected{% endif %}>Aguardando</option>
+                                            <option value="Pago" {% if p.status == 'Pago' %}selected{% endif %}>Pago</option>
+                                            <option value="Em andamento" {% if p.status == 'Em andamento' %}selected{% endif %}>Em andamento</option>
+                                            <option value="Concluído" {% if p.status == 'Concluído' %}selected{% endif %}>Concluído</option>
+                                            <option value="Cancelado" {% if p.status == 'Cancelado' %}selected{% endif %}>Cancelado</option>
+                                        </select>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="7" style="text-align:center; color:#666;">Nenhum pedido</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Clientes -->
+            <div id="clientes" class="tab">
+                <div class="card">
+                    <h3>👥 Gerenciar Clientes</h3>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nome</th>
+                                    <th>Pontos</th>
+                                    <th>Total Gasto</th>
+                                    <th>Pedidos</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for uid, user in dados.usuarios.items() %}
+                                <tr>
+                                    <td>{{ uid[:8] }}...</td>
+                                    <td>{{ user.nome }}</td>
+                                    <td>{{ user.pontos }}</td>
+                                    <td>R$ {{ "%.2f"|format(user.total_gasto or 0) }}</td>
+                                    <td>{{ user.pedidos|length }}</td>
+                                    <td>
+                                        <button onclick="editarCliente('{{ uid }}')" class="btn btn-primary btn-sm">✏️</button>
+                                        <button onclick="adicionarPontos('{{ uid }}')" class="btn btn-success btn-sm">+⭐</button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="6" style="text-align:center; color:#666;">Nenhum cliente</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Configurações -->
+            <div id="config" class="tab">
+                <div class="card">
+                    <h3>⚙️ Configurações da Loja</h3>
+                    <form id="config-form" onsubmit="salvarConfig(event)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Nome da Loja</label>
+                                <input type="text" id="config-nome" class="form-control" value="{{ config_loja.nome_loja }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Pontos por R$</label>
+                                <input type="number" id="config-pontos" class="form-control" value="{{ config_loja.pontos_por_real }}" min="1">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Logo (URL)</label>
+                                <input type="url" id="config-logo" class="form-control" value="{{ config_loja.logo or '' }}" placeholder="URL da logo">
+                            </div>
+                            <div class="form-group">
+                                <label>Banner (URL)</label>
+                                <input type="url" id="config-banner" class="form-control" value="{{ config_loja.banner or '' }}" placeholder="URL do banner">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Gateway PIX</label>
+                            <select id="config-gateway" class="form-control">
+                                <option value="mercadopago" {% if config_loja.gateway_pix == 'mercadopago' %}selected{% endif %}>Mercado Pago</option>
+                                <option value="efi" {% if config_loja.gateway_pix == 'efi' %}selected{% endif %}>Efí</option>
+                                <option value="asaas" {% if config_loja.gateway_pix == 'asaas' %}selected{% endif %}>Asaas</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Mercado Pago Token</label>
+                            <input type="text" id="config-token" class="form-control" value="{{ config_loja.mercadopago_token or '' }}" placeholder="Token de acesso">
+                        </div>
+                        <div class="form-group">
+                            <label>Webhook URL</label>
+                            <input type="url" id="config-webhook" class="form-control" value="{{ config_loja.mercadopago_webhook or '' }}" placeholder="https://seu-site.com/webhook/mercadopago">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Discord</label>
+                                <input type="url" id="config-discord" class="form-control" value="{{ config_loja.redes_sociais.discord or '' }}" placeholder="https://discord.gg/...">
+                            </div>
+                            <div class="form-group">
+                                <label>Instagram</label>
+                                <input type="url" id="config-instagram" class="form-control" value="{{ config_loja.redes_sociais.instagram or '' }}">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">💾 Salvar Configurações</button>
+                        <div id="config-alert" class="alert"></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal para Serviço -->
+        <div id="modal-servico" class="modal">
+            <div class="modal-content">
+                <button class="modal-close" onclick="fecharModal('servico')">×</button>
+                <h3 id="modal-servico-titulo" style="color:#fff; margin-bottom:1rem;">Novo Serviço</h3>
+                <form id="form-servico" onsubmit="salvarServico(event)">
+                    <input type="hidden" id="servico-id" value="">
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="servico-nome" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <select id="servico-categoria" class="form-control" required>
+                            {% for cat in dados.categorias %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                            <option value="Outros">Outros</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Preço (R$)</label>
+                        <input type="number" id="servico-preco" class="form-control" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Descrição</label>
+                        <textarea id="servico-descricao" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Tempo Estimado</label>
+                            <input type="text" id="servico-tempo" class="form-control" placeholder="Ex: 2-4 horas">
+                        </div>
+                        <div class="form-group">
+                            <label>Imagem (emoji ou URL)</label>
+                            <input type="text" id="servico-imagem" class="form-control" placeholder="🎮 ou https://...">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="servico-destaque"> Destaque
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="servico-status" class="form-control">
+                                <option value="ativo">Ativo</option>
+                                <option value="inativo">Inativo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">💾 Salvar</button>
+                    <div id="servico-alert" class="alert"></div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            let configData = {{ dados.config_loja|tojson }};
+
+            function showTab(tabId) {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
+            }
+
+            function abrirModal(tipo, dados = null) {
+                if (tipo === 'servico') {
+                    const modal = document.getElementById('modal-servico');
+                    modal.style.display = 'flex';
+                    
+                    if (dados) {
+                        document.getElementById('modal-servico-titulo').textContent = 'Editar Serviço';
+                        document.getElementById('servico-id').value = dados.id;
+                        document.getElementById('servico-nome').value = dados.nome;
+                        document.getElementById('servico-categoria').value = dados.categoria;
+                        document.getElementById('servico-preco').value = dados.preco;
+                        document.getElementById('servico-descricao').value = dados.descricao || '';
+                        document.getElementById('servico-tempo').value = dados.tempo_estimado || '';
+                        document.getElementById('servico-imagem').value = dados.imagem || '';
+                        document.getElementById('servico-destaque').checked = dados.destaque || false;
+                        document.getElementById('servico-status').value = dados.status || 'ativo';
+                    } else {
+                        document.getElementById('modal-servico-titulo').textContent = 'Novo Serviço';
+                        document.getElementById('servico-id').value = '';
+                        document.getElementById('form-servico').reset();
+                        document.getElementById('servico-status').value = 'ativo';
+                    }
+                }
+            }
+
+            function fecharModal(tipo) {
+                if (tipo === 'servico') {
+                    document.getElementById('modal-servico').style.display = 'none';
+                }
+            }
+
+            async function salvarServico(event) {
+                event.preventDefault();
+                const id = document.getElementById('servico-id').value;
+                const dados = {
+                    nome: document.getElementById('servico-nome').value,
+                    categoria: document.getElementById('servico-categoria').value,
+                    preco: parseFloat(document.getElementById('servico-preco').value),
+                    descricao: document.getElementById('servico-descricao').value,
+                    tempo_estimado: document.getElementById('servico-tempo').value,
+                    imagem: document.getElementById('servico-imagem').value,
+                    destaque: document.getElementById('servico-destaque').checked,
+                    status: document.getElementById('servico-status').value
+                };
+
+                try {
+                    const url = id ? '/api/servico/editar' : '/api/servico/criar';
+                    if (id) dados.id = parseInt(id);
+                    
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(dados)
+                    });
+                    const result = await response.json();
+                    
+                    mostrarAlert('servico-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {
+                        setTimeout(() => window.location.reload(), 1500);
+                    }
+                } catch (e) {
+                    mostrarAlert('servico-alert', 'Erro: ' + e.message, false);
+                }
+            }
+
+            function editarServico(id) {
+                const servico = {{ dados.servicos|tojson }}.find(s => s.id === id);
+                if (servico) abrirModal('servico', servico);
+            }
+
+            async function removerServico(id) {
+                if (!confirm('Remover este serviço?')) return;
+                try {
+                    const response = await fetch('/api/servico/remover', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({id})
+                    });
+                    const result = await response.json();
+                    alert(result.mensagem);
+                    if (result.sucesso) window.location.reload();
+                } catch (e) {
+                    alert('Erro: ' + e.message);
+                }
+            }
+
+            async function atualizarStatus(pedido, status) {
+                try {
+                    const response = await fetch('/api/pedido/status/atualizar', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({pedido, status})
+                    });
+                    const result = await response.json();
+                    alert(result.mensagem);
+                    if (result.sucesso) window.location.reload();
+                } catch (e) {
+                    alert('Erro: ' + e.message);
+                }
+            }
+
+            function editarCliente(uid) {
+                const pontos = prompt('Quantos pontos adicionar? (Digite negativo para remover)');
+                if (pontos === null) return;
+                const valor = parseInt(pontos);
+                if (isNaN(valor)) return;
+                
+                fetch('/api/cliente/pontos', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({usuario_id: uid, pontos: valor})
+                }).then(r => r.json()).then(data => {
+                    alert(data.mensagem);
+                    if (data.sucesso) window.location.reload();
+                });
+            }
+
+            function adicionarPontos(uid) {
+                editarCliente(uid);
+            }
+
+            async function salvarConfig(event) {
+                event.preventDefault();
+                const dados = {
+                    nome_loja: document.getElementById('config-nome').value,
+                    pontos_por_real: parseInt(document.getElementById('config-pontos').value),
+                    logo: document.getElementById('config-logo').value,
+                    banner: document.getElementById('config-banner').value,
+                    gateway_pix: document.getElementById('config-gateway').value,
+                    mercadopago_token: document.getElementById('config-token').value,
+                    mercadopago_webhook: document.getElementById('config-webhook').value,
+                    redes_sociais: {
+                        discord: document.getElementById('config-discord').value,
+                        instagram: document.getElementById('config-instagram').value
+                    }
+                };
+
+                try {
+                    const response = await fetch('/api/config/loja', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(dados)
+                    });
+                    const result = await response.json();
+                    mostrarAlert('config-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {
+                        setTimeout(() => window.location.reload(), 1500);
+                    }
+                } catch (e) {
+                    mostrarAlert('config-alert', 'Erro: ' + e.message, false);
+                }
+            }
+
+            function mostrarAlert(id, msg, sucesso) {
+                const el = document.getElementById(id);
+                el.textContent = msg;
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 5000);
+            }
+
+            // Fechar modal ao clicar fora
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === this) this.style.display = 'none';
+                });
+            });
+        </script>
+    </body>
+    </html>
+    """, usuario=usuario, config_loja=config_loja, total_clientes=total_clientes, total_pedidos=total_pedidos, total_servicos=total_servicos, total_vendido=total_vendido, pedidos_recentes=pedidos_recentes, pedidos_status=pedidos_status, dados=dados)
+
+# ========================
+# APIS ADMIN DA LOJA
+# ========================
+
+@app.route("/api/servico/criar", methods=["POST"])
+def api_criar_servico_admin():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"})
+    
+    data = request.json
+    servico = criar_servico(
+        nome=data.get('nome'),
+        categoria=data.get('categoria'),
+        preco=data.get('preco'),
+        descricao=data.get('descricao', ''),
+        imagem=data.get('imagem', ''),
+        tempo_estimado=data.get('tempo_estimado', ''),
+        destaque=data.get('destaque', False),
+        ordem=len(dados.get('servicos', []))
+    )
+    return jsonify({"sucesso": True, "mensagem": f"Serviço '{servico['nome']}' criado!"})
+
+@app.route("/api/servico/editar", methods=["POST"])
+def api_editar_servico_admin():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"})
+    
+    data = request.json
+    servico_id = data.get('id')
+    if not servico_id:
+        return jsonify({"sucesso": False, "mensagem": "ID do serviço não informado"})
+    
+    sucesso = atualizar_servico(servico_id, **data)
+    if sucesso:
+        return jsonify({"sucesso": True, "mensagem": "Serviço atualizado!"})
+    return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
+
+@app.route("/api/servico/remover", methods=["POST"])
+def api_remover_servico_admin():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"})
+    
+    data = request.json
+    servico_id = data.get('id')
+    if not servico_id:
+        return jsonify({"sucesso": False, "mensagem": "ID do serviço não informado"})
+    
+    sucesso = remover_servico(servico_id)
+    if sucesso:
+        return jsonify({"sucesso": True, "mensagem": "Serviço removido!"})
+    return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
+
+@app.route("/api/pedido/status/atualizar", methods=["POST"])
+def api_atualizar_status_pedido():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"})
+    
+    data = request.json
+    pedido = data.get('pedido')
+    status = data.get('status')
+    
+    if not pedido or not status:
+        return jsonify({"sucesso": False, "mensagem": "Dados incompletos"})
+    
+    sucesso = atualizar_status_pedido(pedido, status)
+    if sucesso:
+        return jsonify({"sucesso": True, "mensagem": f"Status do pedido {pedido} atualizado para {status}"})
+    return jsonify({"sucesso": False, "mensagem": "Pedido não encontrado"})
+
+@app.route("/api/cliente/pontos", methods=["POST"])
+def api_editar_pontos_cliente():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"})
+    
+    data = request.json
+    usuario_id = data.get('usuario_id')
+    pontos = data.get('pontos', 0)
+    
+    if not usuario_id:
+        return jsonify({"sucesso": False, "mensagem": "ID do usuário não informado"})
+    
+    if pontos > 0:
+        sucesso = adicionar_pontos(usuario_id, pontos, "Ajuste manual pelo admin")
+    elif pontos < 0:
+        sucesso = remover_pontos(usuario_id, abs(pontos), "Ajuste manual pelo admin")
+    else:
+        return jsonify({"sucesso": True, "mensagem": "Nenhuma alteração"})
+    
+    if sucesso:
+        return jsonify({"sucesso": True, "mensagem": f"Pontos {'adicionados' if pontos > 0 else 'removidos'}!"})
+    return jsonify({"sucesso": False, "mensagem": "Usuário não encontrado"})
+
+@app.route("/api/config/loja", methods=["POST"])
+def api_config_loja():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"})
+    
+    data = request.json
+    config = dados.get("config_loja", {})
+    
+    for chave, valor in data.items():
+        if chave in config:
+            config[chave] = valor
+        elif chave == "redes_sociais" and isinstance(valor, dict):
+            for sub_chave, sub_valor in valor.items():
+                config["redes_sociais"][sub_chave] = sub_valor
+    
+    dados["config_loja"] = config
+    salvar_dados_github("Configurações da loja atualizadas")
+    return jsonify({"sucesso": True, "mensagem": "Configurações salvas!"})
+
+# ========================
+# FUNÇÕES ANTI-SPAM E IGNORADOS
+# ========================
+
+def verificar_comando_ignorado(conteudo: str) -> bool:
+    """Verifica se a mensagem é um comando ignorado (não conta como spam e NÃO ganha XP)"""
+    conteudo_lower = conteudo.lower().strip()
+    comandos_ignorados = dados.get("anti_spam", {}).get("comandos_ignorados", [])
+    
+    for comando in comandos_ignorados:
+        if conteudo_lower.startswith(comando.lower()):
+            return True
+        if conteudo_lower == comando.lower():
+            return True
+    
+    return False
+
+def verificar_cargo_ignorado(member: discord.Member) -> bool:
+    """Verifica se o membro tem cargo que ignora o anti-spam"""
+    cargos_ignorados = dados.get("anti_spam", {}).get("cargos_ignorados", [])
+    cargos_membro = [role.name for role in member.roles]
+    for cargo_ignorado in cargos_ignorados:
+        if cargo_ignorado in cargos_membro:
+            return True
+    return False
+
+def limpar_mensagens_antigas(user_id: int):
+    """Remove mensagens mais antigas que o intervalo configurado"""
+    if user_id not in mensagens_recentes:
+        return
+    
+    intervalo = dados.get("anti_spam", {}).get("intervalo_segundos", 5)
+    agora = time.time()
+    mensagens_recentes[user_id] = [
+        ts for ts in mensagens_recentes[user_id] 
+        if agora - ts < intervalo
+    ]
+    
+    if not mensagens_recentes[user_id]:
+        del mensagens_recentes[user_id]
+
+def registrar_mensagem(user_id: int) -> int:
+    """Registra uma mensagem e retorna quantas mensagens o usuário enviou no intervalo"""
+    agora = time.time()
+    
+    if user_id not in mensagens_recentes:
+        mensagens_recentes[user_id] = []
+    
+    mensagens_recentes[user_id].append(agora)
+    limpar_mensagens_antigas(user_id)
+    
+    return len(mensagens_recentes.get(user_id, []))
+
+async def aplicar_mute(member: discord.Member, duracao_minutos: int = 2):
+    """Aplica mute temporário no membro"""
+    guild = member.guild
+    
+    mute_role = discord.utils.get(guild.roles, name="Muted")
+    
+    if not mute_role:
+        try:
+            mute_role = await guild.create_role(name="Muted", permissions=discord.Permissions.none())
+            for channel in guild.channels:
+                try:
+                    await channel.set_permissions(mute_role, send_messages=False, add_reactions=False, speak=False)
+                except:
+                    pass
+            print(f"✅ Cargo 'Muted' criado no servidor {guild.name}")
+        except Exception as e:
+            print(f"❌ Erro ao criar cargo de mute: {e}")
+            return False
+    
+    try:
+        await member.add_roles(mute_role, reason=f"Anti-spam: {duracao_minutos} minutos de mute")
+        
+        async def remover_mute():
+            await asyncio.sleep(duracao_minutos * 60)
+            try:
+                await member.remove_roles(mute_role, reason="Fim do mute por spam")
+            except:
+                pass
+        
+        asyncio.create_task(remover_mute())
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao aplicar mute: {e}")
+        return False
+
+async def deletar_mensagens_spam(member: discord.Member, channel: discord.TextChannel, quantidade: int):
+    """Deleta as mensagens de spam do usuário"""
+    if not dados.get("anti_spam", {}).get("deletar_mensagens", True):
+        return
+    
+    try:
+        async for msg in channel.history(limit=quantidade + 5):
+            if msg.author == member:
+                try:
+                    await msg.delete()
+                    await asyncio.sleep(0.5)
+                except:
+                    pass
+    except:
+        pass
+
+async def remover_xp_por_spam(member: discord.Member):
+    """Remove XP do usuário por spam"""
+    if not dados.get("anti_spam", {}).get("remover_xp", True):
+        return False
+    
+    uid = str(member.id)
+    penalidade = dados.get("anti_spam", {}).get("xp_penalidade", 50)
+    xp_atual = dados.get("xp", {}).get(uid, 0)
+    
+    novo_xp = max(0, xp_atual - penalidade)
+    dados["xp"][uid] = novo_xp
+    
+    novo_nivel = xp_para_nivel(novo_xp)
+    dados["nivel"][uid] = novo_nivel
+    
+    salvar_dados_github(f"Anti-spam: {penalidade} XP removido de {member.name}")
+    
+    return True
+
+# ========================
+# SISTEMA DE FILA
 # ========================
 
 def obter_dados_fila():
@@ -361,6 +2752,9 @@ def obter_dados_fila():
         "historico": []
     })
     return dados["fila"]
+
+def salvar_fila():
+    return salvar_dados_github("Atualização da fila")
 
 def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: str = None):
     fila = obter_dados_fila()
@@ -388,7 +2782,8 @@ def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: 
     
     fila["entradas"].append(entrada)
     atualizar_posicoes(fila["entradas"])
-    salvar_dados_github(f"fila_adicionar: {nome_usuario} - {servico} - {jogo}")
+    salvar_fila()
+    adicionar_log(f"fila_adicionar: {nome_usuario} - {servico} - {jogo}")
     return True, entrada
 
 def remover_fila(entrada_id: str):
@@ -402,7 +2797,8 @@ def remover_fila(entrada_id: str):
             if len(fila["historico"]) > 100:
                 fila["historico"] = fila["historico"][-100:]
             atualizar_posicoes(fila["entradas"])
-            salvar_dados_github(f"fila_remover: {removido['nome_usuario']}")
+            salvar_fila()
+            adicionar_log(f"fila_remover: {removido['nome_usuario']}")
             return True, removido
     return False, None
 
@@ -418,7 +2814,7 @@ def mover_cima(entrada_id: str):
         if entrada["id"] == entrada_id and i > 0:
             entradas[i], entradas[i-1] = entradas[i-1], entradas[i]
             atualizar_posicoes(entradas)
-            salvar_dados_github("Fila: mover cima")
+            salvar_fila()
             return True, entrada
     return False, None
 
@@ -429,7 +2825,7 @@ def mover_baixo(entrada_id: str):
         if entrada["id"] == entrada_id and i < len(entradas) - 1:
             entradas[i], entradas[i+1] = entradas[i+1], entradas[i]
             atualizar_posicoes(entradas)
-            salvar_dados_github("Fila: mover baixo")
+            salvar_fila()
             return True, entrada
     return False, None
 
@@ -442,7 +2838,8 @@ def concluir_servico(entrada_id: str):
             removido["concluido_em"] = agora_br().isoformat()
             fila["historico"].append(removido)
             atualizar_posicoes(fila["entradas"])
-            salvar_dados_github(f"fila_concluir: {removido['nome_usuario']}")
+            salvar_fila()
+            adicionar_log(f"fila_concluir: {removido['nome_usuario']}")
             return True, removido
     return False, None
 
@@ -453,7 +2850,8 @@ def limpar_fila():
         entrada["limpo_em"] = agora_br().isoformat()
         fila["historico"].append(entrada)
     fila["entradas"] = []
-    salvar_dados_github("fila_limpa")
+    salvar_fila()
+    adicionar_log("fila_limpa")
     return True
 
 def alternar_fila(aberto: bool = None):
@@ -462,21 +2860,24 @@ def alternar_fila(aberto: bool = None):
         fila["configuracoes"]["aberta"] = not fila["configuracoes"]["aberta"]
     else:
         fila["configuracoes"]["aberta"] = aberto
-    salvar_dados_github("Fila: alternar status")
+    salvar_fila()
     return fila["configuracoes"]["aberta"]
 
 def definir_tamanho_maximo(tamanho: int):
     fila = obter_dados_fila()
     fila["configuracoes"]["tamanho_maximo"] = max(1, min(tamanho, 100))
-    salvar_dados_github("Fila: tamanho maximo")
+    salvar_fila()
     return fila["configuracoes"]["tamanho_maximo"]
 
 def definir_nome_fila(nome: str):
     fila = obter_dados_fila()
     fila["nome"] = nome[:50]
-    salvar_dados_github("Fila: nome")
+    salvar_fila()
     return fila["nome"]
 
+# ========================
+# FUNÇÕES PARA LINKS DA FILA
+# ========================
 def obter_links_fila():
     dados.setdefault("links_fila", {"discord_convite": "", "botoes_precos": []})
     return dados["links_fila"]
@@ -509,144 +2910,8 @@ def atualizar_botao_preco(index: int, nome: str, url: str):
     return False
 
 # ========================
-# FUNÇÕES DOS SERVIÇOS
+# SISTEMA DE AÇÕES DO SITE
 # ========================
-
-def obter_categorias():
-    return dados.get("categorias", [])
-
-def obter_categoria_por_slug(slug):
-    for cat in dados.get("categorias", []):
-        if cat.get("slug") == slug and cat.get("ativo", True):
-            return cat
-    return None
-
-def obter_servicos(filtro_categoria=None, busca=None):
-    servicos = dados.get("servicos", [])
-    if filtro_categoria:
-        servicos = [s for s in servicos if s.get("categoria_id") == filtro_categoria]
-    if busca:
-        busca_lower = busca.lower()
-        servicos = [s for s in servicos if busca_lower in s.get("nome", "").lower() or busca_lower in s.get("descricao", "").lower()]
-    return sorted(servicos, key=lambda s: (-s.get("destaque", False), s.get("ordem", 0)))
-
-def obter_servico_por_slug(slug):
-    for s in dados.get("servicos", []):
-        if s.get("slug") == slug and s.get("status") == "ativo":
-            return s
-    return None
-
-def obter_servico_por_id(servico_id):
-    for s in dados.get("servicos", []):
-        if s.get("id") == servico_id:
-            return s
-    return None
-
-def criar_servico(dados_servico):
-    servicos = dados.get("servicos", [])
-    servicos.append(dados_servico)
-    salvar_dados_github(f"Serviço criado: {dados_servico.get('nome')}")
-
-def atualizar_servico(servico_id, dados_servico):
-    servicos = dados.get("servicos", [])
-    for i, s in enumerate(servicos):
-        if s.get("id") == servico_id:
-            servicos[i] = dados_servico
-            salvar_dados_github(f"Serviço atualizado: {dados_servico.get('nome')}")
-            return True
-    return False
-
-def deletar_servico(servico_id):
-    servicos = dados.get("servicos", [])
-    for i, s in enumerate(servicos):
-        if s.get("id") == servico_id:
-            servicos.pop(i)
-            salvar_dados_github("Serviço deletado")
-            return True
-    return False
-
-# ========================
-# FUNÇÕES DOS PEDIDOS
-# ========================
-
-def obter_pedidos_usuario(discord_id):
-    return [p for p in dados.get("pedidos", []) if p.get("usuario_id") == discord_id]
-
-def obter_pedido_por_numero(numero):
-    for p in dados.get("pedidos", []):
-        if p.get("numero") == numero:
-            return p
-    return None
-
-def criar_pedido(dados_pedido):
-    pedidos = dados.get("pedidos", [])
-    pedidos.append(dados_pedido)
-    salvar_dados_github(f"Pedido criado: {dados_pedido.get('numero')}")
-    return dados_pedido
-
-def atualizar_pedido(numero, dados_pedido):
-    pedidos = dados.get("pedidos", [])
-    for i, p in enumerate(pedidos):
-        if p.get("numero") == numero:
-            pedidos[i] = dados_pedido
-            salvar_dados_github(f"Pedido atualizado: {numero}")
-            return True
-    return False
-
-# ========================
-# FUNÇÕES DE PONTOS
-# ========================
-
-def adicionar_pontos(discord_id, quantidade, descricao, referencia_id=None):
-    usuario = dados["usuarios"].get(discord_id)
-    if not usuario:
-        return False
-    
-    usuario["pontos"] = usuario.get("pontos", 0) + quantidade
-    usuario["total_pontos_ganhos"] = usuario.get("total_pontos_ganhos", 0) + quantidade
-    
-    transacao = {
-        "id": gerar_id(),
-        "usuario_id": discord_id,
-        "tipo": "ganho",
-        "quantidade": quantidade,
-        "descricao": descricao,
-        "referencia_id": referencia_id,
-        "data_criacao": datetime.utcnow().isoformat()
-    }
-    dados.setdefault("transacoes_pontos", []).append(transacao)
-    salvar_dados_github(f"Pontos adicionados: {quantidade} para {discord_id}")
-    return True
-
-def gastar_pontos(discord_id, quantidade, descricao, referencia_id=None):
-    usuario = dados["usuarios"].get(discord_id)
-    if not usuario or usuario.get("pontos", 0) < quantidade:
-        return False
-    
-    usuario["pontos"] = usuario.get("pontos", 0) - quantidade
-    usuario["total_pontos_gastos"] = usuario.get("total_pontos_gastos", 0) + quantidade
-    
-    transacao = {
-        "id": gerar_id(),
-        "usuario_id": discord_id,
-        "tipo": "gasto",
-        "quantidade": quantidade,
-        "descricao": descricao,
-        "referencia_id": referencia_id,
-        "data_criacao": datetime.utcnow().isoformat()
-    }
-    dados.setdefault("transacoes_pontos", []).append(transacao)
-    salvar_dados_github(f"Pontos gastos: {quantidade} para {discord_id}")
-    return True
-
-# ========================
-# SISTEMA DE AÇÕES DO BOT
-# ========================
-
-acoes_fila_bot = []
-processador_acoes_task = None
-processador_acoes_rodando = False
-
 def executar_acao_bot(tipo_acao, **kwargs):
     acoes_fila_bot.append({
         "tipo": tipo_acao,
@@ -707,20 +2972,263 @@ async def executar_acao_bot_interno(acao):
             print(f"✅ Embed enviada para #{canal.name}")
             return True
         
-        elif tipo_acao == "notificar_pedido":
-            pedido_numero = dados_acao.get("pedido_numero")
-            status = dados_acao.get("status")
+        elif tipo_acao == "criar_reacao_cargo":
+            canal_id = int(dados_acao["canal_id"])
+            canal = guild.get_channel(canal_id)
+            if not canal:
+                return False
             
-            canal_id = dados.get("config", {}).get("canal_logs")
-            if canal_id:
-                canal = guild.get_channel(int(canal_id))
-                if canal:
-                    embed = discord.Embed(
-                        title=f"📦 Pedido {pedido_numero}",
-                        description=f"Status: **{status}**",
-                        color=discord.Color.green() if status in ['pago', 'finalizado'] else discord.Color.gold()
-                    )
-                    await canal.send(embed=embed)
+            mensagem = await canal.send(dados_acao["conteudo"])
+            mensagem_id = str(mensagem.id)
+            
+            pares_str = dados_acao.get("emoji_cargo", "")
+            pares = []
+            par_atual = ""
+            contador_chaves = 0
+            
+            for char in pares_str:
+                if char == '<':
+                    contador_chaves += 1
+                elif char == '>':
+                    contador_chaves -= 1
+                if char == ',' and contador_chaves == 0:
+                    if par_atual.strip():
+                        pares.append(par_atual.strip())
+                        par_atual = ""
+                else:
+                    par_atual += char
+            if par_atual.strip():
+                pares.append(par_atual.strip())
+            
+            EMOJI_RE = re.compile(r"<a?:([a-zA-Z0-9_]+):([0-9]+)>")
+            EMOJI_NOME_RE = re.compile(r":([a-zA-Z0-9_]+):")
+            
+            def processar_emoji_str(emoji_str, guild):
+                if not emoji_str:
+                    return None
+                emoji_str = emoji_str.strip()
+                m = EMOJI_RE.match(emoji_str)
+                if m:
+                    nome, id_str = m.groups()
+                    try:
+                        eid = int(id_str)
+                        animado = emoji_str.startswith('<a:')
+                        if guild:
+                            e = discord.utils.get(guild.emojis, id=eid)
+                            if e:
+                                return e
+                        return discord.PartialEmoji(name=nome, id=eid, animated=animado)
+                    except:
+                        pass
+                m2 = EMOJI_NOME_RE.match(emoji_str)
+                if m2:
+                    nome_emoji = m2.group(1)
+                    if guild:
+                        emoji = discord.utils.get(guild.emojis, name=nome_emoji)
+                        if emoji:
+                            return emoji
+                    emojis_padrao = {
+                        "thumbsup": "👍", "thumbsdown": "👎", "check": "✅", "x": "❌",
+                        "warning": "⚠️", "exclamation": "❗", "question": "❓", "star": "⭐",
+                        "heart": "❤️", "fire": "🔥", "rocket": "🚀", "tada": "🎉"
+                    }
+                    if nome_emoji.lower() in emojis_padrao:
+                        return emojis_padrao[nome_emoji.lower()]
+                    return emoji_str
+                return emoji_str
+            
+            dados_reacoes = {}
+            for par in pares:
+                par = par.strip()
+                if not par:
+                    continue
+                if ":" in par:
+                    try:
+                        emoji_str, nome_cargo = par.split(":", 1)
+                        cargo = discord.utils.get(guild.roles, name=nome_cargo.strip())
+                        if not cargo:
+                            continue
+                        emoji_processado = processar_emoji_str(emoji_str.strip(), guild)
+                        if not emoji_processado:
+                            continue
+                        if isinstance(emoji_processado, (discord.Emoji, discord.PartialEmoji)):
+                            await mensagem.add_reaction(emoji_processado)
+                            chave = str(emoji_processado.id)
+                        else:
+                            await mensagem.add_reaction(emoji_processado)
+                            chave = str(emoji_processado)
+                        dados_reacoes[chave] = str(cargo.id)
+                    except:
+                        continue
+            
+            if dados_reacoes:
+                dados.setdefault("reacoes_cargos", {})[mensagem_id] = dados_reacoes
+                salvar_dados_github("Reação cargo via site")
+                return True
+            else:
+                try:
+                    await mensagem.delete()
+                except:
+                    pass
+                return False
+        
+        elif tipo_acao == "criar_botoes_cargo":
+            canal_id = int(dados_acao["canal_id"])
+            canal = guild.get_channel(canal_id)
+            if not canal:
+                return False
+            
+            pares = dados_acao.get("cargos", "").split(",")
+            dicionario_botoes = {}
+            for par in pares:
+                if ":" in par:
+                    try:
+                        nome_botao, nome_cargo = par.split(":", 1)
+                        cargo = discord.utils.get(guild.roles, name=nome_cargo.strip())
+                        if cargo:
+                            dicionario_botoes[nome_botao.strip()] = cargo.id
+                    except:
+                        pass
+            
+            if dicionario_botoes:
+                class PersistentRoleButton(ui.Button):
+                    def __init__(self, label: str, cargo_id: int, mensagem_id: int):
+                        super().__init__(label=label, style=ButtonStyle.primary)
+                        self.cargo_id = cargo_id
+                        self.mensagem_id = mensagem_id
+                    async def callback(self, interaction: Interaction):
+                        guild = interaction.guild
+                        membro = interaction.user
+                        cargo = guild.get_role(self.cargo_id)
+                        if not cargo:
+                            await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
+                            return
+                        if cargo in membro.roles:
+                            await membro.remove_roles(cargo, reason="Botão de cargo")
+                            await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
+                        else:
+                            await membro.add_roles(cargo, reason="Botão de cargo")
+                            await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
+                        adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
+                
+                class PersistentRoleButtonView(ui.View):
+                    def __init__(self, mensagem_id: int, dicionario_botoes: dict):
+                        super().__init__(timeout=None)
+                        self.mensagem_id = mensagem_id
+                        for label, cargo_id in dicionario_botoes.items():
+                            self.add_item(PersistentRoleButton(label=label, cargo_id=cargo_id, mensagem_id=mensagem_id))
+                
+                view = PersistentRoleButtonView(0, dicionario_botoes)
+                enviado = await canal.send(dados_acao["conteudo"], view=view)
+                view.mensagem_id = enviado.id
+                for item in view.children:
+                    if isinstance(item, PersistentRoleButton):
+                        item.mensagem_id = enviado.id
+                dados.setdefault("botoes_cargos", {})[str(enviado.id)] = dicionario_botoes
+                salvar_dados_github("Botões de cargo via site")
+                return True
+            return False
+        
+        elif tipo_acao == "advertir_membro":
+            membro_id = int(dados_acao["membro_id"])
+            membro = guild.get_member(membro_id)
+            if not membro:
+                return False
+            
+            entrada = {
+                "por": "admin_site",
+                "motivo": dados_acao["motivo"],
+                "ts": agora_br().strftime("%d/%m/%Y %H:%M"),
+                "admin": dados_acao.get('admin', 'Admin')
+            }
+            dados.setdefault("advertencias", {}).setdefault(str(membro.id), []).append(entrada)
+            salvar_dados_github(f"Advertência via site: {membro.display_name}")
+            return True
+        
+        elif tipo_acao == "configurar_boas_vindas":
+            config = dados.setdefault("config", {})
+            if 'canal_id' in dados_acao:
+                config["canal_boas_vindas"] = dados_acao['canal_id']
+            if 'mensagem' in dados_acao:
+                config["mensagem_boas_vindas"] = dados_acao['mensagem']
+            if 'imagem_url' in dados_acao:
+                config["fundo_boas_vindas"] = dados_acao['imagem_url']
+            salvar_dados_github("Config boas-vindas atualizada")
+            return True
+        
+        elif tipo_acao == "configurar_xp":
+            config = dados.setdefault("config", {})
+            if 'taxa' in dados_acao:
+                config["taxa_xp"] = dados_acao['taxa']
+            if 'canal_id' in dados_acao:
+                config["canal_levelup"] = dados_acao['canal_id']
+            salvar_dados_github("Config XP atualizada")
+            return True
+        
+        elif tipo_acao == "configurar_comandos":
+            config = dados.setdefault("config", {})
+            if 'canal_perfil' in dados_acao:
+                canal_perfil_atual = config.get("canal_perfil")
+                novo_canal_perfil = dados_acao['canal_perfil']
+                if novo_canal_perfil and canal_perfil_atual == novo_canal_perfil:
+                    config["canal_perfil"] = None
+                else:
+                    config["canal_perfil"] = novo_canal_perfil if novo_canal_perfil else None
+            
+            if 'canal_rank' in dados_acao:
+                canal_rank_atual = config.get("canal_rank")
+                novo_canal_rank = dados_acao['canal_rank']
+                if novo_canal_rank and canal_rank_atual == novo_canal_rank:
+                    config["canal_rank"] = None
+                else:
+                    config["canal_rank"] = novo_canal_rank if novo_canal_rank else None
+            
+            salvar_dados_github("Config canais de comandos atualizada")
+            return True
+        
+        elif tipo_acao == "adicionar_cargo_nivel":
+            dados.setdefault("cargos_nivel", {})[str(dados_acao['nivel'])] = dados_acao['cargo_id']
+            salvar_dados_github(f"Cargo para nível {dados_acao['nivel']} adicionado")
+            return True
+        
+        elif tipo_acao == "remover_cargo_nivel":
+            nivel = str(dados_acao['nivel'])
+            if nivel in dados.get("cargos_nivel", {}):
+                del dados["cargos_nivel"][nivel]
+                salvar_dados_github(f"Cargo do nível {nivel} removido")
+            return True
+        
+        elif tipo_acao == "alternar_bloqueio_links":
+            canal_id = int(dados_acao["canal_id"])
+            canais = dados.setdefault("canais_links_bloqueados", [])
+            if canal_id in canais:
+                canais.remove(canal_id)
+            else:
+                canais.append(canal_id)
+            salvar_dados_github(f"Bloqueio de links alternado no canal {canal_id}")
+            return True
+        
+        elif tipo_acao == "configurar_anti_spam":
+            anti_spam = dados.setdefault("anti_spam", {})
+            if 'ativado' in dados_acao:
+                anti_spam["ativado"] = dados_acao['ativado']
+            if 'limite_mensagens' in dados_acao:
+                anti_spam["limite_mensagens"] = dados_acao['limite_mensagens']
+            if 'intervalo_segundos' in dados_acao:
+                anti_spam["intervalo_segundos"] = dados_acao['intervalo_segundos']
+            if 'tempo_mute_minutos' in dados_acao:
+                anti_spam["tempo_mute_minutos"] = dados_acao['tempo_mute_minutos']
+            if 'remover_xp' in dados_acao:
+                anti_spam["remover_xp"] = dados_acao['remover_xp']
+            if 'xp_penalidade' in dados_acao:
+                anti_spam["xp_penalidade"] = dados_acao['xp_penalidade']
+            if 'deletar_mensagens' in dados_acao:
+                anti_spam["deletar_mensagens"] = dados_acao['deletar_mensagens']
+            if 'cargos_ignorados' in dados_acao:
+                anti_spam["cargos_ignorados"] = [c.strip() for c in dados_acao['cargos_ignorados'].split(",") if c.strip()]
+            if 'comandos_ignorados' in dados_acao:
+                anti_spam["comandos_ignorados"] = [c.strip() for c in dados_acao['comandos_ignorados'].split(",") if c.strip()]
+            salvar_dados_github("Config anti-spam atualizada")
             return True
         
         else:
@@ -769,1201 +3277,13 @@ def iniciar_processador_acoes():
         return False
 
 # ========================
-# TEMPLATES HTML (EMBUTIDOS)
+# ROTAS DE LOGIN (MANTIDAS)
 # ========================
-
-# Template da página inicial
-HOME_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Imune Bot - Plataforma de Serviços</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .hero { text-align: center; padding: 60px 20px; }
-        .hero h2 { font-size: 48px; background: linear-gradient(135deg, #5865F2, #ffd93d); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 20px; }
-        .hero p { font-size: 20px; color: #aaa; max-width: 600px; margin: 0 auto 30px; }
-        .status-bot { display: inline-block; padding: 10px 20px; border-radius: 10px; margin: 20px 0; font-weight: bold; }
-        .online { background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }
-        .offline { background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }
-        .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 40px 0; }
-        .feature-card { background: #121212; border: 1px solid #333; border-radius: 15px; padding: 25px; text-align: center; transition: all 0.3s; }
-        .feature-card:hover { transform: translateY(-5px); border-color: #5865F2; }
-        .feature-card .icon { font-size: 40px; margin-bottom: 15px; }
-        .feature-card h3 { color: #5865F2; margin-bottom: 10px; }
-        .feature-card p { color: #aaa; font-size: 14px; }
-        .servicos-destaque { margin: 40px 0; }
-        .servicos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 20px; }
-        .servico-card { background: #121212; border: 1px solid #333; border-radius: 15px; overflow: hidden; transition: all 0.3s; }
-        .servico-card:hover { transform: translateY(-5px); border-color: #5865F2; }
-        .servico-card .servico-img { width: 100%; height: 180px; background: #1a1a1a; display: flex; align-items: center; justify-content: center; font-size: 48px; }
-        .servico-card .servico-info { padding: 20px; }
-        .servico-card .servico-info h3 { color: #ffd93d; margin-bottom: 5px; }
-        .servico-card .servico-info .preco { color: #4ade80; font-size: 20px; font-weight: bold; }
-        .servico-card .servico-info .preco-antigo { color: #888; text-decoration: line-through; font-size: 14px; margin-left: 10px; }
-        .servico-card .servico-info .desc { color: #aaa; font-size: 14px; margin: 10px 0; }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-        @media (max-width: 768px) { .hero h2 { font-size: 32px; } .header { flex-direction: column; gap: 10px; text-align: center; } }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <a href="/servicos" class="btn btn-primary">📦 Serviços</a>
-            <a href="/fila" class="btn btn-success">📋 Fila</a>
-            {% if session.get('usuario') %}
-                <a href="/dashboard" class="btn btn-primary">👤 Painel</a>
-                <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-            {% else %}
-                <a href="/login" class="btn btn-primary">🔐 Login</a>
-            {% endif %}
-        </div>
-    </header>
-
-    <div class="container">
-        <div class="hero">
-            <h2>🚀 Serviços para Jogadores</h2>
-            <p>Compre serviços, acumule pontos e ganhe descontos exclusivos!</p>
-            <div class="status-bot {{ classe_bot }}">{{ status_bot }}</div>
-            <div>
-                <a href="/servicos" class="btn btn-success" style="font-size:18px; padding:15px 40px;">🛒 Ver Serviços</a>
-            </div>
-        </div>
-
-        <div class="features">
-            <div class="feature-card">
-                <div class="icon">🎯</div>
-                <h3>Serviços Profissionais</h3>
-                <p>Boost, coaching, elojob e muito mais para diversos jogos</p>
-            </div>
-            <div class="feature-card">
-                <div class="icon">⭐</div>
-                <h3>Sistema de Pontos</h3>
-                <p>Ganhe pontos a cada compra e troque por descontos exclusivos</p>
-            </div>
-            <div class="feature-card">
-                <div class="icon">💳</div>
-                <h3>Pagamento via PIX</h3>
-                <p>Pagamento rápido e seguro com PIX, confirmação automática</p>
-            </div>
-            <div class="feature-card">
-                <div class="icon">📋</div>
-                <h3>Fila de Serviços</h3>
-                <p>Acompanhe sua posição na fila em tempo real</p>
-            </div>
-        </div>
-
-        {% if servicos_destaque %}
-        <div class="servicos-destaque">
-            <h2 style="color: #5865F2;">🔥 Serviços em Destaque</h2>
-            <div class="servicos-grid">
-                {% for servico in servicos_destaque %}
-                <div class="servico-card">
-                    <div class="servico-img">{{ servico.get('icone', '🎮') }}</div>
-                    <div class="servico-info">
-                        <h3>{{ servico.nome }}</h3>
-                        <div>
-                            <span class="preco">R$ {{ "%.2f"|format(servico.preco) }}</span>
-                            {% if servico.preco_promocional %}
-                            <span class="preco-antigo">R$ {{ "%.2f"|format(servico.preco_promocional) }}</span>
-                            {% endif %}
-                        </div>
-                        <p class="desc">{{ servico.descricao[:100] }}{% if servico.descricao|length > 100 %}...{% endif %}</p>
-                        <a href="/servico/{{ servico.slug }}" class="btn btn-primary" style="width:100%; text-align:center;">Ver Detalhes</a>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Todos os direitos reservados</p>
-        <p style="margin-top: 5px; font-size: 12px;">Feito com ❤️ para a comunidade gamer</p>
-    </div>
-</body>
-</html>
-"""
-
-# Template da página de serviços
-SERVICOS_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Serviços - Imune Bot</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .filtros { display: flex; gap: 15px; margin-bottom: 30px; flex-wrap: wrap; align-items: center; }
-        .filtros select, .filtros input { padding: 10px 15px; background: #121212; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; font-size: 14px; }
-        .filtros select:focus, .filtros input:focus { outline: none; border-color: #5865F2; }
-        .servicos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
-        .servico-card { background: #121212; border: 1px solid #333; border-radius: 15px; overflow: hidden; transition: all 0.3s; }
-        .servico-card:hover { transform: translateY(-5px); border-color: #5865F2; }
-        .servico-card .servico-img { width: 100%; height: 180px; background: #1a1a1a; display: flex; align-items: center; justify-content: center; font-size: 48px; }
-        .servico-card .servico-info { padding: 20px; }
-        .servico-card .servico-info h3 { color: #ffd93d; margin-bottom: 5px; }
-        .servico-card .servico-info .categoria { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-        .servico-card .servico-info .preco { color: #4ade80; font-size: 20px; font-weight: bold; }
-        .servico-card .servico-info .preco-antigo { color: #888; text-decoration: line-through; font-size: 14px; margin-left: 10px; }
-        .servico-card .servico-info .desc { color: #aaa; font-size: 14px; margin: 10px 0; }
-        .servico-card .servico-info .btn { width: 100%; text-align: center; }
-        .vazio { text-align: center; padding: 60px 20px; color: #888; }
-        .vazio .icon { font-size: 64px; margin-bottom: 20px; }
-        .pagination { display: flex; justify-content: center; gap: 10px; margin-top: 30px; }
-        .pagination a { padding: 8px 16px; background: #121212; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; text-decoration: none; }
-        .pagination a:hover { background: #333; }
-        .pagination a.active { background: #5865F2; border-color: #5865F2; }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-        @media (max-width: 768px) { .header { flex-direction: column; gap: 10px; text-align: center; } .filtros { flex-direction: column; } }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <a href="/" class="btn btn-outline">🏠 Início</a>
-            <a href="/fila" class="btn btn-success">📋 Fila</a>
-            {% if session.get('usuario') %}
-                <a href="/dashboard" class="btn btn-primary">👤 Painel</a>
-                <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-            {% else %}
-                <a href="/login" class="btn btn-primary">🔐 Login</a>
-            {% endif %}
-        </div>
-    </header>
-
-    <div class="container">
-        <h2 style="color: #5865F2; margin-bottom: 20px;">📦 Nossos Serviços</h2>
-        
-        <div class="filtros">
-            <select id="filtro-categoria" onchange="window.location.href='?categoria='+this.value">
-                <option value="">Todas Categorias</option>
-                {% for cat in categorias %}
-                <option value="{{ cat.slug }}" {% if categoria_atual == cat.slug %}selected{% endif %}>{{ cat.nome }}</option>
-                {% endfor %}
-            </select>
-            <form method="GET" style="display: flex; gap: 10px; flex:1;">
-                <input type="text" name="busca" placeholder="🔍 Buscar serviço..." value="{{ busca }}" style="flex:1; padding: 10px 15px; background: #121212; border: 1px solid #333; border-radius: 8px; color: #e0e0e0;">
-                <button type="submit" class="btn btn-primary">Buscar</button>
-            </form>
-        </div>
-
-        {% if servicos %}
-        <div class="servicos-grid">
-            {% for servico in servicos %}
-            <div class="servico-card">
-                <div class="servico-img">{{ servico.get('icone', '🎮') }}</div>
-                <div class="servico-info">
-                    <span class="categoria">{{ servico.categoria_nome or 'Geral' }}</span>
-                    <h3>{{ servico.nome }}</h3>
-                    <div>
-                        <span class="preco">R$ {{ "%.2f"|format(servico.preco) }}</span>
-                        {% if servico.preco_promocional %}
-                        <span class="preco-antigo">R$ {{ "%.2f"|format(servico.preco_promocional) }}</span>
-                        {% endif %}
-                    </div>
-                    <p class="desc">{{ servico.descricao[:120] }}{% if servico.descricao|length > 120 %}...{% endif %}</p>
-                    <a href="/servico/{{ servico.slug }}" class="btn btn-primary">Ver Detalhes</a>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="vazio">
-            <div class="icon">📭</div>
-            <h3>Nenhum serviço encontrado</h3>
-            <p style="color: #666;">Tente outra categoria ou termo de busca</p>
-        </div>
-        {% endif %}
-
-        <div class="pagination">
-            {% if page > 1 %}<a href="?page={{ page - 1 }}{% if categoria_atual %}&categoria={{ categoria_atual }}{% endif %}{% if busca %}&busca={{ busca }}{% endif %}">Anterior</a>{% endif %}
-            <span style="padding: 8px 16px; color: #888;">Página {{ page }} de {{ total_pages }}</span>
-            {% if page < total_pages %}<a href="?page={{ page + 1 }}{% if categoria_atual %}&categoria={{ categoria_atual }}{% endif %}{% if busca %}&busca={{ busca }}{% endif %}">Próxima</a>{% endif %}
-        </div>
-    </div>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Todos os direitos reservados</p>
-    </div>
-</body>
-</html>
-"""
-
-# Template de detalhes do serviço
-DETALHES_SERVICO_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ servico.nome }} - Imune Bot</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .btn-lg { padding: 15px 40px; font-size: 18px; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-        .servico-detalhe { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin: 30px 0; }
-        .servico-imagem { background: #121212; border-radius: 15px; border: 1px solid #333; padding: 40px; text-align: center; font-size: 120px; min-height: 300px; display: flex; align-items: center; justify-content: center; }
-        .servico-info h2 { color: #ffd93d; font-size: 32px; margin-bottom: 10px; }
-        .servico-info .categoria { color: #888; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
-        .servico-info .preco { color: #4ade80; font-size: 36px; font-weight: bold; margin: 15px 0; }
-        .servico-info .preco-antigo { color: #888; text-decoration: line-through; font-size: 20px; margin-left: 15px; }
-        .servico-info .desc { color: #aaa; font-size: 16px; line-height: 1.8; margin: 20px 0; }
-        .servico-info .tempo { color: #ffd93d; margin: 10px 0; }
-        .servico-info .btn { width: 100%; text-align: center; }
-        .relacionados { margin-top: 40px; }
-        .relacionados h3 { color: #5865F2; margin-bottom: 20px; }
-        .relacionados-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
-        .relacionados-grid .item { background: #121212; border: 1px solid #333; border-radius: 10px; padding: 15px; text-align: center; transition: all 0.3s; }
-        .relacionados-grid .item:hover { border-color: #5865F2; transform: translateY(-3px); }
-        .relacionados-grid .item .nome { color: #ffd93d; }
-        .relacionados-grid .item .preco { color: #4ade80; }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-        @media (max-width: 768px) { .servico-detalhe { grid-template-columns: 1fr; } .header { flex-direction: column; gap: 10px; text-align: center; } }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <a href="/" class="btn btn-outline">🏠 Início</a>
-            <a href="/servicos" class="btn btn-primary">📦 Serviços</a>
-            <a href="/fila" class="btn btn-success">📋 Fila</a>
-            {% if session.get('usuario') %}
-                <a href="/dashboard" class="btn btn-primary">👤 Painel</a>
-                <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-            {% else %}
-                <a href="/login" class="btn btn-primary">🔐 Login</a>
-            {% endif %}
-        </div>
-    </header>
-
-    <div class="container">
-        <nav style="margin: 20px 0; color: #888;">
-            <a href="/" style="color: #5865F2; text-decoration: none;">Início</a> &gt;
-            <a href="/servicos" style="color: #5865F2; text-decoration: none;">Serviços</a> &gt;
-            <span>{{ servico.nome }}</span>
-        </nav>
-
-        <div class="servico-detalhe">
-            <div class="servico-imagem">{{ servico.get('icone', '🎮') }}</div>
-            <div class="servico-info">
-                <span class="categoria">{{ servico.categoria_nome or 'Geral' }}</span>
-                <h2>{{ servico.nome }}</h2>
-                <div>
-                    <span class="preco">R$ {{ "%.2f"|format(servico.preco) }}</span>
-                    {% if servico.preco_promocional %}
-                    <span class="preco-antigo">R$ {{ "%.2f"|format(servico.preco_promocional) }}</span>
-                    {% endif %}
-                </div>
-                {% if servico.tempo_estimado %}
-                <div class="tempo">⏱️ Tempo estimado: {{ servico.tempo_estimado }}</div>
-                {% endif %}
-                <p class="desc">{{ servico.descricao|safe }}</p>
-                <a href="/comprar/{{ servico.slug }}" class="btn btn-success btn-lg">🛒 Comprar Agora</a>
-            </div>
-        </div>
-
-        {% if servicos_relacionados %}
-        <div class="relacionados">
-            <h3>🔄 Serviços Relacionados</h3>
-            <div class="relacionados-grid">
-                {% for s in servicos_relacionados %}
-                <a href="/servico/{{ s.slug }}" style="text-decoration: none; color: inherit;">
-                    <div class="item">
-                        <div style="font-size: 32px;">{{ s.get('icone', '🎮') }}</div>
-                        <div class="nome">{{ s.nome }}</div>
-                        <div class="preco">R$ {{ "%.2f"|format(s.preco) }}</div>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Todos os direitos reservados</p>
-    </div>
-</body>
-</html>
-"""
-
-# Template da fila
-FILA_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="30">
-    <title>{{ fila.nome }}</title>
-    <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); min-height:100vh; padding:20px; color:#fff; }
-        .container { max-width:800px; margin:0 auto; }
-        .header { text-align:center; margin-bottom:30px; padding:20px; background:rgba(0,0,0,0.5); border-radius:20px; }
-        h1 { background: linear-gradient(135deg, #ff6b6b, #ffd93d); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .status { display:inline-block; padding:5px 15px; border-radius:20px; }
-        .status-aberta { background:#00b894; }
-        .status-fechada { background:#d63031; }
-        .links-container { display: flex; justify-content: center; gap: 20px; margin: 20px 0; flex-wrap: wrap; }
-        .btn-link { display: inline-flex; align-items: center; gap: 10px; padding: 12px 24px; border-radius: 30px; text-decoration: none; font-weight: bold; transition: all 0.3s; }
-        .btn-link-discord { background: #5865F2; color: white; }
-        .btn-link-discord:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-link-precos { background: #f59e0b; color: white; }
-        .btn-link-precos:hover { background: #d97706; transform: translateY(-2px); }
-        .btn-link-voltar { background: #6c757d; color: white; }
-        .btn-link-voltar:hover { background: #5a6268; transform: translateY(-2px); }
-        .lista-fila { background:rgba(0,0,0,0.4); border-radius:20px; overflow:hidden; }
-        .cabecalho-fila { display:grid; grid-template-columns:60px 1fr 1fr 1fr 80px; padding:15px; background:rgba(255,255,255,0.1); font-weight:bold; }
-        .item-fila { display:grid; grid-template-columns:60px 1fr 1fr 1fr 80px; padding:12px 15px; border-bottom:1px solid rgba(255,255,255,0.1); }
-        .posicao { font-weight:bold; color:#ffd93d; }
-        .servico { color:#a8e6cf; }
-        .jogo { color:#ffb347; }
-        .vazio { text-align:center; padding:40px; }
-        .footer { text-align:center; margin-top:20px; font-size:0.8rem; color:#888; }
-        .admin-actions { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-        .btn-admin { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; color: white; }
-        .btn-danger { background: #d63031; }
-        .btn-danger:hover { background: #c0392b; }
-        .btn-success { background: #00b894; }
-        .btn-success:hover { background: #00a381; }
-        .btn-primary { background: #5865F2; }
-        .btn-primary:hover { background: #4752C4; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📋 {{ fila.nome }}</h1>
-            <span class="status status-{{ 'aberta' if fila.configuracoes.aberta else 'fechada' }}">{{ '🟢 ABERTA' if fila.configuracoes.aberta else '🔴 FECHADA' }}</span>
-            <div>📊 {{ fila.entradas|length }} / {{ fila.configuracoes.tamanho_maximo }} pessoas</div>
-        </div>
-        
-        <div class="links-container">
-            {% if links.discord_convite %}
-            <a href="{{ links.discord_convite }}" target="_blank" class="btn-link btn-link-discord">💬 Entrar no Discord</a>
-            {% endif %}
-            {% for botao in links.botoes_precos %}
-            <a href="{{ botao.url }}" target="_blank" class="btn-link btn-link-precos">💰 {{ botao.nome }}</a>
-            {% endfor %}
-            <a href="/" class="btn-link btn-link-voltar">🏠 Voltar</a>
-        </div>
-        
-        <div class="lista-fila">
-            <div class="cabecalho-fila"><span>#</span><span>Jogador</span><span>Serviço</span><span>Jogo</span><span></span></div>
-            {% for e in fila.entradas %}
-            <div class="item-fila">
-                <span class="posicao">{{ e.posicao }}</span>
-                <span>{{ e.nome_usuario }}</span>
-                <span class="servico">{{ e.servico }}</span>
-                <span class="jogo">{{ e.jogo or '' }}</span>
-                <span>⏳</span>
-            </div>
-            {% else %}
-            <div class="vazio">✨ Ninguém na fila</div>
-            {% endfor %}
-        </div>
-        
-        {% if session.get('usuario') and session.usuario.is_admin %}
-        <div class="admin-actions">
-            <a href="/admin/fila" class="btn-admin btn-primary">⚙️ Gerenciar Fila</a>
-        </div>
-        {% endif %}
-        
-        <div class="footer">Atualizado a cada 30s • {{ agora_br().strftime("%d/%m/%Y %H:%M:%S") }}</div>
-    </div>
-</body>
-</html>
-"""
-
-# Template do Dashboard do Cliente
-DASHBOARD_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel - Imune Bot</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn-warning:hover { background: #d97706; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .user-profile { display: flex; align-items: center; gap: 20px; background: #121212; border: 1px solid #333; border-radius: 15px; padding: 20px; margin-bottom: 30px; }
-        .user-avatar { width: 80px; height: 80px; border-radius: 50%; border: 3px solid #5865F2; }
-        .user-info h2 { color: #ffd93d; }
-        .user-info .pontos { color: #4ade80; font-size: 20px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .stat-card { background: #121212; border: 1px solid #333; border-radius: 12px; padding: 20px; text-align: center; }
-        .stat-card .number { font-size: 28px; font-weight: bold; color: #ffd93d; }
-        .stat-card .label { color: #888; font-size: 14px; margin-top: 5px; }
-        .section-title { color: #5865F2; margin: 30px 0 20px; }
-        .pedidos-list { display: flex; flex-direction: column; gap: 10px; }
-        .pedido-item { background: #121212; border: 1px solid #333; border-radius: 10px; padding: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .pedido-item .numero { color: #ffd93d; font-weight: bold; }
-        .pedido-item .servico { color: #a8e6cf; }
-        .pedido-item .valor { color: #4ade80; font-weight: bold; }
-        .pedido-item .status { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-        .status-aguardando { background: #f59e0b; color: #000; }
-        .status-pago { background: #3b82f6; color: #fff; }
-        .status-em_andamento { background: #8b5cf6; color: #fff; }
-        .status-finalizado { background: #10b981; color: #fff; }
-        .status-cancelado { background: #ef4444; color: #fff; }
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } .header { flex-direction: column; gap: 10px; text-align: center; } }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <a href="/" class="btn btn-outline">🏠 Início</a>
-            <a href="/servicos" class="btn btn-primary">📦 Serviços</a>
-            <a href="/fila" class="btn btn-success">📋 Fila</a>
-            <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-        </div>
-    </header>
-
-    <div class="container">
-        <div class="user-profile">
-            {% if usuario.discord_avatar %}
-            <img src="https://cdn.discordapp.com/avatars/{{ usuario.discord_id }}/{{ usuario.discord_avatar }}.png" class="user-avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-            {% else %}
-            <img src="https://cdn.discordapp.com/embed/avatars/0.png" class="user-avatar">
-            {% endif %}
-            <div class="user-info">
-                <h2>{{ usuario.discord_nome }}</h2>
-                <div class="pontos">⭐ {{ usuario.pontos }} pontos</div>
-                <div style="margin-top: 5px;">
-                    <a href="/perfil" class="btn btn-outline" style="padding: 5px 15px; font-size: 12px;">👤 Ver Perfil</a>
-                    <a href="/pontos" class="btn btn-warning" style="padding: 5px 15px; font-size: 12px;">⭐ Pontos</a>
-                </div>
-            </div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="number">{{ pedidos_ativos|length }}</div>
-                <div class="label">Pedidos Ativos</div>
-            </div>
-            <div class="stat-card">
-                <div class="number">{{ pedidos_concluidos|length }}</div>
-                <div class="label">Pedidos Concluídos</div>
-            </div>
-            <div class="stat-card">
-                <div class="number">{{ usuario.pontos }}</div>
-                <div class="label">Pontos</div>
-            </div>
-        </div>
-
-        <h3 class="section-title">📦 Pedidos Ativos</h3>
-        <div class="pedidos-list">
-            {% if pedidos_ativos %}
-                {% for pedido in pedidos_ativos %}
-                <div class="pedido-item">
-                    <span class="numero">{{ pedido.numero }}</span>
-                    <span class="servico">{{ pedido.servico_nome or 'Serviço' }}</span>
-                    <span class="valor">R$ {{ "%.2f"|format(pedido.valor_final) }}</span>
-                    <span class="status status-{{ pedido.status }}">{{ pedido.status|replace('_', ' ')|title }}</span>
-                    <a href="/pedido/{{ pedido.numero }}" class="btn btn-outline" style="padding: 5px 15px; font-size: 12px;">Ver</a>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div style="color: #888; text-align: center; padding: 20px;">Nenhum pedido ativo</div>
-            {% endif %}
-        </div>
-
-        <h3 class="section-title">✅ Pedidos Concluídos</h3>
-        <div class="pedidos-list">
-            {% if pedidos_concluidos %}
-                {% for pedido in pedidos_concluidos %}
-                <div class="pedido-item">
-                    <span class="numero">{{ pedido.numero }}</span>
-                    <span class="servico">{{ pedido.servico_nome or 'Serviço' }}</span>
-                    <span class="valor">R$ {{ "%.2f"|format(pedido.valor_final) }}</span>
-                    <span class="status status-finalizado">Finalizado</span>
-                    <a href="/pedido/{{ pedido.numero }}" class="btn btn-outline" style="padding: 5px 15px; font-size: 12px;">Ver</a>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div style="color: #888; text-align: center; padding: 20px;">Nenhum pedido concluído</div>
-            {% endif %}
-        </div>
-
-        <div style="display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap;">
-            <a href="/servicos" class="btn btn-success btn-lg" style="padding: 15px 40px; font-size: 18px;">🛒 Comprar Serviço</a>
-            <a href="/pontos" class="btn btn-warning btn-lg" style="padding: 15px 40px; font-size: 18px;">⭐ Resgatar Pontos</a>
-            <a href="/meus-pedidos" class="btn btn-primary btn-lg" style="padding: 15px 40px; font-size: 18px;">📋 Histórico</a>
-        </div>
-    </div>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Todos os direitos reservados</p>
-    </div>
-</body>
-</html>
-"""
-
-# Template da página de compra
-COMPRAR_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Comprar {{ servico.nome }} - Imune Bot</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
-        .card { background: #121212; border: 1px solid #333; border-radius: 15px; padding: 30px; margin: 20px 0; }
-        .card h2 { color: #ffd93d; margin-bottom: 15px; }
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; margin-bottom: 8px; color: #aaa; font-weight: 600; }
-        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 12px 15px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; font-size: 14px; }
-        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: #5865F2; }
-        .form-group textarea { min-height: 80px; resize: vertical; }
-        .resumo-compra { background: #1a1a1a; border-radius: 10px; padding: 20px; margin: 20px 0; }
-        .resumo-compra .linha { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; }
-        .resumo-compra .linha:last-child { border-bottom: none; font-weight: bold; font-size: 18px; color: #4ade80; }
-        .cupom-input { display: flex; gap: 10px; }
-        .cupom-input input { flex: 1; }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-        @media (max-width: 768px) { .header { flex-direction: column; gap: 10px; text-align: center; } }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <a href="/" class="btn btn-outline">🏠 Início</a>
-            <a href="/servicos" class="btn btn-primary">📦 Serviços</a>
-            <a href="/fila" class="btn btn-success">📋 Fila</a>
-            <a href="/dashboard" class="btn btn-primary">👤 Painel</a>
-            <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-        </div>
-    </header>
-
-    <div class="container">
-        <nav style="margin: 20px 0; color: #888;">
-            <a href="/" style="color: #5865F2; text-decoration: none;">Início</a> &gt;
-            <a href="/servicos" style="color: #5865F2; text-decoration: none;">Serviços</a> &gt;
-            <a href="/servico/{{ servico.slug }}" style="color: #5865F2; text-decoration: none;">{{ servico.nome }}</a> &gt;
-            <span>Compra</span>
-        </nav>
-
-        <div class="card">
-            <h2>🛒 Finalizar Compra</h2>
-            <p style="color: #888; margin-bottom: 20px;">Preencha os dados abaixo para concluir a compra do serviço <strong style="color: #ffd93d;">{{ servico.nome }}</strong></p>
-
-            <form method="POST" action="/comprar/{{ servico.slug }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-                <div class="form-group">
-                    <label>Seu Nome no Discord</label>
-                    <input type="text" name="nome_cliente" value="{{ usuario.discord_nome }}" readonly style="background: #0a0a0a; color: #888;">
-                </div>
-
-                <div class="form-group">
-                    <label>ID do Discord (opcional)</label>
-                    <input type="text" name="id_cliente" placeholder="Seu ID do Discord" value="{{ usuario.discord_id }}">
-                </div>
-
-                <div class="form-group">
-                    <label>Observações (opcional)</label>
-                    <textarea name="observacoes" placeholder="Informações adicionais sobre o serviço..."></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label>🎟️ Cupom de Desconto</label>
-                    <div class="cupom-input">
-                        <input type="text" name="cupom" id="cupom-input" placeholder="Digite o código do cupom">
-                        <button type="button" class="btn btn-primary" onclick="aplicarCupom()">Aplicar</button>
-                    </div>
-                    <div id="cupom-result" style="margin-top: 8px; font-size: 14px;"></div>
-                </div>
-
-                <div class="resumo-compra">
-                    <div class="linha">
-                        <span>{{ servico.nome }}</span>
-                        <span>R$ {{ "%.2f"|format(servico.preco) }}</span>
-                    </div>
-                    {% if servico.preco_promocional %}
-                    <div class="linha" style="color: #4ade80;">
-                        <span>Desconto Promocional</span>
-                        <span>-R$ {{ "%.2f"|format(servico.preco - servico.preco_promocional) }}</span>
-                    </div>
-                    {% endif %}
-                    <div class="linha" id="desconto-linha" style="display: none; color: #4ade80;">
-                        <span>Desconto Cupom</span>
-                        <span id="desconto-valor">-R$ 0.00</span>
-                    </div>
-                    <div class="linha">
-                        <span>Total</span>
-                        <span id="total-final">R$ {{ "%.2f"|format(servico.preco_promocional or servico.preco) }}</span>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn btn-success" style="width: 100%; padding: 15px; font-size: 18px;">✅ Confirmar Compra</button>
-            </form>
-        </div>
-
-        <div class="card">
-            <h3 style="color: #5865F2;">💡 Informações</h3>
-            <ul style="color: #aaa; list-style: none; padding: 0;">
-                <li style="padding: 8px 0;">✅ Após o pagamento, você receberá confirmação automática</li>
-                <li style="padding: 8px 0;">⭐ Você ganha <strong style="color: #4ade80;">10 pontos</strong> por cada R$ 1 gasto</li>
-                <li style="padding: 8px 0;">📋 O serviço será adicionado automaticamente à fila</li>
-            </ul>
-        </div>
-    </div>
-
-    <script>
-        let precoOriginal = {{ servico.preco }};
-        let precoPromocional = {{ servico.preco_promocional or servico.preco }};
-        let descontoCupom = 0;
-
-        function aplicarCupom() {
-            const codigo = document.getElementById('cupom-input').value.trim().toUpperCase();
-            if (!codigo) {
-                document.getElementById('cupom-result').innerHTML = '<span style="color: #f59e0b;">Digite um código de cupom</span>';
-                return;
-            }
-
-            fetch('/api/cupom/validar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ codigo: codigo, valor: precoPromocional })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.sucesso) {
-                    descontoCupom = data.desconto;
-                    document.getElementById('cupom-result').innerHTML = `<span style="color: #4ade80;">✅ Cupom aplicado! Desconto de R$ ${data.desconto.toFixed(2)}</span>`;
-                    document.getElementById('desconto-linha').style.display = 'flex';
-                    document.getElementById('desconto-valor').textContent = `-R$ ${data.desconto.toFixed(2)}`;
-                    const total = precoPromocional - data.desconto;
-                    document.getElementById('total-final').textContent = `R$ ${total.toFixed(2)}`;
-                } else {
-                    document.getElementById('cupom-result').innerHTML = `<span style="color: #ef4444;">❌ ${data.mensagem}</span>`;
-                    descontoCupom = 0;
-                    document.getElementById('desconto-linha').style.display = 'none';
-                    document.getElementById('total-final').textContent = `R$ ${precoPromocional.toFixed(2)}`;
-                }
-            })
-            .catch(() => {
-                document.getElementById('cupom-result').innerHTML = '<span style="color: #ef4444;">❌ Erro ao validar cupom</span>';
-            });
-        }
-    </script>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Todos os direitos reservados</p>
-    </div>
-</body>
-</html>
-"""
-
-# Template do Admin Dashboard
-ADMIN_DASHBOARD_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Imune Bot</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn-warning:hover { background: #d97706; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .admin-badge { background: #f59e0b; color: #000; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin: 20px 0; }
-        .stat-card { background: #121212; border: 1px solid #333; border-radius: 12px; padding: 20px; text-align: center; }
-        .stat-card .number { font-size: 28px; font-weight: bold; color: #ffd93d; }
-        .stat-card .label { color: #888; font-size: 14px; margin-top: 5px; }
-        .stat-card .sub { color: #4ade80; font-size: 12px; }
-        .sidebar { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
-        .sidebar a { padding: 10px 20px; background: #121212; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; text-decoration: none; transition: all 0.3s; }
-        .sidebar a:hover, .sidebar a.active { background: #5865F2; border-color: #5865F2; }
-        .card { background: #121212; border: 1px solid #333; border-radius: 12px; padding: 20px; margin: 15px 0; }
-        .card h3 { color: #5865F2; margin-bottom: 15px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #333; }
-        th { color: #888; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-        .status-aguardando { background: #f59e0b; color: #000; }
-        .status-pago { background: #3b82f6; color: #fff; }
-        .status-em_andamento { background: #8b5cf6; color: #fff; }
-        .status-finalizado { background: #10b981; color: #fff; }
-        .status-cancelado { background: #ef4444; color: #fff; }
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } .header { flex-direction: column; gap: 10px; text-align: center; } }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <span class="admin-badge">👑 ADMIN</span>
-            <a href="/" class="btn btn-outline">🏠 Início</a>
-            <a href="/dashboard" class="btn btn-primary">👤 Painel</a>
-            <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-        </div>
-    </header>
-
-    <div class="container">
-        <div class="stats-grid">
-            <div class="stat-card"><div class="number">{{ total_pedidos }}</div><div class="label">Total Pedidos</div></div>
-            <div class="stat-card"><div class="number">{{ pedidos_pendentes }}</div><div class="label">Pendentes</div><div class="sub">Aguardando pagamento</div></div>
-            <div class="stat-card"><div class="number">{{ pedidos_em_andamento }}</div><div class="label">Em Andamento</div></div>
-            <div class="stat-card"><div class="number">{{ total_clientes }}</div><div class="label">Clientes</div></div>
-            <div class="stat-card"><div class="number">R$ {{ "%.2f"|format(faturamento_mes) }}</div><div class="label">Faturamento Mês</div></div>
-            <div class="stat-card"><div class="number">R$ {{ "%.2f"|format(faturamento_total) }}</div><div class="label">Faturamento Total</div></div>
-        </div>
-
-        <div class="sidebar">
-            <a href="/admin" class="active">📊 Dashboard</a>
-            <a href="/admin/clientes">👥 Clientes</a>
-            <a href="/admin/servicos">📦 Serviços</a>
-            <a href="/admin/pedidos">📋 Pedidos</a>
-            <a href="/admin/categorias">📂 Categorias</a>
-            <a href="/admin/recompensas">⭐ Recompensas</a>
-            <a href="/admin/cupons">🎟️ Cupons</a>
-            <a href="/admin/fila">📋 Fila</a>
-        </div>
-
-        <div class="grid-2">
-            <div class="card">
-                <h3>📦 Pedidos Recentes</h3>
-                <table>
-                    <thead>
-                        <tr><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Status</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for p in pedidos_recentes[:5] %}
-                        <tr>
-                            <td><a href="/pedido/{{ p.numero }}" style="color: #ffd93d;">{{ p.numero }}</a></td>
-                            <td>{{ p.cliente_nome or 'N/A' }}</td>
-                            <td style="color: #4ade80;">R$ {{ "%.2f"|format(p.valor_final) }}</td>
-                            <td><span class="status-badge status-{{ p.status }}">{{ p.status|replace('_', ' ')|title }}</span></td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="4" style="text-align:center; color:#888;">Nenhum pedido</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="card">
-                <h3>🏆 Produtos Mais Vendidos</h3>
-                <table>
-                    <thead>
-                        <tr><th>Serviço</th><th>Vendas</th><th>Faturamento</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for p in produtos_mais_vendidos %}
-                        <tr>
-                            <td>{{ p.nome }}</td>
-                            <td>{{ p.total_pedidos }}</td>
-                            <td style="color: #4ade80;">R$ {{ "%.2f"|format(p.total_faturamento) }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="3" style="text-align:center; color:#888;">Nenhum dado</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Painel Administrativo</p>
-    </div>
-</body>
-</html>
-"""
-
-# Template Admin Serviços
-ADMIN_SERVICOS_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Serviços</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height: 100vh; color: #e0e0e0; }
-        .header { background: #121212; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .header h1 { color: #5865F2; font-size: 24px; }
-        .header h1 span { color: #ffd93d; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s; }
-        .btn-primary { background: #5865F2; color: white; }
-        .btn-primary:hover { background: #4752C4; transform: translateY(-2px); }
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-2px); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; transform: translateY(-2px); }
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn-warning:hover { background: #d97706; transform: translateY(-2px); }
-        .btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #555; }
-        .btn-outline:hover { background: #333; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .admin-badge { background: #f59e0b; color: #000; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
-        .sidebar { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
-        .sidebar a { padding: 10px 20px; background: #121212; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; text-decoration: none; transition: all 0.3s; }
-        .sidebar a:hover, .sidebar a.active { background: #5865F2; border-color: #5865F2; }
-        .card { background: #121212; border: 1px solid #333; border-radius: 12px; padding: 20px; margin: 15px 0; }
-        .card h3 { color: #5865F2; margin-bottom: 15px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #333; }
-        th { color: #888; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-        .actions { display: flex; gap: 5px; flex-wrap: wrap; }
-        .actions .btn { padding: 5px 10px; font-size: 12px; }
-        .status-ativo { color: #4ade80; }
-        .status-inativo { color: #ef4444; }
-        .footer { text-align: center; padding: 30px; color: #666; border-top: 1px solid #333; margin-top: 40px; font-size: 14px; }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-content { background: #121212; border: 1px solid #333; border-radius: 15px; padding: 30px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; }
-        .modal-content h2 { color: #ffd93d; margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; color: #aaa; font-weight: 600; }
-        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; }
-        .form-group textarea { min-height: 80px; }
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .btn-modal { margin-top: 15px; }
-        @media (max-width: 768px) { .header { flex-direction: column; gap: 10px; text-align: center; } .form-row { grid-template-columns: 1fr; } }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>🎮 Imune <span>Bot</span></h1>
-        <div class="header-actions">
-            <span class="admin-badge">👑 ADMIN</span>
-            <a href="/" class="btn btn-outline">🏠 Início</a>
-            <a href="/admin" class="btn btn-primary">📊 Admin</a>
-            <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-        </div>
-    </header>
-
-    <div class="container">
-        <div class="sidebar">
-            <a href="/admin">📊 Dashboard</a>
-            <a href="/admin/clientes">👥 Clientes</a>
-            <a href="/admin/servicos" class="active">📦 Serviços</a>
-            <a href="/admin/pedidos">📋 Pedidos</a>
-            <a href="/admin/categorias">📂 Categorias</a>
-            <a href="/admin/recompensas">⭐ Recompensas</a>
-            <a href="/admin/cupons">🎟️ Cupons</a>
-            <a href="/admin/fila">📋 Fila</a>
-        </div>
-
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
-                <h3>📦 Serviços</h3>
-                <button class="btn btn-success" onclick="abrirModal('novo')">➕ Novo Serviço</button>
-            </div>
-            <table>
-                <thead>
-                    <tr><th>Nome</th><th>Categoria</th><th>Preço</th><th>Status</th><th>Destaque</th><th>Ações</th></tr>
-                </thead>
-                <tbody>
-                    {% for s in servicos %}
-                    <tr>
-                        <td>{{ s.nome }}</td>
-                        <td>{{ s.categoria_nome or 'Geral' }}</td>
-                        <td style="color: #4ade80;">R$ {{ "%.2f"|format(s.preco) }}</td>
-                        <td class="status-{{ s.status }}">{{ s.status|title }}</td>
-                        <td>{% if s.destaque %}⭐ Sim{% else %}❌{% endif %}</td>
-                        <td class="actions">
-                            <button class="btn btn-primary" onclick="abrirModal('editar', '{{ s.id }}')">✏️</button>
-                            <button class="btn btn-danger" onclick="deletar('{{ s.id }}')">🗑️</button>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="6" style="text-align:center; color:#888;">Nenhum serviço cadastrado</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Modal -->
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <h2 id="modal-title">Novo Serviço</h2>
-            <form id="servico-form" method="POST">
-                <input type="hidden" name="id" id="servico-id">
-                <div class="form-group">
-                    <label>Nome *</label>
-                    <input type="text" name="nome" id="s-nome" required>
-                </div>
-                <div class="form-group">
-                    <label>Slug (URL amigável)</label>
-                    <input type="text" name="slug" id="s-slug" placeholder="exemplo-servico">
-                </div>
-                <div class="form-group">
-                    <label>Categoria</label>
-                    <select name="categoria_id" id="s-categoria">
-                        <option value="">Sem categoria</option>
-                        {% for cat in categorias %}
-                        <option value="{{ cat.id }}">{{ cat.nome }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Descrição</label>
-                    <textarea name="descricao" id="s-descricao"></textarea>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Preço (R$) *</label>
-                        <input type="number" name="preco" id="s-preco" step="0.01" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Preço Promocional</label>
-                        <input type="number" name="preco_promocional" id="s-preco-promo" step="0.01">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Tempo Estimado</label>
-                        <input type="text" name="tempo_estimado" id="s-tempo" placeholder="Ex: 2-4 horas">
-                    </div>
-                    <div class="form-group">
-                        <label>Ícone/Emoji</label>
-                        <input type="text" name="icone" id="s-icone" placeholder="🎮">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Status</label>
-                        <select name="status" id="s-status">
-                            <option value="ativo">Ativo</option>
-                            <option value="inativo">Inativo</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Ordem</label>
-                        <input type="number" name="ordem" id="s-ordem" value="0">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="destaque" id="s-destaque" value="1">
-                        Destacar serviço
-                    </label>
-                </div>
-                <div style="display: flex; gap: 10px; margin-top: 15px;">
-                    <button type="submit" class="btn btn-success btn-modal">💾 Salvar</button>
-                    <button type="button" class="btn btn-danger btn-modal" onclick="fecharModal()">❌ Cancelar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script>
-        function abrirModal(tipo, id) {
-            const modal = document.getElementById('modal');
-            const form = document.getElementById('servico-form');
-            
-            if (tipo === 'novo') {
-                document.getElementById('modal-title').textContent = '📦 Novo Serviço';
-                form.action = '/admin/servicos/novo';
-                document.getElementById('servico-id').value = '';
-                document.getElementById('s-nome').value = '';
-                document.getElementById('s-slug').value = '';
-                document.getElementById('s-categoria').value = '';
-                document.getElementById('s-descricao').value = '';
-                document.getElementById('s-preco').value = '';
-                document.getElementById('s-preco-promo').value = '';
-                document.getElementById('s-tempo').value = '';
-                document.getElementById('s-icone').value = '🎮';
-                document.getElementById('s-status').value = 'ativo';
-                document.getElementById('s-ordem').value = '0';
-                document.getElementById('s-destaque').checked = false;
-            } else if (tipo === 'editar') {
-                document.getElementById('modal-title').textContent = '✏️ Editar Serviço';
-                form.action = '/admin/servicos/' + id + '/editar';
-                
-                fetch('/api/servico/' + id)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.sucesso) {
-                            const s = data.servico;
-                            document.getElementById('servico-id').value = s.id;
-                            document.getElementById('s-nome').value = s.nome;
-                            document.getElementById('s-slug').value = s.slug;
-                            document.getElementById('s-categoria').value = s.categoria_id || '';
-                            document.getElementById('s-descricao').value = s.descricao;
-                            document.getElementById('s-preco').value = s.preco;
-                            document.getElementById('s-preco-promo').value = s.preco_promocional || '';
-                            document.getElementById('s-tempo').value = s.tempo_estimado || '';
-                            document.getElementById('s-icone').value = s.icone || '🎮';
-                            document.getElementById('s-status').value = s.status || 'ativo';
-                            document.getElementById('s-ordem').value = s.ordem || 0;
-                            document.getElementById('s-destaque').checked = s.destaque || false;
-                        }
-                    });
-            }
-            modal.style.display = 'flex';
-        }
-
-        function fecharModal() {
-            document.getElementById('modal').style.display = 'none';
-        }
-
-        function deletar(id) {
-            if (confirm('Tem certeza que deseja excluir este serviço?')) {
-                fetch('/admin/servicos/' + id + '/deletar', { method: 'POST' })
-                    .then(() => window.location.reload());
-            }
-        }
-
-        document.getElementById('servico-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this)
-            }).then(() => {
-                fecharModal();
-                window.location.reload();
-            });
-        });
-
-        window.onclick = function(event) {
-            if (event.target === document.getElementById('modal')) {
-                fecharModal();
-            }
-        }
-    </script>
-
-    <div class="footer">
-        <p>© 2024 Imune Bot - Painel Administrativo</p>
-    </div>
-</body>
-</html>
-"""
-
-# ========================
-# ROTAS DO SITE
-# ========================
-
-@app.route("/")
-def home():
-    status_bot = "✅ Bot Online" if bot.is_ready() else "❌ Bot Offline"
-    classe_bot = "online" if bot.is_ready() else "offline"
-    
-    servicos = dados.get("servicos", [])
-    servicos_destaque = [s for s in servicos if s.get("destaque") and s.get("status") == "ativo"][:6]
-    
-    return render_template_string(HOME_TEMPLATE,
-                                status_bot=status_bot,
-                                classe_bot=classe_bot,
-                                servicos_destaque=servicos_destaque,
-                                session=session)
 
 @app.route("/login")
 def login():
     if not CLIENT_ID or not CLIENT_SECRET:
-        flash('CLIENT_ID ou CLIENT_SECRET não configurados.', 'danger')
-        return redirect(url_for('home'))
+        return "Erro: CLIENT_ID ou CLIENT_SECRET não configurados.", 500
     
     url = f"https://discord.com/api/oauth2/authorize?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=identify%20guilds"
     return redirect(url)
@@ -1971,13 +3291,11 @@ def login():
 @app.route("/callback")
 def callback():
     if not CLIENT_ID or not CLIENT_SECRET:
-        flash('Erro de configuração.', 'danger')
-        return redirect(url_for('home'))
+        return "Erro de configuração.", 500
     
     code = request.args.get('code')
     if not code:
-        flash('Erro: código não recebido', 'danger')
-        return redirect(url_for('home'))
+        return "Erro: código não recebido", 400
     
     try:
         dados_req = {
@@ -1991,747 +3309,54 @@ def callback():
         
         r = requests.post('https://discord.com/api/oauth2/token', data=dados_req)
         if r.status_code != 200:
-            flash(f'Erro ao obter token: {r.text[:100]}', 'danger')
-            return redirect(url_for('home'))
+            return f"Erro ao obter token: {r.text[:100]}", 400
         
         access_token = r.json()['access_token']
         
         user_r = requests.get('https://discord.com/api/users/@me', headers={'Authorization': f'Bearer {access_token}'})
         if user_r.status_code != 200:
-            flash('Erro ao obter informações', 'danger')
-            return redirect(url_for('home'))
+            return "Erro ao obter informações", 400
         
         user_data = user_r.json()
         
-        # Verificar se é admin
-        is_admin = False
-        if GUILD_ID:
-            guilds_r = requests.get('https://discord.com/api/users/@me/guilds', headers={'Authorization': f'Bearer {access_token}'})
-            if guilds_r.status_code == 200:
-                guilds = guilds_r.json()
-                for guild in guilds:
-                    if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):
-                        is_admin = True
-                        break
+        guilds_r = requests.get('https://discord.com/api/users/@me/guilds', headers={'Authorization': f'Bearer {access_token}'})
+        guilds = guilds_r.json() if guilds_r.status_code == 200 else []
         
-        # Criar ou atualizar usuário
-        usuario = obter_ou_criar_usuario(user_data)
-        if is_admin:
-            usuario["is_admin"] = True
-            salvar_dados_github(f"Admin atualizado: {user_data['username']}")
+        is_admin = False
+        for guild in guilds:
+            if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):
+                is_admin = True
+                break
+        
+        # Criar usuário no sistema se não existir
+        uid = str(user_data['id'])
+        if uid not in dados.get("usuarios", {}):
+            criar_usuario(uid, user_data['username'], user_data.get('avatar'))
+        else:
+            # Atualizar dados do usuário
+            dados["usuarios"][uid]["nome"] = user_data['username']
+            dados["usuarios"][uid]["avatar"] = user_data.get('avatar')
+            salvar_dados_github(f"Usuário atualizado: {user_data['username']}")
         
         session['usuario'] = {
-            'discord_id': user_data['id'],
+            'id': user_data['id'],
             'nome_usuario': user_data['username'],
             'avatar': user_data.get('avatar'),
-            'is_admin': is_admin
+            'eh_admin': is_admin
         }
         
-        flash('Login realizado com sucesso!', 'success')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('home'))
         
     except Exception as e:
-        flash(f'Erro interno: {str(e)}', 'danger')
-        return redirect(url_for('home'))
+        return f"Erro interno: {str(e)}", 500
 
 @app.route("/logout")
 def logout():
     session.clear()
-    flash('Você foi desconectado.', 'info')
     return redirect(url_for('home'))
 
 # ========================
-# ROTAS DO CLIENTE
-# ========================
-
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    discord_id = usuario.get('discord_id')
-    pedidos = [p for p in dados.get("pedidos", []) if p.get("usuario_id") == discord_id]
-    
-    pedidos_ativos = [p for p in pedidos if p.get("status") in ['aguardando_pagamento', 'pago', 'em_andamento']]
-    pedidos_concluidos = [p for p in pedidos if p.get("status") == 'finalizado']
-    
-    return render_template_string(DASHBOARD_TEMPLATE,
-                                usuario=usuario,
-                                pedidos_ativos=pedidos_ativos,
-                                pedidos_concluidos=pedidos_concluidos,
-                                session=session)
-
-@app.route("/servicos")
-def listar_servicos():
-    categoria_slug = request.args.get('categoria', '')
-    busca = request.args.get('busca', '')
-    page = request.args.get('page', 1, type=int)
-    per_page = 12
-    
-    servicos = dados.get("servicos", [])
-    servicos_ativos = [s for s in servicos if s.get("status") == "ativo"]
-    
-    if categoria_slug:
-        categoria = obter_categoria_por_slug(categoria_slug)
-        if categoria:
-            servicos_ativos = [s for s in servicos_ativos if s.get("categoria_id") == categoria.get("id")]
-    
-    if busca:
-        busca_lower = busca.lower()
-        servicos_ativos = [s for s in servicos_ativos if busca_lower in s.get("nome", "").lower() or busca_lower in s.get("descricao", "").lower()]
-    
-    total = len(servicos_ativos)
-    total_pages = (total + per_page - 1) // per_page
-    start = (page - 1) * per_page
-    servicos_paginados = servicos_ativos[start:start + per_page]
-    
-    categorias = obter_categorias()
-    categorias_ativas = [c for c in categorias if c.get("ativo", True)]
-    
-    return render_template_string(SERVICOS_TEMPLATE,
-                                servicos=servicos_paginados,
-                                categorias=categorias_ativas,
-                                categoria_atual=categoria_slug,
-                                busca=busca,
-                                page=page,
-                                total_pages=total_pages,
-                                session=session)
-
-@app.route("/servico/<slug>")
-def detalhes_servico(slug):
-    servico = obter_servico_por_slug(slug)
-    if not servico:
-        flash('Serviço não encontrado.', 'danger')
-        return redirect(url_for('listar_servicos'))
-    
-    servicos_relacionados = []
-    for s in dados.get("servicos", []):
-        if s.get("categoria_id") == servico.get("categoria_id") and s.get("id") != servico.get("id") and s.get("status") == "ativo":
-            servicos_relacionados.append(s)
-    
-    return render_template_string(DETALHES_SERVICO_TEMPLATE,
-                                servico=servico,
-                                servicos_relacionados=servicos_relacionados[:4],
-                                session=session)
-
-@app.route("/comprar/<slug>", methods=['GET', 'POST'])
-@login_required
-def comprar_servico(slug):
-    servico = obter_servico_por_slug(slug)
-    if not servico:
-        flash('Serviço não encontrado.', 'danger')
-        return redirect(url_for('listar_servicos'))
-    
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    if request.method == 'POST':
-        valor = servico.get('preco_promocional') or servico.get('preco', 0)
-        desconto = 0
-        
-        codigo_cupom = request.form.get('cupom', '').strip().upper()
-        if codigo_cupom:
-            for cupom in dados.get("cupons", []):
-                if cupom.get("codigo") == codigo_cupom and cupom.get("ativo", True):
-                    if cupom.get("validade"):
-                        try:
-                            validade = datetime.fromisoformat(cupom.get("validade"))
-                            if datetime.utcnow() > validade:
-                                flash('Cupom expirado.', 'danger')
-                                return redirect(url_for('detalhes_servico', slug=slug))
-                        except:
-                            pass
-                    
-                    if cupom.get("max_uso") and cupom.get("usos", 0) >= cupom.get("max_uso"):
-                        flash('Cupom esgotado.', 'danger')
-                        return redirect(url_for('detalhes_servico', slug=slug))
-                    
-                    if valor < cupom.get("valor_minimo", 0):
-                        flash(f'Valor mínimo para este cupom é R${cupom.get("valor_minimo", 0):.2f}', 'danger')
-                        return redirect(url_for('detalhes_servico', slug=slug))
-                    
-                    if cupom.get("tipo") == 'percentual':
-                        desconto = valor * (cupom.get("valor", 0) / 100)
-                    else:
-                        desconto = min(cupom.get("valor", 0), valor)
-                    
-                    cupom["usos"] = cupom.get("usos", 0) + 1
-                    salvar_dados_github(f"Cupom usado: {codigo_cupom}")
-                    break
-                else:
-                    flash('Cupom inválido.', 'danger')
-                    return redirect(url_for('detalhes_servico', slug=slug))
-        
-        valor_final = max(0, valor - desconto)
-        
-        pedido = {
-            "id": gerar_id(),
-            "numero": gerar_numero_pedido(),
-            "usuario_id": usuario.get('discord_id'),
-            "servico_id": servico.get('id'),
-            "servico_nome": servico.get('nome'),
-            "valor": valor,
-            "desconto": desconto,
-            "valor_final": valor_final,
-            "status": "aguardando_pagamento",
-            "dados_cliente": json.dumps({
-                'nome_cliente': request.form.get('nome_cliente', ''),
-                'id_cliente': request.form.get('id_cliente', ''),
-                'observacoes': request.form.get('observacoes', '')
-            }),
-            "data_criacao": datetime.utcnow().isoformat(),
-            "data_atualizacao": datetime.utcnow().isoformat(),
-            "historico": json.dumps([{
-                'data': datetime.utcnow().isoformat(),
-                'status': 'aguardando_pagamento',
-                'mensagem': 'Pedido criado, aguardando pagamento'
-            }])
-        }
-        
-        criar_pedido(pedido)
-        
-        adicionar_fila(
-            usuario.get('discord_nome', 'Cliente'),
-            servico.get('nome', 'Serviço'),
-            usuario.get('discord_nome', ''),
-            usuario.get('discord_id')
-        )
-        
-        flash(f'Pedido {pedido["numero"]} criado! Aguarde a confirmação.', 'success')
-        return redirect(url_for('detalhes_pedido', numero=pedido["numero"]))
-    
-    recompensas = [r for r in dados.get("recompensas", []) if r.get("status") == "ativo"]
-    
-    return render_template_string(COMPRAR_TEMPLATE,
-                                servico=servico,
-                                usuario=usuario,
-                                recompensas=recompensas,
-                                session=session,
-                                csrf_token=lambda: '')
-
-@app.route("/pedido/<numero>")
-@login_required
-def detalhes_pedido(numero):
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    pedido = obter_pedido_por_numero(numero)
-    if not pedido:
-        flash('Pedido não encontrado.', 'danger')
-        return redirect(url_for('meus_pedidos'))
-    
-    if pedido.get('usuario_id') != usuario.get('discord_id') and not usuario.get('is_admin'):
-        flash('Você não tem permissão para ver este pedido.', 'danger')
-        return redirect(url_for('meus_pedidos'))
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Pedido {pedido['numero']}</title>
-    <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; color:#e0e0e0; padding:20px; }}
-        .container {{ max-width:800px; margin:0 auto; }}
-        .card {{ background:#121212; border:1px solid #333; border-radius:15px; padding:30px; margin:20px 0; }}
-        .card h2 {{ color:#ffd93d; margin-bottom:15px; }}
-        .status {{ padding:4px 12px; border-radius:20px; font-size:14px; font-weight:bold; }}
-        .status-aguardando {{ background:#f59e0b; color:#000; }}
-        .status-pago {{ background:#3b82f6; color:#fff; }}
-        .status-em_andamento {{ background:#8b5cf6; color:#fff; }}
-        .status-finalizado {{ background:#10b981; color:#fff; }}
-        .status-cancelado {{ background:#ef4444; color:#fff; }}
-        .linha {{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #333; }}
-        .btn {{ padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }}
-        .btn-primary {{ background:#5865F2; color:white; }}
-        .btn-primary:hover {{ background:#4752C4; }}
-        .btn-outline {{ background:transparent; color:#e0e0e0; border:1px solid #555; }}
-        .btn-outline:hover {{ background:#333; }}
-        .footer {{ text-align:center; padding:30px; color:#666; border-top:1px solid #333; margin-top:40px; }}
-    </style>
-    </head>
-    <body>
-    <div class="container">
-        <a href="/dashboard" class="btn btn-outline">← Voltar</a>
-        <div class="card">
-            <h2>📦 Pedido {pedido['numero']}</h2>
-            <div class="linha"><span>Status</span><span class="status status-{pedido['status']}">{pedido['status'].replace('_', ' ').title()}</span></div>
-            <div class="linha"><span>Serviço</span><span>{pedido.get('servico_nome', 'N/A')}</span></div>
-            <div class="linha"><span>Valor</span><span style="color:#4ade80;">R$ {pedido['valor_final']:.2f}</span></div>
-            <div class="linha"><span>Data</span><span>{pedido.get('data_criacao', '')[:16]}</span></div>
-        </div>
-        <a href="/" class="btn btn-primary">🏠 Início</a>
-    </div>
-    <div class="footer"><p>© 2024 Imune Bot</p></div>
-    </body>
-    </html>
-    """
-
-@app.route("/meus-pedidos")
-@login_required
-def meus_pedidos():
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    pedidos = [p for p in dados.get("pedidos", []) if p.get("usuario_id") == usuario.get('discord_id')]
-    pedidos_ordenados = sorted(pedidos, key=lambda p: p.get("data_criacao", ''), reverse=True)
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Meus Pedidos</title>
-    <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; color:#e0e0e0; padding:20px; }}
-        .container {{ max-width:1000px; margin:0 auto; }}
-        .header {{ background:#121212; padding:20px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:20px; }}
-        .header h1 {{ color:#5865F2; }}
-        .btn {{ padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }}
-        .btn-primary {{ background:#5865F2; color:white; }}
-        .btn-primary:hover {{ background:#4752C4; }}
-        .btn-outline {{ background:transparent; color:#e0e0e0; border:1px solid #555; }}
-        .btn-outline:hover {{ background:#333; }}
-        .card {{ background:#121212; border:1px solid #333; border-radius:12px; padding:20px; margin:10px 0; }}
-        .pedido-item {{ display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #333; flex-wrap:wrap; gap:10px; }}
-        .pedido-item .numero {{ color:#ffd93d; font-weight:bold; }}
-        .pedido-item .valor {{ color:#4ade80; font-weight:bold; }}
-        .status {{ padding:4px 12px; border-radius:20px; font-size:12px; font-weight:bold; }}
-        .status-aguardando {{ background:#f59e0b; color:#000; }}
-        .status-pago {{ background:#3b82f6; color:#fff; }}
-        .status-em_andamento {{ background:#8b5cf6; color:#fff; }}
-        .status-finalizado {{ background:#10b981; color:#fff; }}
-        .status-cancelado {{ background:#ef4444; color:#fff; }}
-        .footer {{ text-align:center; padding:30px; color:#666; border-top:1px solid #333; margin-top:40px; }}
-    </style>
-    </head>
-    <body>
-    <div class="header">
-        <h1>📋 Meus Pedidos</h1>
-        <div><a href="/dashboard" class="btn btn-outline">← Voltar</a></div>
-    </div>
-    <div class="container">
-        {''.join(f'''
-        <div class="card">
-            <div class="pedido-item">
-                <span class="numero">{p['numero']}</span>
-                <span>{p.get('servico_nome', 'Serviço')}</span>
-                <span class="valor">R$ {p['valor_final']:.2f}</span>
-                <span class="status status-{p['status']}">{p['status'].replace('_', ' ').title()}</span>
-                <a href="/pedido/{p['numero']}" class="btn btn-primary" style="padding:5px 15px;font-size:12px;">Ver</a>
-            </div>
-        </div>
-        ''' for p in pedidos_ordenados[:20])}
-        {'' if pedidos_ordenados else '<div style="text-align:center;color:#888;padding:40px;">Nenhum pedido encontrado</div>'}
-    </div>
-    <div class="footer"><p>© 2024 Imune Bot</p></div>
-    </body>
-    </html>
-    """
-
-@app.route("/perfil")
-@login_required
-def perfil():
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    transacoes = [t for t in dados.get("transacoes_pontos", []) if t.get("usuario_id") == usuario.get('discord_id')]
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Meu Perfil</title>
-    <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; color:#e0e0e0; padding:20px; }}
-        .container {{ max-width:800px; margin:0 auto; }}
-        .header {{ background:#121212; padding:20px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:20px; }}
-        .header h1 {{ color:#5865F2; }}
-        .btn {{ padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }}
-        .btn-primary {{ background:#5865F2; color:white; }}
-        .btn-primary:hover {{ background:#4752C4; }}
-        .btn-outline {{ background:transparent; color:#e0e0e0; border:1px solid #555; }}
-        .btn-outline:hover {{ background:#333; }}
-        .card {{ background:#121212; border:1px solid #333; border-radius:12px; padding:25px; margin:15px 0; }}
-        .avatar {{ width:100px; height:100px; border-radius:50%; border:3px solid #5865F2; }}
-        .pontos {{ color:#4ade80; font-size:24px; font-weight:bold; }}
-        .linha {{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #333; }}
-        .footer {{ text-align:center; padding:30px; color:#666; border-top:1px solid #333; margin-top:40px; }}
-        .badge {{ background:#f59e0b; color:#000; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:bold; }}
-    </style>
-    </head>
-    <body>
-    <div class="header">
-        <h1>👤 Meu Perfil</h1>
-        <div><a href="/dashboard" class="btn btn-outline">← Voltar</a></div>
-    </div>
-    <div class="container">
-        <div class="card" style="text-align:center;">
-            <img src="https://cdn.discordapp.com/avatars/{usuario.get('discord_id')}/{usuario.get('discord_avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-            <h2 style="color:#ffd93d; margin-top:10px;">{usuario.get('discord_nome', 'Usuário')}</h2>
-            <div class="pontos">⭐ {usuario.get('pontos', 0)} pontos</div>
-            <div style="margin-top:10px;">
-                <span class="badge">{'👑 Administrador' if usuario.get('is_admin') else '🎮 Cliente'}</span>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3 style="color:#5865F2;">📊 Estatísticas</h3>
-            <div class="linha"><span>Total de Pontos Ganhos</span><span>{usuario.get('total_pontos_ganhos', 0)}</span></div>
-            <div class="linha"><span>Total de Pontos Gastos</span><span>{usuario.get('total_pontos_gastos', 0)}</span></div>
-            <div class="linha"><span>Data de Cadastro</span><span>{usuario.get('data_cadastro', '')[:10]}</span></div>
-        </div>
-        
-        <div class="card">
-            <h3 style="color:#5865F2;">📜 Últimas Transações</h3>
-            {''.join(f'''
-            <div class="linha">
-                <span>{t.get('descricao', 'Transação')}</span>
-                <span style="color:{'#4ade80' if t.get('tipo') == 'ganho' else '#ef4444'};">{'+' if t.get('tipo') == 'ganho' else '-'}{t.get('quantidade', 0)}</span>
-            </div>
-            ''' for t in transacoes[:10])}
-            {'' if transacoes else '<div style="color:#888;text-align:center;padding:10px;">Nenhuma transação</div>'}
-        </div>
-    </div>
-    <div class="footer"><p>© 2024 Imune Bot</p></div>
-    </body>
-    </html>
-    """
-
-@app.route("/pontos")
-@login_required
-def pontos():
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    recompensas = [r for r in dados.get("recompensas", []) if r.get("status") == "ativo"]
-    transacoes = [t for t in dados.get("transacoes_pontos", []) if t.get("usuario_id") == usuario.get('discord_id')]
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Pontos - Imune Bot</title>
-    <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; color:#e0e0e0; padding:20px; }}
-        .container {{ max-width:1000px; margin:0 auto; }}
-        .header {{ background:#121212; padding:20px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:20px; }}
-        .header h1 {{ color:#5865F2; }}
-        .btn {{ padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }}
-        .btn-primary {{ background:#5865F2; color:white; }}
-        .btn-primary:hover {{ background:#4752C4; }}
-        .btn-success {{ background:#10b981; color:white; }}
-        .btn-success:hover {{ background:#059669; }}
-        .btn-outline {{ background:transparent; color:#e0e0e0; border:1px solid #555; }}
-        .btn-outline:hover {{ background:#333; }}
-        .card {{ background:#121212; border:1px solid #333; border-radius:12px; padding:25px; margin:15px 0; }}
-        .grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px; }}
-        .recompensa {{ background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:20px; text-align:center; transition:all 0.3s; }}
-        .recompensa:hover {{ border-color:#5865F2; transform:translateY(-3px); }}
-        .recompensa .nome {{ color:#ffd93d; font-weight:bold; }}
-        .recompensa .pontos {{ color:#4ade80; font-size:20px; }}
-        .recompensa .desc {{ color:#888; font-size:14px; margin:10px 0; }}
-        .linha {{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #333; }}
-        .footer {{ text-align:center; padding:30px; color:#666; border-top:1px solid #333; margin-top:40px; }}
-        .pontos-grande {{ color:#4ade80; font-size:36px; font-weight:bold; }}
-    </style>
-    </head>
-    <body>
-    <div class="header">
-        <h1>⭐ Sistema de Pontos</h1>
-        <div><a href="/dashboard" class="btn btn-outline">← Voltar</a></div>
-    </div>
-    <div class="container">
-        <div class="card" style="text-align:center;">
-            <div class="pontos-grande">{usuario.get('pontos', 0)}</div>
-            <div style="color:#888;">Pontos Disponíveis</div>
-            <div style="margin-top:10px; color:#666; font-size:14px;">
-                Ganhe 10 pontos por cada R$ 1 gasto em serviços
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3 style="color:#5865F2;">🎁 Resgatar Recompensas</h3>
-            <div class="grid">
-                {''.join(f'''
-                <div class="recompensa">
-                    <div class="nome">{r.get('nome')}</div>
-                    <div class="pontos">{r.get('pontos_necessarios')} pts</div>
-                    <div class="desc">{r.get('descricao', '')[:60]}</div>
-                    <form method="POST" action="/resgatar/{r.get('id')}">
-                        <button type="submit" class="btn btn-success" style="padding:5px 15px;font-size:12px;{'disabled' if usuario.get('pontos',0) < r.get('pontos_necessarios',0) else ''}">
-                            {'✅ Resgatar' if usuario.get('pontos',0) >= r.get('pontos_necessarios',0) else '🔒 Pontos insuficientes'}
-                        </button>
-                    </form>
-                </div>
-                ''' for r in recompensas)}
-                {'' if recompensas else '<div style="color:#888;text-align:center;padding:20px;grid-column:1/-1;">Nenhuma recompensa disponível</div>'}
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3 style="color:#5865F2;">📜 Histórico de Transações</h3>
-            {''.join(f'''
-            <div class="linha">
-                <span>{t.get('descricao', 'Transação')}</span>
-                <span style="color:{'#4ade80' if t.get('tipo') == 'ganho' else '#ef4444'};">{'+' if t.get('tipo') == 'ganho' else '-'}{t.get('quantidade', 0)}</span>
-                <span style="color:#666;font-size:12px;">{t.get('data_criacao', '')[:16]}</span>
-            </div>
-            ''' for t in transacoes[:20])}
-            {'' if transacoes else '<div style="color:#888;text-align:center;padding:10px;">Nenhuma transação</div>'}
-        </div>
-    </div>
-    <div class="footer"><p>© 2024 Imune Bot</p></div>
-    </body>
-    </html>
-    """
-
-@app.route("/resgatar/<recompensa_id>", methods=['POST'])
-@login_required
-def resgatar_recompensa(recompensa_id):
-    usuario = obter_usuario_sessao()
-    if not usuario:
-        return redirect(url_for('logout'))
-    
-    recompensa = None
-    for r in dados.get("recompensas", []):
-        if r.get("id") == recompensa_id and r.get("status") == "ativo":
-            recompensa = r
-            break
-    
-    if not recompensa:
-        flash('Recompensa não encontrada.', 'danger')
-        return redirect(url_for('pontos'))
-    
-    if usuario.get('pontos', 0) < recompensa.get('pontos_necessarios', 0):
-        flash('Pontos insuficientes.', 'danger')
-        return redirect(url_for('pontos'))
-    
-    codigo_cupom = gerar_codigo_cupom()
-    resgate = {
-        "id": gerar_id(),
-        "usuario_id": usuario.get('discord_id'),
-        "recompensa_id": recompensa.get('id'),
-        "recompensa_nome": recompensa.get('nome'),
-        "pontos_gastos": recompensa.get('pontos_necessarios'),
-        "codigo_cupom": codigo_cupom,
-        "status": "ativo",
-        "data_criacao": datetime.utcnow().isoformat()
-    }
-    dados.setdefault("resgates", []).append(resgate)
-    
-    usuario["pontos"] = usuario.get("pontos", 0) - recompensa.get('pontos_necessarios')
-    usuario["total_pontos_gastos"] = usuario.get("total_pontos_gastos", 0) + recompensa.get('pontos_necessarios')
-    
-    transacao = {
-        "id": gerar_id(),
-        "usuario_id": usuario.get('discord_id'),
-        "tipo": "gasto",
-        "quantidade": recompensa.get('pontos_necessarios'),
-        "descricao": f"Resgate: {recompensa.get('nome')}",
-        "referencia_id": resgate.get('id'),
-        "data_criacao": datetime.utcnow().isoformat()
-    }
-    dados.setdefault("transacoes_pontos", []).append(transacao)
-    
-    salvar_dados_github(f"Resgate: {recompensa.get('nome')} - {usuario.get('discord_nome')}")
-    
-    flash(f'🎉 Recompensa resgatada! Código: {codigo_cupom}', 'success')
-    return redirect(url_for('pontos'))
-
-# ========================
-# ROTAS ADMIN
-# ========================
-
-@app.route("/admin")
-@admin_required
-def admin_dashboard():
-    usuario = obter_usuario_sessao()
-    
-    pedidos = dados.get("pedidos", [])
-    total_pedidos = len(pedidos)
-    pedidos_pendentes = len([p for p in pedidos if p.get("status") == "aguardando_pagamento"])
-    pedidos_em_andamento = len([p for p in pedidos if p.get("status") == "em_andamento"])
-    pedidos_finalizados = [p for p in pedidos if p.get("status") == "finalizado"]
-    total_clientes = len(dados.get("usuarios", {}))
-    
-    faturamento_total = sum(p.get("valor_final", 0) for p in pedidos_finalizados)
-    
-    mes_atual = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0).isoformat()
-    faturamento_mes = sum(p.get("valor_final", 0) for p in pedidos_finalizados if p.get("data_criacao", '') >= mes_atual)
-    
-    produtos = {}
-    for p in pedidos:
-        if p.get("status") in ["finalizado", "em_andamento"]:
-            nome = p.get("servico_nome", "Outro")
-            if nome not in produtos:
-                produtos[nome] = {"total_pedidos": 0, "total_faturamento": 0}
-            produtos[nome]["total_pedidos"] += 1
-            produtos[nome]["total_faturamento"] += p.get("valor_final", 0)
-    
-    produtos_mais_vendidos = sorted(
-        [{"nome": k, "total_pedidos": v["total_pedidos"], "total_faturamento": v["total_faturamento"]} 
-         for k, v in produtos.items()],
-        key=lambda x: x["total_pedidos"],
-        reverse=True
-    )[:5]
-    
-    pedidos_recentes = sorted(pedidos, key=lambda p: p.get("data_criacao", ''), reverse=True)[:10]
-    
-    return render_template_string(ADMIN_DASHBOARD_TEMPLATE,
-                                total_pedidos=total_pedidos,
-                                pedidos_pendentes=pedidos_pendentes,
-                                pedidos_em_andamento=pedidos_em_andamento,
-                                total_clientes=total_clientes,
-                                faturamento_total=faturamento_total,
-                                faturamento_mes=faturamento_mes,
-                                produtos_mais_vendidos=produtos_mais_vendidos,
-                                pedidos_recentes=pedidos_recentes)
-
-@app.route("/admin/servicos")
-@admin_required
-def admin_servicos():
-    servicos = dados.get("servicos", [])
-    categorias = obter_categorias()
-    
-    for s in servicos:
-        for c in categorias:
-            if c.get("id") == s.get("categoria_id"):
-                s["categoria_nome"] = c.get("nome")
-                break
-    
-    return render_template_string(ADMIN_SERVICOS_TEMPLATE,
-                                servicos=servicos,
-                                categorias=categorias)
-
-@app.route("/admin/servicos/novo", methods=['POST'])
-@admin_required
-def admin_servico_novo():
-    nome = request.form.get('nome', '').strip()
-    if not nome:
-        flash('Nome é obrigatório.', 'danger')
-        return redirect(url_for('admin_servicos'))
-    
-    slug = request.form.get('slug', '').strip()
-    if not slug:
-        slug = nome.lower().replace(' ', '-').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
-    
-    for s in dados.get("servicos", []):
-        if s.get("slug") == slug:
-            flash('Slug já existe. Por favor, escolha outro.', 'danger')
-            return redirect(url_for('admin_servicos'))
-    
-    servico = {
-        "id": gerar_id(),
-        "nome": nome,
-        "slug": slug,
-        "categoria_id": request.form.get('categoria_id') or None,
-        "descricao": request.form.get('descricao', ''),
-        "preco": float(request.form.get('preco', 0)),
-        "preco_promocional": float(request.form.get('preco_promocional')) if request.form.get('preco_promocional') else None,
-        "tempo_estimado": request.form.get('tempo_estimado', ''),
-        "icone": request.form.get('icone', '🎮'),
-        "status": request.form.get('status', 'ativo'),
-        "destaque": bool(request.form.get('destaque')),
-        "ordem": int(request.form.get('ordem', 0)),
-        "data_criacao": datetime.utcnow().isoformat()
-    }
-    
-    dados.setdefault("servicos", []).append(servico)
-    salvar_dados_github(f"Serviço criado: {nome}")
-    
-    flash('Serviço criado com sucesso!', 'success')
-    return redirect(url_for('admin_servicos'))
-
-@app.route("/admin/servicos/<servico_id>/editar", methods=['POST'])
-@admin_required
-def admin_servico_editar(servico_id):
-    servicos = dados.get("servicos", [])
-    for i, s in enumerate(servicos):
-        if s.get("id") == servico_id:
-            servicos[i]["nome"] = request.form.get('nome', '').strip()
-            servicos[i]["slug"] = request.form.get('slug', '').strip()
-            servicos[i]["categoria_id"] = request.form.get('categoria_id') or None
-            servicos[i]["descricao"] = request.form.get('descricao', '')
-            servicos[i]["preco"] = float(request.form.get('preco', 0))
-            servicos[i]["preco_promocional"] = float(request.form.get('preco_promocional')) if request.form.get('preco_promocional') else None
-            servicos[i]["tempo_estimado"] = request.form.get('tempo_estimado', '')
-            servicos[i]["icone"] = request.form.get('icone', '🎮')
-            servicos[i]["status"] = request.form.get('status', 'ativo')
-            servicos[i]["destaque"] = bool(request.form.get('destaque'))
-            servicos[i]["ordem"] = int(request.form.get('ordem', 0))
-            servicos[i]["data_atualizacao"] = datetime.utcnow().isoformat()
-            
-            salvar_dados_github(f"Serviço atualizado: {servicos[i]['nome']}")
-            flash('Serviço atualizado com sucesso!', 'success')
-            return redirect(url_for('admin_servicos'))
-    
-    flash('Serviço não encontrado.', 'danger')
-    return redirect(url_for('admin_servicos'))
-
-@app.route("/admin/servicos/<servico_id>/deletar", methods=['POST'])
-@admin_required
-def admin_servico_deletar(servico_id):
-    servicos = dados.get("servicos", [])
-    for i, s in enumerate(servicos):
-        if s.get("id") == servico_id:
-            servicos.pop(i)
-            salvar_dados_github("Serviço deletado")
-            flash('Serviço removido com sucesso!', 'success')
-            return redirect(url_for('admin_servicos'))
-    
-    flash('Serviço não encontrado.', 'danger')
-    return redirect(url_for('admin_servicos'))
-
-@app.route("/api/servico/<servico_id>")
-def api_servico(servico_id):
-    for s in dados.get("servicos", []):
-        if s.get("id") == servico_id:
-            return jsonify({"sucesso": True, "servico": s})
-    return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
-
-@app.route("/api/cupom/validar", methods=['POST'])
-def api_validar_cupom():
-    data = request.json
-    codigo = data.get('codigo', '').strip().upper()
-    valor = data.get('valor', 0)
-    
-    for cupom in dados.get("cupons", []):
-        if cupom.get("codigo") == codigo and cupom.get("ativo", True):
-            if cupom.get("validade"):
-                try:
-                    validade = datetime.fromisoformat(cupom.get("validade"))
-                    if datetime.utcnow() > validade:
-                        return jsonify({"sucesso": False, "mensagem": "Cupom expirado"})
-                except:
-                    pass
-            
-            if cupom.get("max_uso") and cupom.get("usos", 0) >= cupom.get("max_uso"):
-                return jsonify({"sucesso": False, "mensagem": "Cupom esgotado"})
-            
-            if valor < cupom.get("valor_minimo", 0):
-                return jsonify({"sucesso": False, "mensagem": f"Valor mínimo: R${cupom.get('valor_minimo', 0):.2f}"})
-            
-            if cupom.get("tipo") == 'percentual':
-                desconto = valor * (cupom.get("valor", 0) / 100)
-            else:
-                desconto = min(cupom.get("valor", 0), valor)
-            
-            return jsonify({
-                "sucesso": True,
-                "desconto": desconto,
-                "mensagem": f"Desconto de R${desconto:.2f} aplicado"
-            })
-    
-    return jsonify({"sucesso": False, "mensagem": "Cupom inválido"})
-
-# ========================
-# ROTAS DA FILA
+# ROTAS DA FILA (MANTIDAS)
 # ========================
 
 @app.route("/fila")
@@ -2740,43 +3365,79 @@ def fila_publica():
     links = obter_links_fila()
     botoes_precos = links.get("botoes_precos", [])
     
-    return render_template_string(FILA_TEMPLATE,
-                                fila=fila,
-                                links=links,
-                                botoes_precos=botoes_precos,
-                                session=session,
-                                agora_br=agora_br)
+    botoes_html = ""
+    for botao in botoes_precos:
+        botoes_html += f'<a href="{escape_html(botao["url"])}" target="_blank" class="btn-link btn-link-precos">💰 {escape_html(botao["nome"])}</a>'
+    
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="30">
+        <title>{escape_html(fila["nome"])}</title>
+        <style>
+            * {{ margin:0; padding:0; box-sizing:border-box; }}
+            body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); min-height:100vh; padding:20px; color:#fff; }}
+            .container {{ max-width:800px; margin:0 auto; }}
+            .header {{ text-align:center; margin-bottom:30px; padding:20px; background:rgba(0,0,0,0.5); border-radius:20px; }}
+            h1 {{ background: linear-gradient(135deg, #ff6b6b, #ffd93d); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+            .status {{ display:inline-block; padding:5px 15px; border-radius:20px; }}
+            .status-aberta {{ background:#00b894; }}
+            .status-fechada {{ background:#d63031; }}
+            .links-container {{ display: flex; justify-content: center; gap: 20px; margin: 20px 0; flex-wrap: wrap; }}
+            .btn-link {{ display: inline-flex; align-items: center; gap: 10px; padding: 12px 24px; border-radius: 30px; text-decoration: none; font-weight: bold; transition: all 0.3s; }}
+            .btn-link-discord {{ background: #5865F2; color: white; }}
+            .btn-link-discord:hover {{ background: #4752C4; transform: translateY(-2px); }}
+            .btn-link-precos {{ background: #f59e0b; color: white; }}
+            .btn-link-precos:hover {{ background: #d97706; transform: translateY(-2px); }}
+            .lista-fila {{ background:rgba(0,0,0,0.4); border-radius:20px; overflow:hidden; }}
+            .cabecalho-fila {{ display:grid; grid-template-columns:60px 1fr 1fr 1fr 80px; padding:15px; background:rgba(255,255,255,0.1); font-weight:bold; }}
+            .item-fila {{ display:grid; grid-template-columns:60px 1fr 1fr 1fr 80px; padding:12px 15px; border-bottom:1px solid rgba(255,255,255,0.1); }}
+            .posicao {{ font-weight:bold; color:#ffd93d; }}
+            .servico {{ color:#a8e6cf; }}
+            .jogo {{ color:#ffb347; }}
+            .vazio {{ text-align:center; padding:40px; }}
+            .footer {{ text-align:center; margin-top:20px; font-size:0.8rem; color:#888; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>📋 {escape_html(fila["nome"])}</h1>
+                <span class="status status-{'aberta' if fila['configuracoes']['aberta'] else 'fechada'}">{'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'}</span>
+                <div>📊 {len(fila["entradas"])} / {fila["configuracoes"]["tamanho_maximo"]} pessoas</div>
+            </div>
+            
+            <div class="links-container">
+                {'<a href="' + escape_html(links["discord_convite"]) + '" target="_blank" class="btn-link btn-link-discord">💬 Entrar no Discord</a>' if links.get("discord_convite") else ''}
+                {botoes_html}
+            </div>
+            
+            <div class="lista-fila">
+                <div class="cabecalho-fila"><span>#</span><span>Jogador</span><span>Serviço</span><span>Jogo</span><span></span></div>
+                {''.join(f'<div class="item-fila"><span class="posicao">{e["posicao"]}</span><span>{escape_html(e["nome_usuario"])}</span><span class="servico">{escape_html(e["servico"])}</span><span class="jogo">{escape_html(e.get("jogo", ""))}</span><span>⏳</span></div>' for e in fila["entradas"]) or '<div class="vazio">✨ Ninguém na fila</div>'}
+            </div>
+            <div class="footer">Atualizado a cada 30s • {agora_br().strftime("%d/%m/%Y %H:%M:%S")}</div>
+        </div>
+    </body>
+    </html>
+    '''
 
 @app.route("/fila/embed")
 def fila_embed():
     fila = obter_dados_fila()
-    links = obter_links_fila()
-    botoes_precos = links.get("botoes_precos", [])
-    
-    return f"""
+    entradas_html = ""
+    for e in fila["entradas"][:10]:
+        entradas_html += f'<div style="display:flex;justify-content:space-between;padding:5px 0;"><span style="color:#ffd93d;">#{e["posicao"]}</span><span>{escape_html(e["nome_usuario"])}</span><span style="color:#a8e6cf;">{escape_html(e["servico"])}</span><span style="color:#ffb347;">{escape_html(e.get("jogo", ""))}</span></div>'
+    if not entradas_html:
+        entradas_html = '<div style="text-align:center;padding:20px;">✨ Fila vazia</div>'
+    return f'''
     <!DOCTYPE html>
-    <html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="15">
-    <style>body{{margin:0;padding:10px;background:transparent;color:white;font-size:14px;}}.container{{background:rgba(0,0,0,0.7);border-radius:10px;padding:10px;}}
-    .status{{display:inline-block;padding:2px 10px;border-radius:10px;font-size:12px;}}
-    .status-aberta{{background:#00b894;}}
-    .status-fechada{{background:#d63031;}}
-    .item{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);}}
-    .pos{{color:#ffd93d;font-weight:bold;}}
-    .serv{{color:#a8e6cf;}}
-    .vazio{{text-align:center;padding:20px;color:#888;}}
-    </style></head>
-    <body>
-    <div class="container">
-        <div style="text-align:center;margin-bottom:10px;">
-            <strong>📋 {fila.get('nome', 'Fila')}</strong>
-            <span class="status status-{'aberta' if fila['configuracoes']['aberta'] else 'fechada'}">{'ABERTA' if fila['configuracoes']['aberta'] else 'FECHADA'}</span>
-        </div>
-        {''.join(f'<div class="item"><span class="pos">#{e["posicao"]}</span><span>{e["nome_usuario"]}</span><span class="serv">{e["servico"]}</span><span>{e.get("jogo", "")}</span></div>' for e in fila["entradas"][:10]) or '<div class="vazio">✨ Fila vazia</div>'}
-        <div style="text-align:center;margin-top:8px;font-size:10px;color:#888;">Total: {len(fila["entradas"])}</div>
-    </div>
-    </body>
+    <html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="15"><style>body{{margin:0;padding:10px;background:transparent;color:white;font-size:14px;}}.container{{background:rgba(0,0,0,0.7);border-radius:10px;padding:10px;}}</style></head>
+    <body><div class="container"><div style="text-align:center;margin-bottom:10px;"><strong>📋 {escape_html(fila["nome"])}</strong><span style="background:{'#00b894' if fila['configuracoes']['aberta'] else '#d63031'};padding:2px 8px;border-radius:10px;margin-left:5px;">{'ABERTA' if fila['configuracoes']['aberta'] else 'FECHADA'}</span></div>{entradas_html}<div style="text-align:center;margin-top:8px;font-size:10px;color:#888;">Total: {len(fila["entradas"])}</div></div></body>
     </html>
-    """
+    '''
 
 @app.route("/fila/api")
 def fila_api():
@@ -2791,6 +3452,10 @@ def fila_api():
             "entradas": [{"posicao": e["posicao"], "nome_usuario": e["nome_usuario"], "servico": e["servico"], "jogo": e.get("jogo", ""), "timestamp": e["timestamp"], "id": e["id"]} for e in fila["entradas"]]
         }
     })
+
+# ========================
+# APIs DA FILA (MANTIDAS)
+# ========================
 
 @app.route("/api/fila/adicionar", methods=["POST"])
 def api_fila_adicionar():
@@ -2857,6 +3522,10 @@ def api_fila_configuracoes():
         salvar_links_fila(req.get("discord_convite", ""))
     return jsonify({"sucesso": True})
 
+# ========================
+# APIs DOS BOTÕES DE PREÇO (MANTIDAS)
+# ========================
+
 @app.route("/api/fila/botoes", methods=["GET"])
 def api_fila_botoes():
     links = obter_links_fila()
@@ -2897,256 +3566,221 @@ def api_fila_botoes_atualizar():
     atualizar_botao_preco(int(index), nome, url)
     return jsonify({"sucesso": True, "mensagem": "Botão atualizado!"})
 
-@app.route("/admin/fila")
-@admin_required
-def admin_fila():
-    fila = obter_dados_fila()
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Admin - Fila</title>
-    <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; color:#e0e0e0; padding:20px; }}
-        .container {{ max-width:1000px; margin:0 auto; }}
-        .header {{ background:#121212; padding:20px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:20px; }}
-        .header h1 {{ color:#5865F2; }}
-        .btn {{ padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }}
-        .btn-primary {{ background:#5865F2; color:white; }}
-        .btn-primary:hover {{ background:#4752C4; }}
-        .btn-success {{ background:#10b981; color:white; }}
-        .btn-success:hover {{ background:#059669; }}
-        .btn-danger {{ background:#ef4444; color:white; }}
-        .btn-danger:hover {{ background:#dc2626; }}
-        .btn-outline {{ background:transparent; color:#e0e0e0; border:1px solid #555; }}
-        .btn-outline:hover {{ background:#333; }}
-        .card {{ background:#121212; border:1px solid #333; border-radius:12px; padding:20px; margin:15px 0; }}
-        table {{ width:100%; border-collapse:collapse; }}
-        th, td {{ text-align:left; padding:10px; border-bottom:1px solid #333; }}
-        th {{ color:#888; font-weight:600; font-size:12px; text-transform:uppercase; }}
-        .actions {{ display:flex; gap:5px; flex-wrap:wrap; }}
-        .actions .btn {{ padding:5px 10px; font-size:12px; }}
-        .footer {{ text-align:center; padding:30px; color:#666; border-top:1px solid #333; margin-top:40px; }}
-        .status {{ padding:2px 10px; border-radius:12px; font-size:12px; font-weight:bold; }}
-        .status-aguardando {{ background:#f59e0b; color:#000; }}
-        .status-concluido {{ background:#10b981; color:#fff; }}
-    </style>
-    </head>
-    <body>
-    <div class="header">
-        <h1>📋 Gerenciar Fila</h1>
-        <div>
-            <a href="/admin" class="btn btn-outline">← Admin</a>
-            <a href="/fila" class="btn btn-primary">🔍 Ver Fila</a>
-        </div>
-    </div>
-    <div class="container">
-        <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                <div>
-                    <strong>Status:</strong> <span style="color:{'#4ade80' if fila['configuracoes']['aberta'] else '#ef4444'};">{'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'}</span>
-                    <span style="margin-left:15px;"><strong>Total:</strong> {len(fila['entradas'])} / {fila['configuracoes']['tamanho_maximo']}</span>
-                </div>
-                <div class="actions">
-                    <button onclick="alternarStatus()" class="btn {'btn-danger' if fila['configuracoes']['aberta'] else 'btn-success'}">{'🔒 Fechar' if fila['configuracoes']['aberta'] else '🔓 Abrir'}</button>
-                    <button onclick="limparFila()" class="btn btn-danger">🗑️ Limpar</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3 style="color:#5865F2;">📋 Fila de Espera</h3>
-            <table>
-                <thead><tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>Status</th><th>Ações</th></tr></thead>
-                <tbody>
-                    {''.join(f'''
-                    <tr>
-                        <td>{e['posicao']}</td>
-                        <td>{e['nome_usuario']}</td>
-                        <td>{e['servico']}</td>
-                        <td>{e.get('jogo', '')}</td>
-                        <td><span class="status status-{e['status']}">{e['status']|title}</span></td>
-                        <td class="actions">
-                            <button onclick="moverCima('{e['id']}')" class="btn btn-primary">⬆️</button>
-                            <button onclick="moverBaixo('{e['id']}')" class="btn btn-primary">⬇️</button>
-                            <button onclick="concluir('{e['id']}')" class="btn btn-success">✅</button>
-                            <button onclick="remover('{e['id']}')" class="btn btn-danger">❌</button>
-                        </td>
-                    </tr>
-                    ''' for e in fila['entradas'])}
-                    {'' if fila['entradas'] else '<tr><td colspan="6" style="text-align:center;color:#888;">📭 Ninguém na fila</td></tr>'}
-                </tbody>
-            </table>
-        </div>
-    </div>
+# ========================
+# APIs DE CONFIGURAÇÃO (MANTIDAS)
+# ========================
+
+@app.route("/api/servidor/canais")
+def api_servidor_canais():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    if not guild:
+        return jsonify({"sucesso": False, "canais": []})
+    return jsonify({"sucesso": True, "canais": [{"id": str(c.id), "nome": c.name} for c in guild.text_channels]})
+
+@app.route("/api/servidor/cargos")
+def api_servidor_cargos():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    if not guild:
+        return jsonify({"sucesso": False, "cargos": []})
+    return jsonify({"sucesso": True, "cargos": [{"id": str(r.id), "nome": r.name} for r in guild.roles if r.name != "@everyone"]})
+
+@app.route("/api/servidor/membros")
+def api_servidor_membros():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
+    if not guild:
+        return jsonify({"sucesso": False, "membros": []})
+    membros = [{"id": str(m.id), "nome": m.display_name} for m in guild.members if not m.bot][:100]
+    return jsonify({"sucesso": True, "membros": membros})
+
+@app.route("/api/anti_spam", methods=["GET", "POST"])
+def api_anti_spam():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
     
-    <script>
-        async function alternarStatus() {{
-            const resp = await fetch('/api/fila/configuracoes', {{
-                method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{aberta: null}})
-            }});
-            window.location.reload();
-        }}
-        
-        async function limparFila() {{
-            if (confirm('LIMPAR TODA A FILA?')) {{
-                await fetch('/api/fila/limpar', {{method: 'POST'}});
-                window.location.reload();
-            }}
-        }}
-        
-        async function remover(id) {{
-            if (confirm('Remover da fila?')) {{
-                await fetch('/api/fila/remover', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}});
-                window.location.reload();
-            }}
-        }}
-        
-        async function moverCima(id) {{
-            await fetch('/api/fila/mover-cima', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}});
-            window.location.reload();
-        }}
-        
-        async function moverBaixo(id) {{
-            await fetch('/api/fila/mover-baixo', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}});
-            window.location.reload();
-        }}
-        
-        async function concluir(id) {{
-            if (confirm('Concluir serviço?')) {{
-                await fetch('/api/fila/concluir', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}});
-                window.location.reload();
-            }}
-        }}
-    </script>
+    if request.method == "GET":
+        anti_spam = dados.get("anti_spam", {})
+        return jsonify({
+            "sucesso": True,
+            "config": {
+                "ativado": anti_spam.get("ativado", True),
+                "limite_mensagens": anti_spam.get("limite_mensagens", 5),
+                "intervalo_segundos": anti_spam.get("intervalo_segundos", 5),
+                "tempo_mute_minutos": anti_spam.get("tempo_mute_minutos", 2),
+                "remover_xp": anti_spam.get("remover_xp", True),
+                "xp_penalidade": anti_spam.get("xp_penalidade", 50),
+                "deletar_mensagens": anti_spam.get("deletar_mensagens", True),
+                "cargos_ignorados": ",".join(anti_spam.get("cargos_ignorados", ["Administrador", "Moderador", "Staff", "Dono"])),
+                "comandos_ignorados": ",".join(anti_spam.get("comandos_ignorados", [
+                    "$w", "$wa", "$wg", "$h", "$ha", "$hg",
+                    "$W", "$WA", "$WG", "$H", "$HA", "$HG",
+                    "$tu", "$TU", "$dk", "$mmi", "$vote", "$rolls", "$k", "$mu"
+                ]))
+            }
+        })
     
-    <div class="footer"><p>© 2024 Imune Bot</p></div>
-    </body>
-    </html>
-    """
+    req = request.json
+    executar_acao_bot("configurar_anti_spam", **req)
+    return jsonify({"sucesso": True, "mensagem": "Configuração anti-spam salva!"})
+
+@app.route("/api/config/boasvindas", methods=["GET", "POST"])
+def api_config_boasvindas():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        config = dados.get("config", {})
+        return jsonify({
+            "sucesso": True,
+            "canal": config.get("canal_boas_vindas", ""),
+            "mensagem": config.get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!"),
+            "imagem": config.get("fundo_boas_vindas", "")
+        })
+    
+    req = request.json
+    executar_acao_bot("configurar_boas_vindas", **req)
+    return jsonify({"sucesso": True, "mensagem": "Configuração salva!"})
+
+@app.route("/api/config/xp", methods=["GET", "POST"])
+def api_config_xp():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        config = dados.get("config", {})
+        return jsonify({
+            "sucesso": True,
+            "taxa": config.get("taxa_xp", 3),
+            "canal": config.get("canal_levelup", "")
+        })
+    
+    req = request.json
+    executar_acao_bot("configurar_xp", **req)
+    return jsonify({"sucesso": True, "mensagem": "Configuração salva!"})
+
+@app.route("/api/config/comandos", methods=["GET", "POST"])
+def api_config_comandos():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        config = dados.get("config", {})
+        return jsonify({
+            "sucesso": True,
+            "canal_perfil": config.get("canal_perfil", ""),
+            "canal_rank": config.get("canal_rank", "")
+        })
+    
+    req = request.json
+    executar_acao_bot("configurar_comandos", **req)
+    return jsonify({"sucesso": True, "mensagem": "Configuração de comandos salva!"})
+
+@app.route("/api/cargos/nivel", methods=["GET", "POST", "DELETE"])
+def api_cargos_nivel():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        return jsonify({"sucesso": True, "cargos": dados.get("cargos_nivel", {})})
+    
+    elif request.method == "POST":
+        req = request.json
+        executar_acao_bot("adicionar_cargo_nivel", nivel=req.get('nivel'), cargo_id=req.get('cargo_id'))
+        return jsonify({"sucesso": True, "mensagem": "Cargo adicionado!"})
+    
+    elif request.method == "DELETE":
+        nivel = request.args.get('nivel')
+        if nivel:
+            executar_acao_bot("remover_cargo_nivel", nivel=nivel)
+        return jsonify({"sucesso": True, "mensagem": "Cargo removido!"})
+
+@app.route("/api/config/links", methods=["GET", "POST"])
+def api_config_links():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    
+    if request.method == "GET":
+        return jsonify({"sucesso": True, "canais": dados.get("canais_links_bloqueados", [])})
+    
+    req = request.json
+    executar_acao_bot("alternar_bloqueio_links", canal_id=req.get('canal_id'))
+    return jsonify({"sucesso": True, "mensagem": "Configuração salva!"})
 
 # ========================
-# BOT SETUP
+# APIs DE COMANDOS (MANTIDAS)
 # ========================
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.reactions = True
+@app.route("/api/comando/embed", methods=["POST"])
+def api_comando_embed():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    req = request.json
+    sucesso = executar_acao_bot("criar_embed", **req)
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Embed criada!" if sucesso else "❌ Falha"})
 
-bot = commands.Bot(command_prefix="/", intents=intents)
-tree = bot.tree
+@app.route("/api/comando/advertir", methods=["POST"])
+def api_comando_advertir():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    req = request.json
+    sucesso = executar_acao_bot("advertir_membro", membro_id=req.get('membro_id'), motivo=req.get('motivo'), admin=session['usuario']['nome_usuario'])
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Advertência aplicada!" if sucesso else "❌ Falha"})
+
+@app.route("/api/comando/limpar_advertencias", methods=["POST"])
+def api_comando_limpar_advertencias():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    membro_id = str(request.json.get('membro_id'))
+    if membro_id in dados.get("advertencias", {}):
+        dados["advertencias"].pop(membro_id)
+        salvar_dados_github(f"Advertências limpas: {membro_id}")
+        return jsonify({"sucesso": True, "mensagem": "✅ Advertências removidas!"})
+    return jsonify({"sucesso": False, "mensagem": "❌ Membro sem advertências"})
+
+@app.route("/api/reacao_cargo/criar", methods=["POST"])
+def api_reacao_cargo_criar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    req = request.json
+    sucesso = executar_acao_bot("criar_reacao_cargo", **req)
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Reaction role criada!" if sucesso else "❌ Falha"})
+
+@app.route("/api/botoes_cargo/criar", methods=["POST"])
+def api_botoes_cargo_criar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False}), 401
+    req = request.json
+    sucesso = executar_acao_bot("criar_botoes_cargo", **req)
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Botões criados!" if sucesso else "❌ Falha"})
+
+@app.route("/api/membro/advertencias")
+def api_membro_advertencias():
+    membro_id = request.args.get('membro_id')
+    if not membro_id:
+        return jsonify({"sucesso": False, "advertencias": []})
+    warns = dados.get("advertencias", {}).get(str(membro_id), [])
+    return jsonify({"sucesso": True, "advertencias": warns})
 
 # ========================
-# FUNÇÕES DO BOT
+# FUNÇÃO PARA VERIFICAR CANAL PERMITIDO
 # ========================
-
-def xp_por_mensagem():
-    return 15
-
-def xp_para_nivel(xp):
-    nivel = int((xp / 100) ** 0.6) + 1
-    return max(nivel, 1)
-
-def verificar_comando_ignorado(conteudo: str) -> bool:
-    conteudo_lower = conteudo.lower().strip()
-    comandos_ignorados = dados.get("anti_spam", {}).get("comandos_ignorados", [])
-    for comando in comandos_ignorados:
-        if conteudo_lower.startswith(comando.lower()):
-            return True
-    return False
-
-def verificar_cargo_ignorado(member: discord.Member) -> bool:
-    cargos_ignorados = dados.get("anti_spam", {}).get("cargos_ignorados", [])
-    cargos_membro = [role.name for role in member.roles]
-    for cargo_ignorado in cargos_ignorados:
-        if cargo_ignorado in cargos_membro:
-            return True
-    return False
-
-mensagens_recentes = {}
-
-def limpar_mensagens_antigas(user_id: int):
-    if user_id not in mensagens_recentes:
-        return
-    intervalo = dados.get("anti_spam", {}).get("intervalo_segundos", 5)
-    agora = time.time()
-    mensagens_recentes[user_id] = [ts for ts in mensagens_recentes[user_id] if agora - ts < intervalo]
-    if not mensagens_recentes[user_id]:
-        del mensagens_recentes[user_id]
-
-def registrar_mensagem(user_id: int) -> int:
-    agora = time.time()
-    if user_id not in mensagens_recentes:
-        mensagens_recentes[user_id] = []
-    mensagens_recentes[user_id].append(agora)
-    limpar_mensagens_antigas(user_id)
-    return len(mensagens_recentes.get(user_id, []))
-
-async def aplicar_mute(member: discord.Member, duracao_minutos: int = 2):
-    guild = member.guild
-    mute_role = discord.utils.get(guild.roles, name="Muted")
-    if not mute_role:
-        try:
-            mute_role = await guild.create_role(name="Muted", permissions=discord.Permissions.none())
-            for channel in guild.channels:
-                try:
-                    await channel.set_permissions(mute_role, send_messages=False, add_reactions=False, speak=False)
-                except:
-                    pass
-        except Exception as e:
-            print(f"❌ Erro ao criar cargo de mute: {e}")
-            return False
-    try:
-        await member.add_roles(mute_role, reason=f"Anti-spam: {duracao_minutos} minutos de mute")
-        async def remover_mute():
-            await asyncio.sleep(duracao_minutos * 60)
-            try:
-                await member.remove_roles(mute_role, reason="Fim do mute por spam")
-            except:
-                pass
-        asyncio.create_task(remover_mute())
-        return True
-    except Exception as e:
-        print(f"❌ Erro ao aplicar mute: {e}")
-        return False
-
-async def deletar_mensagens_spam(member: discord.Member, channel: discord.TextChannel, quantidade: int):
-    if not dados.get("anti_spam", {}).get("deletar_mensagens", True):
-        return
-    try:
-        async for msg in channel.history(limit=quantidade + 5):
-            if msg.author == member:
-                try:
-                    await msg.delete()
-                    await asyncio.sleep(0.5)
-                except:
-                    pass
-    except:
-        pass
-
-async def remover_xp_por_spam(member: discord.Member):
-    if not dados.get("anti_spam", {}).get("remover_xp", True):
-        return False
-    uid = str(member.id)
-    penalidade = dados.get("anti_spam", {}).get("xp_penalidade", 50)
-    xp_atual = dados.get("xp", {}).get(uid, 0)
-    novo_xp = max(0, xp_atual - penalidade)
-    dados["xp"][uid] = novo_xp
-    novo_nivel = xp_para_nivel(novo_xp)
-    dados["nivel"][uid] = novo_nivel
-    salvar_dados_github(f"Anti-spam: {penalidade} XP removido de {member.name}")
-    return True
 
 async def verificar_canal_permitido(interaction: discord.Interaction, comando: str) -> bool:
+    """Verifica se o comando pode ser usado no canal atual"""
     config = dados.get("config", {})
     canal_permitido = config.get(f"canal_{comando}", None)
+    
     if not canal_permitido:
         return True
+    
     if str(interaction.channel_id) == str(canal_permitido):
         return True
+    
     return False
 
 # ========================
@@ -3157,9 +3791,16 @@ async def verificar_canal_permitido(interaction: discord.Interaction, comando: s
 @app_commands.describe(membro="Membro para ver o perfil (opcional)")
 async def slash_perfil(interaction: discord.Interaction, membro: discord.Member = None):
     if not await verificar_canal_permitido(interaction, "perfil"):
-        canal_permitido = dados.get("config", {}).get("canal_perfil")
-        canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
-        await interaction.response.send_message(f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!", ephemeral=True)
+        config = dados.get("config", {})
+        canal_permitido = config.get("canal_perfil")
+        if canal_permitido:
+            canal_menção = f"<#{canal_permitido}>"
+        else:
+            canal_menção = "nenhum canal configurado"
+        await interaction.response.send_message(
+            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!",
+            ephemeral=True
+        )
         return
     
     await interaction.response.defer(thinking=True)
@@ -3175,14 +3816,12 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
     largura, altura = 900, 200
     img = Image.new("RGBA", (largura, altura), (0, 0, 0, 255))
     draw = ImageDraw.Draw(img)
-    
+
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    try:
-        font_b = ImageFont.truetype(os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf"), 32)
-        font_s = ImageFont.truetype(os.path.join(BASE_DIR, "DejaVuSans.ttf"), 22)
-    except:
-        font_b = ImageFont.load_default()
-        font_s = ImageFont.load_default()
+    
+    font_b = ImageFont.truetype(os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf"),32)
+    
+    font_s = ImageFont.truetype(os.path.join(BASE_DIR, "DejaVuSans.ttf"),22)
     
     try:
         avatar_bytes = await alvo.avatar.read()
@@ -3206,6 +3845,7 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
     raio = barra_h // 2
     
     draw.rounded_rectangle([x0, y0, x0 + barra_total_w, y0 + barra_h], radius=raio, fill=(50, 50, 50))
+    
     preenchimento_w = int(barra_total_w * min(1.0, atual / proximo_xp))
     if preenchimento_w > 0:
         barra_preenchida = Image.new("RGBA", (preenchimento_w, barra_h), (0, 0, 0, 0))
@@ -3230,9 +3870,16 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
 @tree.command(name="rank", description="Mostra o ranking dos 10 maiores XP")
 async def slash_rank(interaction: discord.Interaction):
     if not await verificar_canal_permitido(interaction, "rank"):
-        canal_permitido = dados.get("config", {}).get("canal_rank")
-        canal_menção = f"<#{canal_permitido}>" if canal_permitido else "nenhum canal configurado"
-        await interaction.response.send_message(f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!", ephemeral=True)
+        config = dados.get("config", {})
+        canal_permitido = config.get("canal_rank")
+        if canal_permitido:
+            canal_menção = f"<#{canal_permitido}>"
+        else:
+            canal_menção = "nenhum canal configurado"
+        await interaction.response.send_message(
+            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!",
+            ephemeral=True
+        )
         return
     
     await interaction.response.defer()
@@ -3246,8 +3893,28 @@ async def slash_rank(interaction: discord.Interaction):
         linhas.append(f"{i}. **{nome}** — {xp} XP (Nível {nivel})")
     
     texto = "\n".join(linhas) if linhas else "Sem dados ainda."
-    embed = discord.Embed(title="🏆 Top 10 Ranking de XP", description=texto, color=discord.Color.gold())
+    
+    embed = discord.Embed(
+        title="🏆 Top 10 Ranking de XP",
+        description=texto,
+        color=discord.Color.gold()
+    )
     await interaction.followup.send(embed=embed)
+
+# ========================
+# AUTO PING
+# ========================
+def auto_ping():
+    while True:
+        try:
+            url = os.environ.get("REPLIT_URL") or os.environ.get("SELF_URL")
+            if url:
+                requests.get(url)
+            time.sleep(300)
+        except:
+            pass
+
+Thread(target=auto_ping, daemon=True).start()
 
 # ========================
 # EVENTOS DO BOT
@@ -3273,16 +3940,189 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Erro ao sincronizar: {e}")
     
+    print("🔄 Restaurando botões persistentes...")
+    botoes_cargos = dados.get("botoes_cargos", {})
+    restaurados = 0
+    for msg_id_str, dicionario_botoes in botoes_cargos.items():
+        try:
+            msg_id = int(msg_id_str)
+            for guild in bot.guilds:
+                for channel in guild.text_channels:
+                    try:
+                        mensagem = await channel.fetch_message(msg_id)
+                        if mensagem:
+                            class PersistentRoleButton(ui.Button):
+                                def __init__(self, label: str, cargo_id: int, mensagem_id: int):
+                                    super().__init__(label=label, style=ButtonStyle.primary)
+                                    self.cargo_id = cargo_id
+                                    self.mensagem_id = mensagem_id
+                                async def callback(self, interaction: Interaction):
+                                    guild = interaction.guild
+                                    membro = interaction.user
+                                    cargo = guild.get_role(self.cargo_id)
+                                    if not cargo:
+                                        await interaction.response.send_message("Cargo não encontrado.", ephemeral=True)
+                                        return
+                                    if cargo in membro.roles:
+                                        await membro.remove_roles(cargo, reason="Botão de cargo")
+                                        await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
+                                    else:
+                                        await membro.add_roles(cargo, reason="Botão de cargo")
+                                        await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
+                                    adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
+                            
+                            class PersistentRoleButtonView(ui.View):
+                                def __init__(self, mensagem_id: int, dicionario_botoes: dict):
+                                    super().__init__(timeout=None)
+                                    self.mensagem_id = mensagem_id
+                                    for label, cargo_id in dicionario_botoes.items():
+                                        self.add_item(PersistentRoleButton(label=label, cargo_id=cargo_id, mensagem_id=mensagem_id))
+                            
+                            view = PersistentRoleButtonView(msg_id, dicionario_botoes)
+                            await mensagem.edit(view=view)
+                            restaurados += 1
+                            break
+                    except:
+                        continue
+                if restaurados > 0:
+                    break
+        except:
+            pass
+    print(f"✅ {restaurados}/{len(botoes_cargos)} botões restaurados")
+    
     await asyncio.sleep(2)
     iniciar_processador_acoes()
     
     config = dados.get("config", {})
+    links = obter_links_fila()
     print(f"{'='*50}")
     print(f"✨ BOT PRONTO! Comandos: /perfil e /rank")
     print(f"🛡️ Anti-Spam: {'ATIVADO' if dados.get('anti_spam', {}).get('ativado', True) else 'DESATIVADO'}")
+    print(f"🚫 Comandos da Mudae: NÃO ganham XP e NÃO contam como spam")
     print(f"📢 Canal do /perfil: {config.get('canal_perfil') or 'TODOS OS CANAIS'}")
     print(f"📢 Canal do /rank: {config.get('canal_rank') or 'TODOS OS CANAIS'}")
+    botoes_qtd = len(links.get("botoes_precos", []))
+    if links.get('discord_convite') or botoes_qtd > 0:
+        print(f"🔗 Links da fila configurados: {botoes_qtd} botão(ões) de preço")
+    print(f"💡 Dica: Selecione o mesmo canal duas vezes no painel para remover a restrição!")
     print(f"{'='*50}\n")
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    ch_id = dados.get("config", {}).get("canal_boas_vindas")
+    canal = None
+    if ch_id:
+        canal = member.guild.get_channel(int(ch_id))
+    if not canal:
+        canal = discord.utils.get(member.guild.text_channels, name="boas-vindas")
+    if not canal:
+        return
+    
+    msg = dados.get("config", {}).get("mensagem_boas_vindas", "Olá {member}, seja bem-vindo(a)!")
+    msg = msg.replace("{member}", member.mention)
+    
+    fundo_url = dados.get("config", {}).get("fundo_boas_vindas", "")
+    
+    largura, altura = 900, 300
+    img = Image.new("RGBA", (largura, altura), (0, 0, 0, 255))
+    
+    if fundo_url:
+        try:
+            response = requests.get(fundo_url)
+            bg = Image.open(BytesIO(response.content)).convert("RGBA")
+            bg = bg.resize((largura, altura))
+            img.paste(bg, (0, 0))
+        except:
+            pass
+    
+    overlay = Image.new("RGBA", (largura, altura), (50, 50, 50, 150))
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        avatar_bytes = await member.avatar.read()
+        avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
+        avatar = avatar.resize((150, 150))
+        mask = Image.new("L", (150, 150), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, 150, 150), fill=255)
+        img.paste(avatar, (375, 30), mask)
+    except:
+        pass
+    
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+    except:
+        font = ImageFont.load_default()
+        font_s = ImageFont.load_default()
+    
+    nome = member.display_name
+    bbox = draw.textbbox((0, 0), nome, font=font)
+    text_x = (largura - (bbox[2] - bbox[0])) // 2
+    draw.text((text_x, 200), nome, font=font, fill=(0, 255, 255))
+    
+    texto_membro = f"Membro #{len(member.guild.members)}"
+    bbox2 = draw.textbbox((0, 0), texto_membro, font=font_s)
+    text_x2 = (largura - (bbox2[2] - bbox2[0])) // 2
+    draw.text((text_x2, 250), texto_membro, font=font_s, fill=(255, 255, 255))
+    
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    arquivo = discord.File(buf, filename="welcome.png")
+    
+    await canal.send(content=msg, file=arquivo)
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    msgmap = dados.get("reacoes_cargos", {}).get(str(payload.message_id))
+    if not msgmap:
+        return
+    
+    role_id = None
+    if payload.emoji.id and str(payload.emoji.id) in msgmap:
+        role_id = msgmap[str(payload.emoji.id)]
+    elif str(payload.emoji) in msgmap:
+        role_id = msgmap[str(payload.emoji)]
+    
+    if not role_id:
+        return
+    
+    guild = bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+    member = guild.get_member(payload.user_id)
+    if not member or member.bot:
+        return
+    role = guild.get_role(int(role_id))
+    if role:
+        await member.add_roles(role, reason="Reaction role")
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    msgmap = dados.get("reacoes_cargos", {}).get(str(payload.message_id))
+    if not msgmap:
+        return
+    
+    role_id = None
+    if payload.emoji.id and str(payload.emoji.id) in msgmap:
+        role_id = msgmap[str(payload.emoji.id)]
+    elif str(payload.emoji) in msgmap:
+        role_id = msgmap[str(payload.emoji)]
+    
+    if not role_id:
+        return
+    
+    guild = bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+    member = guild.get_member(payload.user_id)
+    if not member or member.bot:
+        return
+    role = guild.get_role(int(role_id))
+    if role:
+        await member.remove_roles(role, reason="Reaction role")
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -3292,7 +4132,9 @@ async def on_message(message: discord.Message):
     conteudo = message.content.strip()
     anti_spam_config = dados.get("anti_spam", {})
     
-    if verificar_comando_ignorado(conteudo):
+    eh_comando_ignorado = verificar_comando_ignorado(conteudo)
+    
+    if eh_comando_ignorado:
         await bot.process_commands(message)
         return
     
@@ -3309,13 +4151,18 @@ async def on_message(message: discord.Message):
                     if anti_spam_config.get("deletar_mensagens", True):
                         await deletar_mensagens_spam(message.author, message.channel, quantidade)
                     
-                    xp_removido = await remover_xp_por_spam(message.author) if anti_spam_config.get("remover_xp", True) else False
+                    xp_removido = False
+                    if anti_spam_config.get("remover_xp", True):
+                        xp_removido = await remover_xp_por_spam(message.author)
                     
                     xp_msg = f" e teve **{anti_spam_config.get('xp_penalidade', 50)} XP removido**" if xp_removido else ""
                     try:
-                        await message.author.send(f"⚠️ **Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}")
+                        await message.author.send(f"⚠️ **Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}\nPor favor, evite enviar muitas mensagens repetidas em um curto período.\n")
                     except:
                         await message.channel.send(f"⚠️ {message.author.mention}, você foi mutado por **{duracao} minutos** por spam!{xp_msg}")
+                    
+                    adicionar_log(f"anti_spam: {message.author.name} mutado por {duracao} min | {quantidade} msgs em {anti_spam_config.get('intervalo_segundos', 5)}s | XP removido: {xp_removido}")
+                
                 return
     
     canais_bloqueados = dados.get("canais_links_bloqueados", [])
@@ -3368,63 +4215,17 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 # ========================
-# AUTO PING
-# ========================
-def auto_ping():
-    while True:
-        try:
-            url = os.environ.get("REPLIT_URL") or os.environ.get("SELF_URL")
-            if url:
-                requests.get(url)
-            time.sleep(300)
-        except:
-            pass
-
-Thread(target=auto_ping, daemon=True).start()
-
-# ========================
 # INICIAR BOT E FLASK
 # ========================
 
 def run_flask():
-    """Inicia o servidor Flask"""
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-def run_bot():
-    """Inicia o bot do Discord"""
-    try:
-        print("🤖 Iniciando bot do Discord...")
-        bot.run(BOT_TOKEN)
-    except Exception as e:
-        print(f"❌ Erro ao iniciar o bot: {e}")
+Thread(target=run_flask, daemon=True).start()
 
 if __name__ == "__main__":
-    # Para execução local
-    import threading
-    
-    # Inicia o bot em uma thread separada
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    
-    # Aguarda o bot iniciar
-    time.sleep(2)
-    
-    # Inicia o Flask
-    run_flask()
-else:
-    # Para execução no Gunicorn (Render)
-    # O bot precisa ser iniciado em background
-    import threading
-    import asyncio
-    
-    def start_bot_async():
-        """Inicia o bot de forma assíncrona"""
-        try:
-            # Usa asyncio para rodar o bot
-            asyncio.run(bot.start(BOT_TOKEN))
-        except Exception as e:
-            print(f"❌ Erro ao iniciar bot: {e}")
-    
-    bot_thread = threading.Thread(target=start_bot_async, daemon=True)
-    bot_thread.start()
-    print("✅ Bot iniciado em background")
+    try:
+        bot.run(BOT_TOKEN)
+    except Exception as e:
+        print("Erro ao iniciar o bot:", e)
