@@ -3659,7 +3659,7 @@ def dashboard():
                         body: JSON.stringify({{aberta: novoStatus}})
                     }});
                     carregarFilaWW();
-                    showAlert('fila-ww-alert', `Fila ${novoStatus ? 'aberta' : 'fechada'}!`, true);
+                    showAlert('fila-ww-alert', 'Fila ' + (novoStatus ? 'aberta' : 'fechada') + '!', true);
                 }} catch(e) {{
                     showAlert('fila-ww-alert', 'Erro: ' + e.message, false);
                 }}
