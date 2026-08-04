@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}{{ servico.nome }} - Meu Bot{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('home') }}">Início</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('servicos') }}">Serviços</a></li>
+            {% if servico.categoria %}
+                <li class="breadcrumb-item"><a href="{{ url_for('servicos', categoria=servico.categoria.id) }}">{{ servico.categoria.nome }}</a></li>
+            {% endif %}
+            <li class="breadcrumb-item active">{{ servico.nome }}</li>
+        </ol>
+    </nav>
+    
+    <div class="row g-4">
+        <div class="col-lg-7">
+            {% if servico.imagem %}
+                <img src="{{ servico.imagem }}" class="img-fluid rounded" alt="{{ servico.nome }}" style="width: 100%; max-height: 400px; object-fit: cover;">
+            {% else %}
+                <div class="bg-dark d-flex align-items-center justify-content-center rounded" style="width: 100%; height: 300px;">
+                    <i class="fas fa-gamepad fa-5x text-primary"></i>
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title">{{ servico.nome }}</h2>
+                    {% if servico.categoria %}
+                        <span class="badge bg-secondary">{{ servico.categoria.nome }}</span>
+                    {% endif %}
+                    {% if servico.destaque %}
+                        <span class="badge bg-warning text-dark"><i class="fas fa-star"></i> Destaque</span>
+                    {% endif %}
+                    <hr>
+                    
+                    <div class="mb-3">
+                        <h4 class="text-primary">{{ formatar_preco(servico.preco) }}</h4>
+                        {% if servico.tempo_estimado %}
+                            <small class="text-muted"><i class="far fa-clock"></i> Tempo estimado: {{ servico.tempo_estimado }}</small>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6>Descrição</h6>
+                        <p class="card-text">{{ servico.descricao }}</p>
+                    </div>
+                    
+                    {% if session.usuario %}
+                        <form method="post" action="{{ url_for('comprar_servico', servico_id=servico.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="btn btn-primary btn-lg w-100">
+                                <i class="fas fa-shopping-cart"></i> Comprar Agora
+                            </button>
+                        </form>
+                        <small class="text-muted d-block mt-2 text-center">
+                            <i class="fas fa-info-circle"></i> Pagamento via PIX. Ganhe <strong>{{ servico.preco|int * 10 }}</strong> pontos.
+                        </small>
+                    {% else %}
+                        <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg w-100">
+                            <i class="fab fa-discord"></i> Entrar para Comprar
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Serviços Relacionados -->
+    {% if relacionados %}
+    <h3 class="mt-5">Serviços Relacionados</h3>
+    <div class="row g-4">
+        {% for rel in relacionados %}
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">{{ rel.nome }}</h6>
+                    <p class="card-text small text-muted">{{ rel.descricao[:50] }}...</p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-primary">{{ formatar_preco(rel.preco) }}</span>
+                        <a href="{{ url_for('servico_detalhe', servico_id=rel.id) }}" class="btn btn-sm btn-primary">Ver</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

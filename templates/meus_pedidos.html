@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Meus Pedidos - Meu Bot{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h2><i class="fas fa-box"></i> Meus Pedidos</h2>
+    <p class="text-muted">Acompanhe todos os seus pedidos</p>
+    
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Serviço</th>
+                            <th>Valor</th>
+                            <th>Status</th>
+                            <th>Data</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pedido in pedidos %}
+                        <tr>
+                            <td><strong>{{ pedido.numero }}</strong></td>
+                            <td>{{ pedido.servico.nome if pedido.servico else 'N/A' }}</td>
+                            <td>{{ formatar_preco(pedido.valor) }}</td>
+                            <td>
+                                <span class="badge badge-status badge-{{ pedido.status }}">
+                                    {{ pedido.status.replace('_', ' ').title() }}
+                                </span>
+                            </td>
+                            <td>{{ pedido.data_criacao.strftime('%d/%m/%Y %H:%M') }}</td>
+                            <td>
+                                <a href="{{ url_for('pedido_detalhe', pedido_id=pedido.id) }}" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    {% if not pedidos %}
+    <div class="text-center py-5">
+        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+        <h4>Nenhum pedido encontrado</h4>
+        <p class="text-muted">Você ainda não fez nenhuma compra.</p>
+        <a href="{{ url_for('servicos') }}" class="btn btn-primary">
+            <i class="fas fa-store"></i> Ver Serviços
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
