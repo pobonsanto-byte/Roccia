@@ -1,5 +1,8 @@
+# ========================
+# IMPORTS E CONFIGURAÇÃO INICIAL
+# ========================
+
 import os
-os.environ["DISCORD_NO_VOICE"] = "1"
 import sys
 import json
 import base64
@@ -22,6 +25,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+# Importar discord (sem DISCORD_NO_VOICE)
 import discord
 from discord import app_commands
 from discord.ext import commands
