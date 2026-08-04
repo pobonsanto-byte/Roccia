@@ -1,23 +1,7 @@
-# Core
 Flask==3.1.0
 discord.py==2.4.0
 requests==2.32.3
 Pillow==11.0.0
 python-dotenv==1.0.1
-
-# Utilitários
 aiohttp==3.11.11
-asyncio==3.4.3
-datetime==5.5
-secrets==1.0.0
-re==2.2.1
-json==2.0.9
-os==1.0.1
-base64==1.0.1
-io==1.0.1
-time==1.0.1
-threading==1.0.1
-functools==1.0.1
-
-# Para compatibilidade com Python 3.14
 typing_extensions==4.12.2
