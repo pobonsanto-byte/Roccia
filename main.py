@@ -3,6 +3,8 @@
 # ========================
 
 import os
+os.environ["DISCORD_NO_VOICE"] = "1"
+
 import sys
 import json
 import base64
@@ -25,7 +27,6 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# Importar discord (sem DISCORD_NO_VOICE)
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -50,6 +51,14 @@ REDIRECT_URI = os.getenv("REDIRECT_URI", "https://seu-site.onrender.com/callback
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
 # ========================
+# LOGS DE DIAGNÓSTICO
+# ========================
+print(f"🤖 BOT_TOKEN está configurado: {BOT_TOKEN is not None}")
+print(f"🤖 BOT_TOKEN começa com: {BOT_TOKEN[:10] if BOT_TOKEN else 'N/A'}...")
+print(f"📂 GITHUB_TOKEN está configurado: {GITHUB_TOKEN is not None}")
+print(f"🏠 GUILD_ID: {GUILD_ID}")
+
+# ========================
 # FLASK APP
 # ========================
 app = Flask(__name__)
@@ -60,6 +69,7 @@ app.secret_key = SECRET_KEY
 # ========================
 csrf = CSRFProtect(app)
 
+# Flask-Limiter corrigido
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -123,7 +133,6 @@ dados = {
             "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
         ]
     },
-    # NOVAS ESTRUTURAS PARA O SISTEMA DE VENDAS
     "usuarios": {},
     "categorias": [
         {"id": "cat1", "nome": "League of Legends", "slug": "league-of-legends", "ativo": True},
@@ -161,7 +170,6 @@ def carregar_dados_github():
                 carregado = json.loads(raw.decode("utf-8"))
                 dados.update(carregado)
                 
-                # Garantir que todas as chaves existam
                 if "usuarios" not in dados:
                     dados["usuarios"] = {}
                 if "servicos" not in dados:
@@ -196,7 +204,6 @@ def carregar_dados_github():
                         {"id": "cat7", "nome": "Outros", "slug": "outros", "ativo": True}
                     ]
                 
-                # Garantir estruturas da fila
                 if "fila" not in dados:
                     dados["fila"] = {
                         "nome": "Fila de Serviços",
@@ -343,7 +350,7 @@ def obter_ou_criar_usuario(discord_data):
     return dados["usuarios"][discord_id]
 
 # ========================
-# FUNÇÕES DE FILA (MANTIDAS)
+# FUNÇÕES DE FILA
 # ========================
 
 def obter_dados_fila():
@@ -633,7 +640,7 @@ def gastar_pontos(discord_id, quantidade, descricao, referencia_id=None):
     return True
 
 # ========================
-# SISTEMA DE AÇÕES DO BOT (MANTIDO)
+# SISTEMA DE AÇÕES DO BOT
 # ========================
 
 acoes_fila_bot = []
@@ -1920,7 +1927,6 @@ ADMIN_SERVICOS_TEMPLATE = """
             });
         });
 
-        // Fechar modal ao clicar fora
         window.onclick = function(event) {
             if (event.target === document.getElementById('modal')) {
                 fecharModal();
@@ -2100,7 +2106,6 @@ def detalhes_servico(slug):
         flash('Serviço não encontrado.', 'danger')
         return redirect(url_for('listar_servicos'))
     
-    # Serviços relacionados
     servicos_relacionados = []
     for s in dados.get("servicos", []):
         if s.get("categoria_id") == servico.get("categoria_id") and s.get("id") != servico.get("id") and s.get("status") == "ativo":
@@ -2127,12 +2132,10 @@ def comprar_servico(slug):
         valor = servico.get('preco_promocional') or servico.get('preco', 0)
         desconto = 0
         
-        # Verificar cupom
         codigo_cupom = request.form.get('cupom', '').strip().upper()
         if codigo_cupom:
             for cupom in dados.get("cupons", []):
                 if cupom.get("codigo") == codigo_cupom and cupom.get("ativo", True):
-                    # Verificar validade
                     if cupom.get("validade"):
                         try:
                             validade = datetime.fromisoformat(cupom.get("validade"))
@@ -2142,23 +2145,19 @@ def comprar_servico(slug):
                         except:
                             pass
                     
-                    # Verificar usos
                     if cupom.get("max_uso") and cupom.get("usos", 0) >= cupom.get("max_uso"):
                         flash('Cupom esgotado.', 'danger')
                         return redirect(url_for('detalhes_servico', slug=slug))
                     
-                    # Verificar valor mínimo
                     if valor < cupom.get("valor_minimo", 0):
                         flash(f'Valor mínimo para este cupom é R${cupom.get("valor_minimo", 0):.2f}', 'danger')
                         return redirect(url_for('detalhes_servico', slug=slug))
                     
-                    # Aplicar desconto
                     if cupom.get("tipo") == 'percentual':
                         desconto = valor * (cupom.get("valor", 0) / 100)
                     else:
                         desconto = min(cupom.get("valor", 0), valor)
                     
-                    # Registrar uso
                     cupom["usos"] = cupom.get("usos", 0) + 1
                     salvar_dados_github(f"Cupom usado: {codigo_cupom}")
                     break
@@ -2168,7 +2167,6 @@ def comprar_servico(slug):
         
         valor_final = max(0, valor - desconto)
         
-        # Criar pedido
         pedido = {
             "id": gerar_id(),
             "numero": gerar_numero_pedido(),
@@ -2195,7 +2193,6 @@ def comprar_servico(slug):
         
         criar_pedido(pedido)
         
-        # Adicionar à fila
         adicionar_fila(
             usuario.get('discord_nome', 'Cliente'),
             servico.get('nome', 'Serviço'),
@@ -2231,7 +2228,6 @@ def detalhes_pedido(numero):
         flash('Você não tem permissão para ver este pedido.', 'danger')
         return redirect(url_for('meus_pedidos'))
     
-    # Template simples para detalhes do pedido
     return f"""
     <!DOCTYPE html>
     <html>
@@ -2516,7 +2512,6 @@ def resgatar_recompensa(recompensa_id):
         flash('Pontos insuficientes.', 'danger')
         return redirect(url_for('pontos'))
     
-    # Criar resgate
     codigo_cupom = gerar_codigo_cupom()
     resgate = {
         "id": gerar_id(),
@@ -2530,11 +2525,9 @@ def resgatar_recompensa(recompensa_id):
     }
     dados.setdefault("resgates", []).append(resgate)
     
-    # Atualizar pontos
     usuario["pontos"] = usuario.get("pontos", 0) - recompensa.get('pontos_necessarios')
     usuario["total_pontos_gastos"] = usuario.get("total_pontos_gastos", 0) + recompensa.get('pontos_necessarios')
     
-    # Registrar transação
     transacao = {
         "id": gerar_id(),
         "usuario_id": usuario.get('discord_id'),
@@ -2569,11 +2562,9 @@ def admin_dashboard():
     
     faturamento_total = sum(p.get("valor_final", 0) for p in pedidos_finalizados)
     
-    # Faturamento do mês
     mes_atual = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0).isoformat()
     faturamento_mes = sum(p.get("valor_final", 0) for p in pedidos_finalizados if p.get("data_criacao", '') >= mes_atual)
     
-    # Produtos mais vendidos
     produtos = {}
     for p in pedidos:
         if p.get("status") in ["finalizado", "em_andamento"]:
@@ -2630,7 +2621,6 @@ def admin_servico_novo():
     if not slug:
         slug = nome.lower().replace(' ', '-').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
     
-    # Verificar slug único
     for s in dados.get("servicos", []):
         if s.get("slug") == slug:
             flash('Slug já existe. Por favor, escolha outro.', 'danger')
@@ -2713,7 +2703,6 @@ def api_validar_cupom():
     
     for cupom in dados.get("cupons", []):
         if cupom.get("codigo") == codigo and cupom.get("ativo", True):
-            # Verificar validade
             if cupom.get("validade"):
                 try:
                     validade = datetime.fromisoformat(cupom.get("validade"))
@@ -2722,15 +2711,12 @@ def api_validar_cupom():
                 except:
                     pass
             
-            # Verificar usos
             if cupom.get("max_uso") and cupom.get("usos", 0) >= cupom.get("max_uso"):
                 return jsonify({"sucesso": False, "mensagem": "Cupom esgotado"})
             
-            # Verificar valor mínimo
             if valor < cupom.get("valor_minimo", 0):
                 return jsonify({"sucesso": False, "mensagem": f"Valor mínimo: R${cupom.get('valor_minimo', 0):.2f}"})
             
-            # Calcular desconto
             if cupom.get("tipo") == 'percentual':
                 desconto = valor * (cupom.get("valor", 0) / 100)
             else:
@@ -2745,7 +2731,7 @@ def api_validar_cupom():
     return jsonify({"sucesso": False, "mensagem": "Cupom inválido"})
 
 # ========================
-# ROTAS DA FILA (MANTIDAS)
+# ROTAS DA FILA
 # ========================
 
 @app.route("/fila")
@@ -3054,7 +3040,7 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 # ========================
-# FUNÇÕES DO BOT (MANTIDAS)
+# FUNÇÕES DO BOT
 # ========================
 
 def xp_por_mensagem():
@@ -3401,12 +3387,44 @@ Thread(target=auto_ping, daemon=True).start()
 # ========================
 
 def run_flask():
+    """Inicia o servidor Flask"""
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
 
-Thread(target=run_flask, daemon=True).start()
-
-if __name__ == "__main__":
+def run_bot():
+    """Inicia o bot do Discord"""
     try:
+        print("🤖 Iniciando bot do Discord...")
         bot.run(BOT_TOKEN)
     except Exception as e:
-        print("Erro ao iniciar o bot:", e)
+        print(f"❌ Erro ao iniciar o bot: {e}")
+
+if __name__ == "__main__":
+    # Para execução local
+    import threading
+    
+    # Inicia o bot em uma thread separada
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # Aguarda o bot iniciar
+    time.sleep(2)
+    
+    # Inicia o Flask
+    run_flask()
+else:
+    # Para execução no Gunicorn (Render)
+    # O bot precisa ser iniciado em background
+    import threading
+    import asyncio
+    
+    def start_bot_async():
+        """Inicia o bot de forma assíncrona"""
+        try:
+            # Usa asyncio para rodar o bot
+            asyncio.run(bot.start(BOT_TOKEN))
+        except Exception as e:
+            print(f"❌ Erro ao iniciar bot: {e}")
+    
+    bot_thread = threading.Thread(target=start_bot_async, daemon=True)
+    bot_thread.start()
+    print("✅ Bot iniciado em background")
