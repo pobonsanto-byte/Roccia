@@ -1694,7 +1694,7 @@ def api_fidelidade_admin_aprovar():
     nova_entrada_fila = {
         "id": str(uuid.uuid4()),
         "posicao": len(fila["entradas"]) + 1,
-        "nome_usuario": f"{pedido['discord']} (UID: {pedido['uid']})",
+        "nome_usuario": f"{pedido['discord']}",
         "servico": pedido["servico"],
         "jogo": pedido.get("jogo", ""),
         "valor": pedido["valor"],
