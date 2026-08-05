@@ -2745,7 +2745,7 @@ def dashboard():
                         <div class="recompensa-item">
                             <div class="recompensa-info">
                                 <div class="recompensa-nome">${{escapeHtml(r.nome)}}</div>
-                                <div class="recompensa-detalhes">${{r.pontos}} pontos | Tipo: ${{r.tipo}} ${r.tipo === 'cupom' ? '| Desconto: R$ '+r.desconto.toFixed(2) : ''}</div>
+                                <div class="recompensa-detalhes">${{r.pontos}} pontos | Tipo: ${{r.tipo}} ${{r.tipo === 'cupom' ? '| Desconto: R$ '+r.desconto.toFixed(2) : ''}}</div>
                             </div>
                             <div class="recompensa-acoes">
                                 <button onclick="editarRecompensa('${{r.id}}')" class="btn btn-primary btn-sm">✏️ Editar</button>
