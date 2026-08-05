@@ -1266,7 +1266,7 @@ def pagina_fidelidade():
                     <input type="text" id="ped-jogo" placeholder="Ex: Wuthering Waves, Mongil">
 
                     <label>Valor Combinado (R$):</label>
-                    <input type="number" id="ped-valor" step="0.50" placeholder="Ex: 25.00">
+                    <input type="number" id="ped-valor" step="0.00" placeholder="Ex: 25.00">
 
                     <label>Nick do Youtube ou Discord:</label>
                     <input type="text" id="ped-discord" placeholder="Ex: usuario_discord">
