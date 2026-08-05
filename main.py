@@ -1222,7 +1222,7 @@ def pagina_fidelidade():
     </head>
     <body>
         <div class="container">
-            <h1>Services & Pontos ZankonYTB</h1>
+            <center><h1>Services & Pontos ZankonYTB</h1></center>
             
             <div id="msg-alert" class="alert"></div>
 
@@ -1263,12 +1263,12 @@ def pagina_fidelidade():
                     <input type="text" id="ped-servico" placeholder="Ex: Farm de Bóss, Quests, Exploração">
 
                     <label>Jogo:</label>
-                    <input type="text" id="ped-jogo" placeholder="Ex: Genshin Impact, Honkai Star Rail">
+                    <input type="text" id="ped-jogo" placeholder="Ex: Wuthering Waves, Mongil">
 
                     <label>Valor Combinado (R$):</label>
                     <input type="number" id="ped-valor" step="0.50" placeholder="Ex: 25.00">
 
-                    <label>Usuário / Tag do Discord:</label>
+                    <label>Nick do Youtube ou Discord:</label>
                     <input type="text" id="ped-discord" placeholder="Ex: usuario_discord">
 
                     <label>Possui Cupom de Desconto? (Opcional):</label>
