@@ -113,41 +113,18 @@ dados = {
             "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
         ]
     },
+    # NOVOS BLOCOS PARA SISTEMA DE CLIENTES E FIDELIDADE
     "clientes": {},
-    "pedidos": {},
-    "fila_servicos": {
-        "nome": "Fila de Serviços Wuthering Waves",
-        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
-        "entradas": [],
-        "historico": []
-    },
-    "cupons": {},
+    "servicos": {},
+    "solicitacoes": {},
     "fidelidade": {
-        "niveis": {
-            "bronze": {"min_gasto": 0, "desconto": 0},
-            "prata": {"min_gasto": 100, "desconto": 5},
-            "ouro": {"min_gasto": 300, "desconto": 10},
-            "diamante": {"min_gasto": 600, "desconto": 15}
-        },
-        "pontos_por_real": 10,
-        "pontos_necessarios_cupom": 1000
-    },
-    "servicos_config": {
-        "categorias": ["Diárias", "Semanais", "Mensais", "Eventos", "Rolamento"],
-        "servicos_disponiveis": [
-            {"nome": "Diárias", "valor": 10.00, "categoria": "Diárias"},
-            {"nome": "Semanais", "valor": 25.00, "categoria": "Semanais"},
-            {"nome": "Mensais", "valor": 80.00, "categoria": "Mensais"},
-            {"nome": "Eventos", "valor": 50.00, "categoria": "Eventos"},
-            {"nome": "Rolamento", "valor": 15.00, "categoria": "Rolamento"},
-            {"nome": "Exploração", "valor": 30.00, "categoria": "Eventos"},
-            {"nome": "Bosses", "valor": 20.00, "categoria": "Eventos"}
-        ],
-        "canal_pedidos": None,
-        "canal_fila": None
+        "pontos_por_real": 1,
+        "recompensas": [],
+        "cupons": {}
     }
 }
 
+# Dicionário para armazenar mensagens recentes dos usuários
 mensagens_recentes = {}
 
 # ========================
@@ -169,45 +146,8 @@ def carregar_dados_github():
                 raw = base64.b64decode(conteudo_b64)
                 carregado = json.loads(raw.decode("utf-8"))
                 dados.update(carregado)
-                if "clientes" not in dados:
-                    dados["clientes"] = {}
-                if "pedidos" not in dados:
-                    dados["pedidos"] = {}
-                if "fila_servicos" not in dados:
-                    dados["fila_servicos"] = {
-                        "nome": "Fila de Serviços Wuthering Waves",
-                        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
-                        "entradas": [],
-                        "historico": []
-                    }
-                if "cupons" not in dados:
-                    dados["cupons"] = {}
-                if "fidelidade" not in dados:
-                    dados["fidelidade"] = {
-                        "niveis": {
-                            "bronze": {"min_gasto": 0, "desconto": 0},
-                            "prata": {"min_gasto": 100, "desconto": 5},
-                            "ouro": {"min_gasto": 300, "desconto": 10},
-                            "diamante": {"min_gasto": 600, "desconto": 15}
-                        },
-                        "pontos_por_real": 10,
-                        "pontos_necessarios_cupom": 1000
-                    }
-                if "servicos_config" not in dados:
-                    dados["servicos_config"] = {
-                        "categorias": ["Diárias", "Semanais", "Mensais", "Eventos", "Rolamento"],
-                        "servicos_disponiveis": [
-                            {"nome": "Diárias", "valor": 10.00, "categoria": "Diárias"},
-                            {"nome": "Semanais", "valor": 25.00, "categoria": "Semanais"},
-                            {"nome": "Mensais", "valor": 80.00, "categoria": "Mensais"},
-                            {"nome": "Eventos", "valor": 50.00, "categoria": "Eventos"},
-                            {"nome": "Rolamento", "valor": 15.00, "categoria": "Rolamento"},
-                            {"nome": "Exploração", "valor": 30.00, "categoria": "Eventos"},
-                            {"nome": "Bosses", "valor": 20.00, "categoria": "Eventos"}
-                        ],
-                        "canal_pedidos": None,
-                        "canal_fila": None
-                    }
+                
+                # Garantir que todas as chaves existam
                 if "fila" not in dados:
                     dados["fila"] = {
                         "nome": "Fila de Serviços",
@@ -252,12 +192,27 @@ def carregar_dados_github():
                     }
                 if "botoes_precos" not in dados.get("links_fila", {}):
                     dados["links_fila"]["botoes_precos"] = []
-                print("Dados carregados do GitHub.")
+                
+                # Garantir novos blocos
+                if "clientes" not in dados:
+                    dados["clientes"] = {}
+                if "servicos" not in dados:
+                    dados["servicos"] = {}
+                if "solicitacoes" not in dados:
+                    dados["solicitacoes"] = {}
+                if "fidelidade" not in dados:
+                    dados["fidelidade"] = {
+                        "pontos_por_real": 1,
+                        "recompensas": [],
+                        "cupons": {}
+                    }
+                
+                print("✅ Dados carregados do GitHub.")
                 return True
         else:
-            print(f"GitHub GET retornou {r.status_code} — iniciando com dados limpos.")
+            print(f"⚠️ GitHub GET retornou {r.status_code} — iniciando com dados limpos.")
     except Exception as e:
-        print(f"Erro ao carregar dados do GitHub: {e}")
+        print(f"❌ Erro ao carregar dados do GitHub: {e}")
     return False
 
 def salvar_dados_github(mensagem="Atualização do bot"):
@@ -278,12 +233,12 @@ def salvar_dados_github(mensagem="Atualização do bot"):
 
         put = requests.put(GITHUB_API_CONTENT, headers=_gh_headers(), json=payload, timeout=30)
         if put.status_code in (200, 201):
-            print("Dados salvos no GitHub.")
+            print("✅ Dados salvos no GitHub.")
             return True
         else:
-            print(f"Erro ao salvar no GitHub: {put.status_code}, {put.text[:400]}")
+            print(f"❌ Erro ao salvar no GitHub: {put.status_code}, {put.text[:400]}")
     except Exception as e:
-        print(f"Exception saving to GitHub: {e}")
+        print(f"❌ Exception saving to GitHub: {e}")
     return False
 
 def adicionar_log(entrada):
@@ -312,11 +267,19 @@ def escape_html(texto):
         .replace("'", "&#39;")
     )
 
+def gerar_codigo_cupom():
+    import random
+    import string
+    prefixo = "ZANKON"
+    sufixo = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    return f"{prefixo}-{sufixo}"
+
 # ========================
 # FUNÇÕES ANTI-SPAM E IGNORADOS
 # ========================
 
 def verificar_comando_ignorado(conteudo: str) -> bool:
+    """Verifica se a mensagem é um comando ignorado (não conta como spam e NÃO ganha XP)"""
     conteudo_lower = conteudo.lower().strip()
     comandos_ignorados = dados.get("anti_spam", {}).get("comandos_ignorados", [])
     
@@ -329,6 +292,7 @@ def verificar_comando_ignorado(conteudo: str) -> bool:
     return False
 
 def verificar_cargo_ignorado(member: discord.Member) -> bool:
+    """Verifica se o membro tem cargo que ignora o anti-spam"""
     cargos_ignorados = dados.get("anti_spam", {}).get("cargos_ignorados", [])
     cargos_membro = [role.name for role in member.roles]
     for cargo_ignorado in cargos_ignorados:
@@ -337,6 +301,7 @@ def verificar_cargo_ignorado(member: discord.Member) -> bool:
     return False
 
 def limpar_mensagens_antigas(user_id: int):
+    """Remove mensagens mais antigas que o intervalo configurado"""
     if user_id not in mensagens_recentes:
         return
     
@@ -351,6 +316,7 @@ def limpar_mensagens_antigas(user_id: int):
         del mensagens_recentes[user_id]
 
 def registrar_mensagem(user_id: int) -> int:
+    """Registra uma mensagem e retorna quantas mensagens o usuário enviou no intervalo"""
     agora = time.time()
     
     if user_id not in mensagens_recentes:
@@ -362,6 +328,7 @@ def registrar_mensagem(user_id: int) -> int:
     return len(mensagens_recentes.get(user_id, []))
 
 async def aplicar_mute(member: discord.Member, duracao_minutos: int = 2):
+    """Aplica mute temporário no membro"""
     guild = member.guild
     
     mute_role = discord.utils.get(guild.roles, name="Muted")
@@ -374,9 +341,9 @@ async def aplicar_mute(member: discord.Member, duracao_minutos: int = 2):
                     await channel.set_permissions(mute_role, send_messages=False, add_reactions=False, speak=False)
                 except:
                     pass
-            print(f"Cargo 'Muted' criado no servidor {guild.name}")
+            print(f"✅ Cargo 'Muted' criado no servidor {guild.name}")
         except Exception as e:
-            print(f"Erro ao criar cargo de mute: {e}")
+            print(f"❌ Erro ao criar cargo de mute: {e}")
             return False
     
     try:
@@ -392,10 +359,11 @@ async def aplicar_mute(member: discord.Member, duracao_minutos: int = 2):
         asyncio.create_task(remover_mute())
         return True
     except Exception as e:
-        print(f"Erro ao aplicar mute: {e}")
+        print(f"❌ Erro ao aplicar mute: {e}")
         return False
 
 async def deletar_mensagens_spam(member: discord.Member, channel: discord.TextChannel, quantidade: int):
+    """Deleta as mensagens de spam do usuário"""
     if not dados.get("anti_spam", {}).get("deletar_mensagens", True):
         return
     
@@ -411,6 +379,7 @@ async def deletar_mensagens_spam(member: discord.Member, channel: discord.TextCh
         pass
 
 async def remover_xp_por_spam(member: discord.Member):
+    """Remove XP do usuário por spam"""
     if not dados.get("anti_spam", {}).get("remover_xp", True):
         return False
     
@@ -429,7 +398,7 @@ async def remover_xp_por_spam(member: discord.Member):
     return True
 
 # ========================
-# SISTEMA DE FILA (ORIGINAL)
+# SISTEMA DE FILA
 # ========================
 
 def obter_dados_fila():
@@ -564,7 +533,7 @@ def definir_nome_fila(nome: str):
     return fila["nome"]
 
 # ========================
-# FUNÇÕES PARA LINKS DA FILA
+# FUNÇÕES PARA LINKS DA FILA (MÚLTIPLOS BOTÕES)
 # ========================
 def obter_links_fila():
     dados.setdefault("links_fila", {"discord_convite": "", "botoes_precos": []})
@@ -598,6 +567,351 @@ def atualizar_botao_preco(index: int, nome: str, url: str):
     return False
 
 # ========================
+# FUNÇÕES PARA SISTEMA DE CLIENTES E FIDELIDADE
+# ========================
+
+def obter_cliente(discord_id: str):
+    """Obtém os dados de um cliente pelo ID do Discord"""
+    return dados.get("clientes", {}).get(str(discord_id))
+
+def criar_cliente(discord_id: str, discord_nome: str, uid: str, nick_jogo: str):
+    """Cria um novo cliente"""
+    clientes = dados.setdefault("clientes", {})
+    if str(discord_id) in clientes:
+        return False, "Cliente já existe"
+    
+    # Verificar se o UID já está vinculado a outro Discord
+    for did, cliente in clientes.items():
+        if cliente.get("uid") == uid:
+            return False, f"UID {uid} já está vinculado a outro Discord"
+    
+    clientes[str(discord_id)] = {
+        "discord_id": str(discord_id),
+        "discord_nome": discord_nome,
+        "uid": uid,
+        "nick_jogo": nick_jogo,
+        "pontos": 0,
+        "total_acumulado": 0,
+        "total_utilizado": 0,
+        "ultima_compra": None,
+        "ultimo_resgate": None,
+        "historico": [],
+        "servicos_andamento": [],
+        "cupons": []
+    }
+    salvar_dados_github(f"Novo cliente: {discord_nome} (UID: {uid})")
+    return True, "Cliente criado com sucesso"
+
+def atualizar_cliente(discord_id: str, **kwargs):
+    """Atualiza dados de um cliente"""
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return False, "Cliente não encontrado"
+    
+    for key, value in kwargs.items():
+        if key in cliente:
+            cliente[key] = value
+    
+    salvar_dados_github(f"Cliente atualizado: {cliente.get('discord_nome')}")
+    return True, "Cliente atualizado"
+
+def adicionar_pontos_cliente(discord_id: str, pontos: int, motivo: str = ""):
+    """Adiciona pontos a um cliente"""
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return False, "Cliente não encontrado"
+    
+    cliente["pontos"] = cliente.get("pontos", 0) + pontos
+    cliente["total_acumulado"] = cliente.get("total_acumulado", 0) + pontos
+    cliente["ultima_compra"] = agora_br().isoformat()
+    
+    cliente.setdefault("historico", []).append({
+        "tipo": "pontos_adicionados",
+        "pontos": pontos,
+        "motivo": motivo,
+        "data": agora_br().isoformat()
+    })
+    
+    salvar_dados_github(f"Pontos adicionados: {pontos} para {cliente.get('discord_nome')}")
+    return True, f"{pontos} pontos adicionados"
+
+def remover_pontos_cliente(discord_id: str, pontos: int, motivo: str = ""):
+    """Remove pontos de um cliente (para resgate)"""
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return False, "Cliente não encontrado"
+    
+    if cliente.get("pontos", 0) < pontos:
+        return False, "Pontos insuficientes"
+    
+    cliente["pontos"] = cliente.get("pontos", 0) - pontos
+    cliente["total_utilizado"] = cliente.get("total_utilizado", 0) + pontos
+    cliente["ultimo_resgate"] = agora_br().isoformat()
+    
+    cliente.setdefault("historico", []).append({
+        "tipo": "pontos_removidos",
+        "pontos": pontos,
+        "motivo": motivo,
+        "data": agora_br().isoformat()
+    })
+    
+    salvar_dados_github(f"Pontos removidos: {pontos} de {cliente.get('discord_nome')}")
+    return True, f"{pontos} pontos removidos"
+
+def criar_cupom(discord_id: str, tipo: str, valor: str):
+    """Cria um cupom para um cliente"""
+    codigo = gerar_codigo_cupom()
+    cupom = {
+        "codigo": codigo,
+        "discord_id": str(discord_id),
+        "uid": obter_cliente(discord_id).get("uid", ""),
+        "tipo": tipo,
+        "valor": valor,
+        "data_criacao": agora_br().isoformat(),
+        "validade": (agora_br() + timedelta(days=30)).isoformat(),
+        "status": "ativo",
+        "usado_em": None
+    }
+    
+    dados.setdefault("fidelidade", {}).setdefault("cupons", {})[codigo] = cupom
+    
+    cliente = obter_cliente(discord_id)
+    if cliente:
+        cliente.setdefault("cupons", []).append(codigo)
+    
+    salvar_dados_github(f"Cupom criado: {codigo} para {cliente.get('discord_nome')}")
+    return True, cupom
+
+def usar_cupom(codigo: str, discord_id: str):
+    """Utiliza um cupom"""
+    cupons = dados.get("fidelidade", {}).get("cupons", {})
+    cupom = cupons.get(codigo)
+    
+    if not cupom:
+        return False, "Cupom não encontrado"
+    
+    if cupom.get("discord_id") != str(discord_id):
+        return False, "Este cupom não pertence a você"
+    
+    if cupom.get("status") != "ativo":
+        return False, "Cupom já foi utilizado ou está expirado"
+    
+    if agora_br() > datetime.fromisoformat(cupom.get("validade")):
+        cupom["status"] = "expirado"
+        salvar_dados_github(f"Cupom {codigo} expirado")
+        return False, "Cupom expirado"
+    
+    cupom["status"] = "utilizado"
+    cupom["usado_em"] = agora_br().isoformat()
+    
+    cliente = obter_cliente(discord_id)
+    if cliente:
+        cliente.setdefault("historico", []).append({
+            "tipo": "cupom_utilizado",
+            "codigo": codigo,
+            "valor": cupom.get("valor"),
+            "data": agora_br().isoformat()
+        })
+    
+    salvar_dados_github(f"Cupom utilizado: {codigo}")
+    return True, cupom
+
+def criar_servico(nome: str, categoria: str, descricao: str, valor: float, pontos: int, imagem: str = ""):
+    """Cria um novo serviço"""
+    servicos = dados.setdefault("servicos", {})
+    id_servico = str(int(datetime.now().timestamp()))
+    
+    servicos[id_servico] = {
+        "id": id_servico,
+        "nome": nome,
+        "categoria": categoria,
+        "descricao": descricao,
+        "valor": valor,
+        "pontos": pontos,
+        "imagem": imagem,
+        "status": "ativo",
+        "criado_em": agora_br().isoformat()
+    }
+    salvar_dados_github(f"Serviço criado: {nome}")
+    return True, id_servico
+
+def atualizar_servico(id_servico: str, **kwargs):
+    """Atualiza um serviço"""
+    servicos = dados.get("servicos", {})
+    if id_servico not in servicos:
+        return False, "Serviço não encontrado"
+    
+    for key, value in kwargs.items():
+        if key in servicos[id_servico]:
+            servicos[id_servico][key] = value
+    
+    salvar_dados_github(f"Serviço atualizado: {servicos[id_servico].get('nome')}")
+    return True, "Serviço atualizado"
+
+def excluir_servico(id_servico: str):
+    """Exclui um serviço"""
+    servicos = dados.get("servicos", {})
+    if id_servico in servicos:
+        nome = servicos[id_servico].get("nome", "")
+        del servicos[id_servico]
+        salvar_dados_github(f"Serviço excluído: {nome}")
+        return True, "Serviço excluído"
+    return False, "Serviço não encontrado"
+
+def criar_solicitacao(discord_id: str, servico_id: str, jogo: str, observacoes: str, cupom_codigo: str = None):
+    """Cria uma solicitação de serviço"""
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return False, "Cliente não encontrado"
+    
+    servicos = dados.get("servicos", {})
+    servico = servicos.get(servico_id)
+    if not servico:
+        return False, "Serviço não encontrado"
+    
+    if servico.get("status") != "ativo":
+        return False, "Serviço está inativo"
+    
+    id_solicitacao = str(int(datetime.now().timestamp() * 1000))
+    
+    dados.setdefault("solicitacoes", {})[id_solicitacao] = {
+        "id": id_solicitacao,
+        "cliente_id": str(discord_id),
+        "cliente_nome": cliente.get("discord_nome", ""),
+        "cliente_uid": cliente.get("uid", ""),
+        "servico_id": servico_id,
+        "servico_nome": servico.get("nome", ""),
+        "servico_valor": servico.get("valor", 0),
+        "servico_pontos": servico.get("pontos", 0),
+        "jogo": jogo,
+        "observacoes": observacoes,
+        "cupom_codigo": cupom_codigo,
+        "status": "pendente",
+        "data_solicitacao": agora_br().isoformat(),
+        "data_aprovacao": None,
+        "data_conclusao": None,
+        "admin_aprovacao": None,
+        "admin_conclusao": None,
+        "motivo_recusa": None
+    }
+    
+    salvar_dados_github(f"Solicitação criada: {cliente.get('discord_nome')} - {servico.get('nome')}")
+    return True, id_solicitacao
+
+def aprovar_solicitacao(id_solicitacao: str, admin_id: str):
+    """Aprova uma solicitação e adiciona na fila"""
+    solicitacoes = dados.get("solicitacoes", {})
+    solicitacao = solicitacoes.get(id_solicitacao)
+    if not solicitacao:
+        return False, "Solicitação não encontrada"
+    
+    if solicitacao.get("status") != "pendente":
+        return False, "Solicitação já foi processada"
+    
+    # Verificar cupom
+    codigo_cupom = solicitacao.get("cupom_codigo")
+    if codigo_cupom:
+        resultado, _ = usar_cupom(codigo_cupom, solicitacao.get("cliente_id"))
+        if not resultado:
+            return False, "Cupom inválido ou expirado"
+    
+    # Adicionar na fila
+    nome_usuario = solicitacao.get("cliente_nome", "Cliente")
+    servico_nome = solicitacao.get("servico_nome", "Serviço")
+    jogo = solicitacao.get("jogo", "")
+    
+    sucesso, entrada = adicionar_fila(nome_usuario, servico_nome, jogo, solicitacao.get("cliente_id"))
+    if not sucesso:
+        return False, f"Erro ao adicionar na fila: {entrada}"
+    
+    solicitacao["status"] = "aprovada"
+    solicitacao["data_aprovacao"] = agora_br().isoformat()
+    solicitacao["admin_aprovacao"] = admin_id
+    
+    # Adicionar aos serviços em andamento do cliente
+    cliente = obter_cliente(solicitacao.get("cliente_id"))
+    if cliente:
+        cliente.setdefault("servicos_andamento", []).append({
+            "solicitacao_id": id_solicitacao,
+            "servico": servico_nome,
+            "data": agora_br().isoformat()
+        })
+    
+    salvar_dados_github(f"Solicitação aprovada: {id_solicitacao}")
+    return True, entrada
+
+def recusar_solicitacao(id_solicitacao: str, motivo: str, admin_id: str):
+    """Recusa uma solicitação"""
+    solicitacoes = dados.get("solicitacoes", {})
+    solicitacao = solicitacoes.get(id_solicitacao)
+    if not solicitacao:
+        return False, "Solicitação não encontrada"
+    
+    if solicitacao.get("status") != "pendente":
+        return False, "Solicitação já foi processada"
+    
+    solicitacao["status"] = "recusada"
+    solicitacao["motivo_recusa"] = motivo
+    solicitacao["data_recusa"] = agora_br().isoformat()
+    solicitacao["admin_recusa"] = admin_id
+    
+    salvar_dados_github(f"Solicitação recusada: {id_solicitacao}")
+    return True, "Solicitação recusada"
+
+def concluir_solicitacao(id_solicitacao: str, admin_id: str):
+    """Conclui uma solicitação e adiciona pontos ao cliente"""
+    solicitacoes = dados.get("solicitacoes", {})
+    solicitacao = solicitacoes.get(id_solicitacao)
+    if not solicitacao:
+        return False, "Solicitação não encontrada"
+    
+    if solicitacao.get("status") != "aprovada":
+        return False, "Solicitação não está em andamento"
+    
+    cliente_id = solicitacao.get("cliente_id")
+    
+    # Adicionar pontos ao cliente
+    pontos = solicitacao.get("servico_pontos", 0)
+    if pontos > 0 and cliente_id:
+        adicionar_pontos_cliente(cliente_id, pontos, f"Serviço: {solicitacao.get('servico_nome')}")
+    
+    solicitacao["status"] = "concluida"
+    solicitacao["data_conclusao"] = agora_br().isoformat()
+    solicitacao["admin_conclusao"] = admin_id
+    
+    # Remover dos serviços em andamento do cliente
+    cliente = obter_cliente(cliente_id)
+    if cliente:
+        cliente.setdefault("servicos_andamento", []).append({
+            "solicitacao_id": id_solicitacao,
+            "servico": solicitacao.get("servico_nome"),
+            "data_conclusao": agora_br().isoformat(),
+            "pontos_ganhos": pontos
+        })
+        # Limpar andamento - manter apenas os que ainda estão ativos
+        cliente["servicos_andamento"] = [s for s in cliente.get("servicos_andamento", []) 
+                                         if s.get("solicitacao_id") != id_solicitacao]
+        
+        cliente.setdefault("historico", []).append({
+            "tipo": "servico_concluido",
+            "servico": solicitacao.get("servico_nome"),
+            "valor": solicitacao.get("servico_valor"),
+            "pontos_ganhos": pontos,
+            "admin": admin_id,
+            "data": agora_br().isoformat()
+        })
+    
+    # Tentar concluir também na fila
+    fila = obter_dados_fila()
+    for entrada in fila["entradas"]:
+        if entrada.get("usuario_id") == cliente_id and entrada.get("servico") == solicitacao.get("servico_nome"):
+            concluir_servico(entrada["id"])
+            break
+    
+    salvar_dados_github(f"Solicitação concluída: {id_solicitacao}")
+    return True, "Serviço concluído com sucesso"
+
+# ========================
 # SISTEMA DE AÇÕES DO SITE
 # ========================
 def executar_acao_bot(tipo_acao, **kwargs):
@@ -606,7 +920,7 @@ def executar_acao_bot(tipo_acao, **kwargs):
         "dados": kwargs,
         "timestamp": agora_br().isoformat()
     })
-    print(f"[AÇÃO BOT] Adicionada ação: {tipo_acao}")
+    print(f"🤖 [AÇÃO BOT] Adicionada ação: {tipo_acao}")
     return True
 
 async def executar_acao_bot_interno(acao):
@@ -614,16 +928,16 @@ async def executar_acao_bot_interno(acao):
     dados_acao = acao["dados"]
     
     print(f"\n{'='*50}")
-    print(f"EXECUTANDO AÇÃO: {tipo_acao}")
+    print(f"🤖 EXECUTANDO AÇÃO: {tipo_acao}")
     print(f"{'='*50}")
     
     if not bot.is_ready():
-        print("Bot não está pronto!")
+        print("❌ Bot não está pronto!")
         return False
     
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
     if not guild:
-        print(f"Servidor {GUILD_ID} não encontrado!")
+        print(f"❌ Servidor {GUILD_ID} não encontrado!")
         return False
     
     try:
@@ -657,7 +971,7 @@ async def executar_acao_bot_interno(acao):
                 texto_mencao = "@here"
             
             await canal.send(content=texto_mencao, embed=embed)
-            print(f"Embed enviada para #{canal.name}")
+            print(f"✅ Embed enviada para #{canal.name}")
             return True
         
         elif tipo_acao == "criar_reacao_cargo":
@@ -793,10 +1107,10 @@ async def executar_acao_bot_interno(acao):
                             return
                         if cargo in membro.roles:
                             await membro.remove_roles(cargo, reason="Botão de cargo")
-                            await interaction.response.send_message(f"Você removeu o cargo {cargo.mention}.", ephemeral=True)
+                            await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
                         else:
                             await membro.add_roles(cargo, reason="Botão de cargo")
-                            await interaction.response.send_message(f"Você recebeu o cargo {cargo.mention}.", ephemeral=True)
+                            await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
                         adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
                 
                 class PersistentRoleButtonView(ui.View):
@@ -920,18 +1234,18 @@ async def executar_acao_bot_interno(acao):
             return True
         
         else:
-            print(f"Tipo de ação desconhecido: {tipo_acao}")
+            print(f"❌ Tipo de ação desconhecido: {tipo_acao}")
             return False
     
     except Exception as e:
-        print(f"Erro: {e}")
+        print(f"❌ Erro: {e}")
         return False
 
 async def processar_acoes_bot_continuo():
     global processador_acoes_rodando
     
     print("\n" + "="*60)
-    print("PROCESSADOR DE AÇÕES INICIADO")
+    print("🚀 PROCESSADOR DE AÇÕES INICIADO")
     print("="*60)
     
     processador_acoes_rodando = True
@@ -947,10 +1261,10 @@ async def processar_acoes_bot_continuo():
                 await executar_acao_bot_interno(acao)
             await asyncio.sleep(1)
         except Exception as e:
-            print(f"Erro no processador: {e}")
+            print(f"⚠️ Erro no processador: {e}")
             await asyncio.sleep(5)
     
-    print("PROCESSADOR DE AÇÕES ENCERRADO")
+    print("⏹️ PROCESSADOR DE AÇÕES ENCERRADO")
 
 def iniciar_processador_acoes():
     global processador_acoes_task, processador_acoes_rodando
@@ -958,415 +1272,11 @@ def iniciar_processador_acoes():
         return False
     try:
         processador_acoes_task = bot.loop.create_task(processar_acoes_bot_continuo())
-        print("Processador de ações iniciado!")
+        print("✅ Processador de ações iniciado!")
         return True
     except Exception as e:
-        print(f"Erro ao iniciar processador: {e}")
+        print(f"❌ Erro ao iniciar processador: {e}")
         return False
-
-# ========================
-# SISTEMA DE SERVIÇOS WUTHERING WAVES
-# ========================
-
-def gerar_id_pedido():
-    import random
-    import string
-    prefixo = "WW"
-    numeros = ''.join(random.choices(string.digits, k=6))
-    return f"{prefixo}{numeros}"
-
-def gerar_codigo_cupom():
-    import random
-    import string
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-
-def obter_nivel_fidelidade(total_gasto: float) -> str:
-    niveis = dados.get("fidelidade", {}).get("niveis", {})
-    nivel_atual = "bronze"
-    for nivel, config in niveis.items():
-        if total_gasto >= config.get("min_gasto", 0):
-            nivel_atual = nivel
-    return nivel_atual
-
-def obter_desconto_fidelidade(total_gasto: float) -> float:
-    nivel = obter_nivel_fidelidade(total_gasto)
-    niveis = dados.get("fidelidade", {}).get("niveis", {})
-    return niveis.get(nivel, {}).get("desconto", 0)
-
-def obter_servicos_disponiveis():
-    return dados.get("servicos_config", {}).get("servicos_disponiveis", [])
-
-def obter_categorias_servicos():
-    return dados.get("servicos_config", {}).get("categorias", [])
-
-def obter_fila_servicos():
-    dados.setdefault("fila_servicos", {
-        "nome": "Fila de Serviços Wuthering Waves",
-        "configuracoes": {"tamanho_maximo": 50, "aberta": True},
-        "entradas": [],
-        "historico": []
-    })
-    return dados["fila_servicos"]
-
-def adicionar_fila_servicos(nome_usuario: str, servico: str, jogo: str = "Wuthering Waves", usuario_id: str = None, pedido_id: str = None):
-    fila = obter_fila_servicos()
-    
-    if not fila["configuracoes"]["aberta"]:
-        return False, "Fila está fechada no momento"
-    
-    if len(fila["entradas"]) >= fila["configuracoes"]["tamanho_maximo"]:
-        return False, "Fila está cheia"
-    
-    for entrada in fila["entradas"]:
-        if entrada["nome_usuario"].lower() == nome_usuario.lower():
-            return False, f"{nome_usuario} já está na fila"
-    
-    entrada = {
-        "id": str(int(datetime.now().timestamp() * 1000)),
-        "nome_usuario": nome_usuario,
-        "servico": servico,
-        "jogo": jogo,
-        "usuario_id": usuario_id or nome_usuario,
-        "pedido_id": pedido_id,
-        "timestamp": agora_br().isoformat(),
-        "status": "aguardando",
-        "posicao": len(fila["entradas"]) + 1
-    }
-    
-    fila["entradas"].append(entrada)
-    atualizar_posicoes_fila_servicos(fila["entradas"])
-    salvar_dados_github("Fila serviços WW atualizada")
-    adicionar_log(f"fila_servicos_adicionar: {nome_usuario} - {servico}")
-    return True, entrada
-
-def atualizar_posicoes_fila_servicos(entradas):
-    for i, entrada in enumerate(entradas):
-        entrada["posicao"] = i + 1
-        entrada["status"] = "aguardando"
-
-def remover_fila_servicos(entrada_id: str):
-    fila = obter_fila_servicos()
-    
-    for i, entrada in enumerate(fila["entradas"]):
-        if entrada["id"] == entrada_id:
-            removido = fila["entradas"].pop(i)
-            removido["removido_em"] = agora_br().isoformat()
-            fila["historico"].append(removido)
-            if len(fila["historico"]) > 100:
-                fila["historico"] = fila["historico"][-100:]
-            atualizar_posicoes_fila_servicos(fila["entradas"])
-            salvar_dados_github("Fila serviços WW atualizada")
-            adicionar_log(f"fila_servicos_remover: {removido['nome_usuario']}")
-            return True, removido
-    return False, None
-
-def concluir_fila_servicos(entrada_id: str):
-    fila = obter_fila_servicos()
-    for i, entrada in enumerate(fila["entradas"]):
-        if entrada["id"] == entrada_id:
-            removido = fila["entradas"].pop(i)
-            removido["status"] = "concluido"
-            removido["concluido_em"] = agora_br().isoformat()
-            fila["historico"].append(removido)
-            atualizar_posicoes_fila_servicos(fila["entradas"])
-            salvar_dados_github("Fila serviços WW atualizada")
-            adicionar_log(f"fila_servicos_concluir: {removido['nome_usuario']}")
-            return True, removido
-    return False, None
-
-# ========================
-# FUNÇÕES DE CADASTRO DE CLIENTES
-# ========================
-
-def cadastrar_cliente(discord_id: str, discord_nome: str, uid: str, nome_ingame: str = None):
-    clientes = dados.get("clientes", {})
-    
-    if discord_id in clientes:
-        return False, "Cliente já cadastrado"
-    
-    clientes[discord_id] = {
-        "discord_id": discord_id,
-        "discord_nome": discord_nome,
-        "uid": uid,
-        "nome_ingame": nome_ingame or discord_nome,
-        "data_cadastro": agora_br().isoformat(),
-        "total_gasto": 0.0,
-        "pontos_fidelidade": 0,
-        "pedidos": [],
-        "ultimo_pedido": None,
-        "nivel_fidelidade": "bronze"
-    }
-    
-    dados["clientes"] = clientes
-    salvar_dados_github(f"Cliente cadastrado: {discord_nome} (UID: {uid})")
-    adicionar_log(f"cliente_cadastrado: {discord_nome} - UID: {uid}")
-    return True, clientes[discord_id]
-
-def obter_cliente(discord_id: str):
-    return dados.get("clientes", {}).get(str(discord_id))
-
-def atualizar_cliente(discord_id: str, dados_cliente: dict):
-    if str(discord_id) not in dados.get("clientes", {}):
-        return False
-    
-    dados["clientes"][str(discord_id)].update(dados_cliente)
-    salvar_dados_github(f"Cliente atualizado: {discord_id}")
-    return True
-
-# ========================
-# FUNÇÕES DE PEDIDOS
-# ========================
-
-def criar_pedido(discord_id: str, servico: str, valor: float, jogo: str = "Wuthering Waves", observacoes: str = "", cupom_codigo: str = None):
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return False, "Cliente não encontrado. Use /cadastrar primeiro."
-    
-    pedido_id = gerar_id_pedido()
-    
-    valor_final = valor
-    cupom_usado = None
-    desconto_aplicado = 0
-    
-    desconto_fidelidade = obter_desconto_fidelidade(cliente.get("total_gasto", 0))
-    if desconto_fidelidade > 0:
-        desconto_aplicado = (valor * desconto_fidelidade) / 100
-        valor_final = valor - desconto_aplicado
-    
-    if cupom_codigo:
-        cupom = dados.get("cupons", {}).get(cupom_codigo.upper())
-        if cupom:
-            if cupom.get("usos", 0) >= cupom.get("limite_usos", 1):
-                return False, "Cupom atingiu limite de usos"
-            
-            if cupom.get("expiracao") and datetime.fromisoformat(cupom["expiracao"]) < agora_br():
-                return False, "Cupom expirado"
-            
-            if cupom.get("tipo") == "percentual":
-                desconto_cupom = (valor * cupom.get("valor", 0)) / 100
-            else:
-                desconto_cupom = cupom.get("valor", 0)
-            
-            desconto_aplicado += desconto_cupom
-            valor_final = max(0, valor - desconto_aplicado)
-            cupom_usado = cupom_codigo.upper()
-            
-            cupom["usos"] = cupom.get("usos", 0) + 1
-            dados["cupons"][cupom_codigo.upper()] = cupom
-    
-    pedido = {
-        "id": pedido_id,
-        "cliente_id": str(discord_id),
-        "cliente_nome": cliente.get("discord_nome", "Desconhecido"),
-        "uid": cliente.get("uid", ""),
-        "servico": servico,
-        "jogo": jogo,
-        "valor": valor,
-        "valor_final": round(valor_final, 2),
-        "desconto_aplicado": round(desconto_aplicado, 2),
-        "desconto_fidelidade": desconto_fidelidade,
-        "cupom_usado": cupom_usado,
-        "status": "pendente",
-        "observacoes": observacoes,
-        "data_criacao": agora_br().isoformat(),
-        "data_aprovacao": None,
-        "data_conclusao": None,
-        "aprovado_por": None
-    }
-    
-    dados.setdefault("pedidos", {})[pedido_id] = pedido
-    
-    cliente["pedidos"].append(pedido_id)
-    cliente["ultimo_pedido"] = agora_br().isoformat()
-    
-    salvar_dados_github(f"Pedido criado: {pedido_id} - {servico} - {cliente['discord_nome']}")
-    adicionar_log(f"pedido_criado: {pedido_id} - {servico} - {cliente['discord_nome']}")
-    
-    return True, pedido
-
-def aprovar_pedido(pedido_id: str, aprovado_por: str):
-    pedido = dados.get("pedidos", {}).get(pedido_id)
-    if not pedido:
-        return False, "Pedido não encontrado"
-    
-    if pedido["status"] != "pendente":
-        return False, f"Pedido já está {pedido['status']}"
-    
-    pedido["status"] = "aprovado"
-    pedido["data_aprovacao"] = agora_br().isoformat()
-    pedido["aprovado_por"] = aprovado_por
-    
-    nome_cliente = pedido.get("cliente_nome", "Desconhecido")
-    servico = pedido.get("servico", "Serviço")
-    
-    sucesso, _ = adicionar_fila_servicos(
-        nome_usuario=nome_cliente,
-        servico=servico,
-        jogo=pedido.get("jogo", "Wuthering Waves"),
-        usuario_id=pedido["cliente_id"],
-        pedido_id=pedido_id
-    )
-    
-    salvar_dados_github(f"Pedido aprovado: {pedido_id}")
-    adicionar_log(f"pedido_aprovado: {pedido_id} - {servico}")
-    
-    return True, pedido
-
-def concluir_pedido(pedido_id: str):
-    pedido = dados.get("pedidos", {}).get(pedido_id)
-    if not pedido:
-        return False, "Pedido não encontrado"
-    
-    if pedido["status"] not in ["aprovado", "em_andamento"]:
-        return False, f"Pedido não pode ser concluído (status: {pedido['status']})"
-    
-    pedido["status"] = "concluido"
-    pedido["data_conclusao"] = agora_br().isoformat()
-    
-    cliente = obter_cliente(pedido["cliente_id"])
-    if cliente:
-        valor = pedido.get("valor_final", pedido.get("valor", 0))
-        pontos_por_real = dados.get("fidelidade", {}).get("pontos_por_real", 10)
-        pontos = int(valor * pontos_por_real)
-        
-        cliente["total_gasto"] = cliente.get("total_gasto", 0) + valor
-        cliente["pontos_fidelidade"] = cliente.get("pontos_fidelidade", 0) + pontos
-        cliente["nivel_fidelidade"] = obter_nivel_fidelidade(cliente["total_gasto"])
-        
-        dados["clientes"][pedido["cliente_id"]] = cliente
-    
-    fila = obter_fila_servicos()
-    for i, entrada in enumerate(fila["entradas"]):
-        if entrada.get("pedido_id") == pedido_id:
-            fila["entradas"].pop(i)
-            atualizar_posicoes_fila_servicos(fila["entradas"])
-            break
-    
-    salvar_dados_github(f"Pedido concluído: {pedido_id}")
-    adicionar_log(f"pedido_concluido: {pedido_id}")
-    
-    return True, pedido
-
-def cancelar_pedido(pedido_id: str, motivo: str = ""):
-    pedido = dados.get("pedidos", {}).get(pedido_id)
-    if not pedido:
-        return False, "Pedido não encontrado"
-    
-    pedido["status"] = "cancelado"
-    pedido["motivo_cancelamento"] = motivo
-    pedido["data_cancelamento"] = agora_br().isoformat()
-    
-    fila = obter_fila_servicos()
-    for i, entrada in enumerate(fila["entradas"]):
-        if entrada.get("pedido_id") == pedido_id:
-            fila["entradas"].pop(i)
-            atualizar_posicoes_fila_servicos(fila["entradas"])
-            break
-    
-    salvar_dados_github(f"Pedido cancelado: {pedido_id}")
-    adicionar_log(f"pedido_cancelado: {pedido_id} - {motivo}")
-    
-    return True, pedido
-
-def obter_pedidos_cliente(discord_id: str):
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return []
-    
-    pedidos = []
-    for pedido_id in cliente.get("pedidos", []):
-        pedido = dados.get("pedidos", {}).get(pedido_id)
-        if pedido:
-            pedidos.append(pedido)
-    
-    return sorted(pedidos, key=lambda x: x.get("data_criacao", ""), reverse=True)
-
-def obter_pedidos_pendentes():
-    return [p for p in dados.get("pedidos", {}).values() if p.get("status") == "pendente"]
-
-def obter_pedidos_aprovados():
-    return [p for p in dados.get("pedidos", {}).values() if p.get("status") == "aprovado"]
-
-# ========================
-# FUNÇÕES DE CUPONS
-# ========================
-
-def criar_cupom(codigo: str, desconto: float, tipo: str = "percentual", limite_usos: int = 1, expiracao_dias: int = 30, criado_por: str = "admin"):
-    codigo = codigo.upper()
-    
-    if codigo in dados.get("cupons", {}):
-        return False, "Cupom já existe"
-    
-    expiracao = (agora_br() + timedelta(days=expiracao_dias)).isoformat()
-    
-    dados.setdefault("cupons", {})[codigo] = {
-        "codigo": codigo,
-        "desconto": desconto,
-        "tipo": tipo,
-        "limite_usos": limite_usos,
-        "usos": 0,
-        "expiracao": expiracao,
-        "criado_por": criado_por,
-        "data_criacao": agora_br().isoformat()
-    }
-    
-    salvar_dados_github(f"Cupom criado: {codigo}")
-    adicionar_log(f"cupom_criado: {codigo} - {desconto}% {tipo}")
-    return True, dados["cupons"][codigo]
-
-def obter_cupom(codigo: str):
-    return dados.get("cupons", {}).get(codigo.upper())
-
-def listar_cupons():
-    return list(dados.get("cupons", {}).values())
-
-def validar_cupom(codigo: str):
-    cupom = obter_cupom(codigo)
-    if not cupom:
-        return False, "Cupom não encontrado"
-    
-    if cupom.get("usos", 0) >= cupom.get("limite_usos", 1):
-        return False, "Cupom atingiu limite de usos"
-    
-    if cupom.get("expiracao"):
-        expiracao = datetime.fromisoformat(cupom["expiracao"])
-        if expiracao < agora_br():
-            return False, "Cupom expirado"
-    
-    return True, cupom
-
-# ========================
-# FUNÇÕES DE FIDELIDADE
-# ========================
-
-def resgatar_pontos_para_cupom(discord_id: str):
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return False, "Cliente não encontrado"
-    
-    pontos_necessarios = dados.get("fidelidade", {}).get("pontos_necessarios_cupom", 1000)
-    
-    if cliente.get("pontos_fidelidade", 0) < pontos_necessarios:
-        return False, f"Pontos insuficientes. Você precisa de {pontos_necessarios} pontos. Você tem {cliente.get('pontos_fidelidade', 0)}"
-    
-    codigo = gerar_codigo_cupom()
-    sucesso, cupom = criar_cupom(
-        codigo=codigo,
-        desconto=10,
-        tipo="percentual",
-        limite_usos=1,
-        expiracao_dias=30,
-        criado_por=cliente.get("discord_nome", "cliente")
-    )
-    
-    if sucesso:
-        cliente["pontos_fidelidade"] = cliente.get("pontos_fidelidade", 0) - pontos_necessarios
-        dados["clientes"][discord_id] = cliente
-        salvar_dados_github(f"Pontos resgatados por {discord_id}")
-        adicionar_log(f"pontos_resgatados: {discord_id} - Cupom {codigo}")
-        return True, cupom
-    
-    return False, "Erro ao gerar cupom"
 
 # ========================
 # ROTAS DO SITE
@@ -1374,10 +1284,8 @@ def resgatar_pontos_para_cupom(discord_id: str):
 
 @app.route("/", methods=["GET"])
 def home():
-    status_bot = "Bot Online" if bot.is_ready() else "Bot Offline"
+    status_bot = "✅ Bot Online" if bot.is_ready() else "❌ Bot Offline"
     classe_bot = "online" if bot.is_ready() else "offline"
-    
-    pedidos_pendentes = len(obter_pedidos_pendentes())
     
     return f'''
     <!DOCTYPE html>
@@ -1395,22 +1303,22 @@ def home():
             .offline {{ background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }}
             .btn {{ display: inline-block; background: #5865F2; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 10px; transition: all 0.3s; }}
             .btn:hover {{ background: #4752C4; transform: translateY(-2px); }}
+            .btn-success {{ background: #10b981; }}
+            .btn-success:hover {{ background: #059669; }}
             .features {{ text-align: left; margin: 20px 0; padding: 15px; background: #1a1a1a; border-radius: 10px; border: 1px solid #333; }}
             .features h3 {{ color: #5865F2; }}
             .features li {{ margin: 8px 0; padding-left: 10px; list-style: none; }}
             .features li:before {{ content: "✅"; margin-right: 10px; color: #5865F2; }}
+            .btn-group {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px; }}
             code {{ background: #1a1a1a; padding: 2px 6px; border-radius: 4px; color: #4ade80; }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1> Painel de Controle</h1>
+            <h1>🎮 Painel de Controle</h1>
             <div class="status {classe_bot}">{status_bot}</div>
-            <div style="margin: 10px 0; padding: 10px; background: #1a1a1a; border-radius: 8px;">
-                <span style="color: #ffd93d;"> Pedidos Pendentes: {pedidos_pendentes}</span>
-            </div>
             <div class="features">
-                <h3> Funcionalidades:</h3>
+                <h3>🚀 Funcionalidades:</h3>
                 <ul>
                     <li>Sistema de XP e Níveis</li>
                     <li>Reação com Cargos</li>
@@ -1419,15 +1327,12 @@ def home():
                     <li>Botões de Cargos</li>
                     <li>Sistema de Fila de Serviços</li>
                     <li>Anti-Spam Automático</li>
-                    <li>Comandos da Mudae NÃO ganham XP</li>
-                    <li>Comandos /perfil e /rank configuráveis</li>
-                    <li>Sistema de Serviços Wuthering Waves</li>
-                    <li>Cadastro de Clientes com UID</li>
-                    <li>Pedidos e Fila Automática</li>
-                    <li>Sistema de Fidelidade e Cupons</li>
+                    <li>Sistema de Fidelidade</li>
+                    <li>Área do Cliente</li>
+                    <li>Loja de Fidelidade</li>
                 </ul>
             </div>
-            {"<a href='/login' class='btn'> Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn"> Painel</a><a href="/fila" class="btn"> Fila</a><a href="/logout" class="btn"> Sair</a>'}
+            {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><div class="btn-group"><a href="/dashboard" class="btn">🚀 Painel Admin</a><a href="/cliente" class="btn btn-success">👤 Área do Cliente</a><a href="/fila" class="btn">📋 Fila</a><a href="/fidelidade/regras" class="btn">📜 Regras</a><a href="/logout" class="btn">🚪 Sair</a></div>'}
             <p style="margin-top: 20px; color: #888;">Use <code>/perfil</code> e <code>/rank</code> no Discord</p>
         </div>
     </body>
@@ -1476,23 +1381,25 @@ def callback():
         guilds_r = requests.get('https://discord.com/api/users/@me/guilds', headers={'Authorization': f'Bearer {access_token}'})
         guilds = guilds_r.json() if guilds_r.status_code == 200 else []
         
-        is_admin = False
-        for guild in guilds:
-            if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):
-                is_admin = True
-                break
+        is_member = any(str(guild['id']) == GUILD_ID for guild in guilds)
         
-        if not is_admin:
-            return "<h2>Acesso Restrito</h2><p>Apenas administradores podem acessar.</p><a href='/'>Voltar</a>", 403
+        if not is_member:
+            return "<h2>⚠️ Acesso Restrito</h2><p>Você precisa ser membro do servidor para acessar.</p><a href='/'>Voltar</a>", 403
+        
+        is_admin = any(str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8) for guild in guilds)
         
         session['usuario'] = {
             'id': user_data['id'],
             'nome_usuario': user_data['username'],
             'avatar': user_data.get('avatar'),
-            'eh_admin': True
+            'eh_membro': True,
+            'eh_admin': is_admin
         }
         
-        return redirect(url_for('dashboard'))
+        if is_admin:
+            return redirect(url_for('dashboard'))
+        else:
+            return redirect(url_for('cliente_area'))
         
     except Exception as e:
         return f"Erro interno: {str(e)}", 500
@@ -1514,7 +1421,7 @@ def fila_publica():
     
     botoes_html = ""
     for botao in botoes_precos:
-        botoes_html += f'<a href="{escape_html(botao["url"])}" target="_blank" class="btn-link btn-link-precos"> {escape_html(botao["nome"])}</a>'
+        botoes_html += f'<a href="{escape_html(botao["url"])}" target="_blank" class="btn-link btn-link-precos">💰 {escape_html(botao["nome"])}</a>'
     
     return f'''
     <!DOCTYPE html>
@@ -1551,19 +1458,19 @@ def fila_publica():
     <body>
         <div class="container">
             <div class="header">
-                <h1> {escape_html(fila["nome"])}</h1>
-                <span class="status status-{'aberta' if fila['configuracoes']['aberta'] else 'fechada'}">{' ABERTA' if fila['configuracoes']['aberta'] else ' FECHADA'}</span>
-                <div> {len(fila["entradas"])} / {fila["configuracoes"]["tamanho_maximo"]} pessoas</div>
+                <h1>📋 {escape_html(fila["nome"])}</h1>
+                <span class="status status-{'aberta' if fila['configuracoes']['aberta'] else 'fechada'}">{'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'}</span>
+                <div>📊 {len(fila["entradas"])} / {fila["configuracoes"]["tamanho_maximo"]} pessoas</div>
             </div>
             
             <div class="links-container">
-                {'<a href="' + escape_html(links["discord_convite"]) + '" target="_blank" class="btn-link btn-link-discord"> Entrar no Discord</a>' if links.get("discord_convite") else ''}
+                {'<a href="' + escape_html(links["discord_convite"]) + '" target="_blank" class="btn-link btn-link-discord">💬 Entrar no Discord</a>' if links.get("discord_convite") else ''}
                 {botoes_html}
             </div>
             
             <div class="lista-fila">
                 <div class="cabecalho-fila"><span>#</span><span>Jogador</span><span>Serviço</span><span>Jogo</span><span></span></div>
-                {''.join(f'<div class="item-fila"><span class="posicao">{e["posicao"]}</span><span>{escape_html(e["nome_usuario"])}</span><span class="servico">{escape_html(e["servico"])}</span><span class="jogo">{escape_html(e.get("jogo", ""))}</span><span></span></div>' for e in fila["entradas"]) or '<div class="vazio"> Ninguém na fila</div>'}
+                {''.join(f'<div class="item-fila"><span class="posicao">{e["posicao"]}</span><span>{escape_html(e["nome_usuario"])}</span><span class="servico">{escape_html(e["servico"])}</span><span class="jogo">{escape_html(e.get("jogo", ""))}</span><span>⏳</span></div>' for e in fila["entradas"]) or '<div class="vazio">✨ Ninguém na fila</div>'}
             </div>
             <div class="footer">Atualizado a cada 30s • {agora_br().strftime("%d/%m/%Y %H:%M:%S")}</div>
         </div>
@@ -1578,11 +1485,11 @@ def fila_embed():
     for e in fila["entradas"][:10]:
         entradas_html += f'<div style="display:flex;justify-content:space-between;padding:5px 0;"><span style="color:#ffd93d;">#{e["posicao"]}</span><span>{escape_html(e["nome_usuario"])}</span><span style="color:#a8e6cf;">{escape_html(e["servico"])}</span><span style="color:#ffb347;">{escape_html(e.get("jogo", ""))}</span></div>'
     if not entradas_html:
-        entradas_html = '<div style="text-align:center;padding:20px;"> Fila vazia</div>'
+        entradas_html = '<div style="text-align:center;padding:20px;">✨ Fila vazia</div>'
     return f'''
     <!DOCTYPE html>
     <html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="15"><style>body{{margin:0;padding:10px;background:transparent;color:white;font-size:14px;}}.container{{background:rgba(0,0,0,0.7);border-radius:10px;padding:10px;}}</style></head>
-    <body><div class="container"><div style="text-align:center;margin-bottom:10px;"><strong> {escape_html(fila["nome"])}</strong><span style="background:{'#00b894' if fila['configuracoes']['aberta'] else '#d63031'};padding:2px 8px;border-radius:10px;margin-left:5px;">{'ABERTA' if fila['configuracoes']['aberta'] else 'FECHADA'}</span></div>{entradas_html}<div style="text-align:center;margin-top:8px;font-size:10px;color:#888;">Total: {len(fila["entradas"])}</div></div></body>
+    <body><div class="container"><div style="text-align:center;margin-bottom:10px;"><strong>📋 {escape_html(fila["nome"])}</strong><span style="background:{'#00b894' if fila['configuracoes']['aberta'] else '#d63031'};padding:2px 8px;border-radius:10px;margin-left:5px;">{'ABERTA' if fila['configuracoes']['aberta'] else 'FECHADA'}</span></div>{entradas_html}<div style="text-align:center;margin-top:8px;font-size:10px;color:#888;">Total: {len(fila["entradas"])}</div></div></body>
     </html>
     '''
 
@@ -1617,36 +1524,36 @@ def api_fila_adicionar():
 
 @app.route("/api/fila/remover", methods=["POST"])
 def api_fila_remover():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     sucesso, _ = remover_fila(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/mover-cima", methods=["POST"])
 def api_fila_mover_cima():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     sucesso, _ = mover_cima(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/mover-baixo", methods=["POST"])
 def api_fila_mover_baixo():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     sucesso, _ = mover_baixo(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/concluir", methods=["POST"])
 def api_fila_concluir():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     sucesso, _ = concluir_servico(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/limpar", methods=["POST"])
 def api_fila_limpar():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     limpar_fila()
     return jsonify({"sucesso": True})
 
@@ -1656,8 +1563,8 @@ def api_fila_configuracoes():
         fila = obter_dados_fila()
         links = obter_links_fila()
         return jsonify({"sucesso": True, "configuracoes": fila["configuracoes"], "nome": fila["nome"], "links": links})
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     if "aberta" in req:
         alternar_fila(req["aberta"])
@@ -1680,8 +1587,8 @@ def api_fila_botoes():
 
 @app.route("/api/fila/botoes/adicionar", methods=["POST"])
 def api_fila_botoes_adicionar():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     nome = req.get("nome", "").strip()
     url = req.get("url", "").strip()
@@ -1692,8 +1599,8 @@ def api_fila_botoes_adicionar():
 
 @app.route("/api/fila/botoes/remover", methods=["POST"])
 def api_fila_botoes_remover():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     index = request.json.get("index")
     if index is None:
         return jsonify({"sucesso": False, "mensagem": "Índice não informado"})
@@ -1702,8 +1609,8 @@ def api_fila_botoes_remover():
 
 @app.route("/api/fila/botoes/atualizar", methods=["POST"])
 def api_fila_botoes_atualizar():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     index = req.get("index")
     nome = req.get("nome", "").strip()
@@ -1719,8 +1626,8 @@ def api_fila_botoes_atualizar():
 
 @app.route("/api/servidor/canais")
 def api_servidor_canais():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
     if not guild:
         return jsonify({"sucesso": False, "canais": []})
@@ -1728,8 +1635,8 @@ def api_servidor_canais():
 
 @app.route("/api/servidor/cargos")
 def api_servidor_cargos():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
     if not guild:
         return jsonify({"sucesso": False, "cargos": []})
@@ -1737,8 +1644,8 @@ def api_servidor_cargos():
 
 @app.route("/api/servidor/membros")
 def api_servidor_membros():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID and bot.is_ready() else None
     if not guild:
         return jsonify({"sucesso": False, "membros": []})
@@ -1747,8 +1654,8 @@ def api_servidor_membros():
 
 @app.route("/api/anti_spam", methods=["GET", "POST"])
 def api_anti_spam():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
         anti_spam = dados.get("anti_spam", {})
@@ -1777,8 +1684,8 @@ def api_anti_spam():
 
 @app.route("/api/config/boasvindas", methods=["GET", "POST"])
 def api_config_boasvindas():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
         config = dados.get("config", {})
@@ -1795,8 +1702,8 @@ def api_config_boasvindas():
 
 @app.route("/api/config/xp", methods=["GET", "POST"])
 def api_config_xp():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
         config = dados.get("config", {})
@@ -1812,8 +1719,8 @@ def api_config_xp():
 
 @app.route("/api/config/comandos", methods=["GET", "POST"])
 def api_config_comandos():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
         config = dados.get("config", {})
@@ -1829,8 +1736,8 @@ def api_config_comandos():
 
 @app.route("/api/cargos/nivel", methods=["GET", "POST", "DELETE"])
 def api_cargos_nivel():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
         return jsonify({"sucesso": True, "cargos": dados.get("cargos_nivel", {})})
@@ -1848,8 +1755,8 @@ def api_cargos_nivel():
 
 @app.route("/api/config/links", methods=["GET", "POST"])
 def api_config_links():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
         return jsonify({"sucesso": True, "canais": dados.get("canais_links_bloqueados", [])})
@@ -1864,455 +1771,2415 @@ def api_config_links():
 
 @app.route("/api/comando/embed", methods=["POST"])
 def api_comando_embed():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     sucesso = executar_acao_bot("criar_embed", **req)
-    return jsonify({"sucesso": sucesso, "mensagem": "Embed criada!" if sucesso else "Falha"})
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Embed criada!" if sucesso else "❌ Falha"})
 
 @app.route("/api/comando/advertir", methods=["POST"])
 def api_comando_advertir():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     sucesso = executar_acao_bot("advertir_membro", membro_id=req.get('membro_id'), motivo=req.get('motivo'), admin=session['usuario']['nome_usuario'])
-    return jsonify({"sucesso": sucesso, "mensagem": "Advertência aplicada!" if sucesso else "Falha"})
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Advertência aplicada!" if sucesso else "❌ Falha"})
 
 @app.route("/api/comando/limpar_advertencias", methods=["POST"])
 def api_comando_limpar_advertencias():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     membro_id = str(request.json.get('membro_id'))
     if membro_id in dados.get("advertencias", {}):
         dados["advertencias"].pop(membro_id)
         salvar_dados_github(f"Advertências limpas: {membro_id}")
-        return jsonify({"sucesso": True, "mensagem": "Advertências removidas!"})
-    return jsonify({"sucesso": False, "mensagem": "Membro sem advertências"})
+        return jsonify({"sucesso": True, "mensagem": "✅ Advertências removidas!"})
+    return jsonify({"sucesso": False, "mensagem": "❌ Membro sem advertências"})
 
 @app.route("/api/reacao_cargo/criar", methods=["POST"])
 def api_reacao_cargo_criar():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     sucesso = executar_acao_bot("criar_reacao_cargo", **req)
-    return jsonify({"sucesso": sucesso, "mensagem": "Reaction role criada!" if sucesso else "Falha"})
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Reaction role criada!" if sucesso else "❌ Falha"})
 
 @app.route("/api/botoes_cargo/criar", methods=["POST"])
 def api_botoes_cargo_criar():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     req = request.json
     sucesso = executar_acao_bot("criar_botoes_cargo", **req)
-    return jsonify({"sucesso": sucesso, "mensagem": "Botões criados!" if sucesso else "Falha"})
+    return jsonify({"sucesso": sucesso, "mensagem": "✅ Botões criados!" if sucesso else "❌ Falha"})
 
 # ========================
-# NOVAS APIS PARA SISTEMA DE SERVIÇOS WW
+# APIs PARA SISTEMA DE CLIENTES E SERVIÇOS
 # ========================
 
-@app.route("/api/clientes", methods=["GET", "POST"])
-def api_clientes():
+@app.route("/api/cliente/status", methods=["GET"])
+def api_cliente_status():
     if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
     
-    if request.method == "GET":
-        return jsonify({"sucesso": True, "clientes": dados.get("clientes", {})})
-    
-    req = request.json
-    discord_id = req.get("discord_id")
-    uid = req.get("uid")
-    nome_ingame = req.get("nome_ingame")
-    
-    if not discord_id or not uid:
-        return jsonify({"sucesso": False, "mensagem": "Discord ID e UID são obrigatórios"})
-    
-    guild = bot.get_guild(int(GUILD_ID)) if GUILD_ID else None
-    nome_discord = "Desconhecido"
-    if guild:
-        member = guild.get_member(int(discord_id))
-        if member:
-            nome_discord = member.display_name
-    
-    sucesso, cliente = cadastrar_cliente(discord_id, nome_discord, uid, nome_ingame)
-    return jsonify({"sucesso": sucesso, "mensagem": "Cliente cadastrado!" if sucesso else cliente, "cliente": cliente if sucesso else None})
-
-@app.route("/api/clientes/<discord_id>")
-def api_cliente(discord_id):
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    discord_id = session['usuario']['id']
     cliente = obter_cliente(discord_id)
+    
     if not cliente:
-        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
-    return jsonify({"sucesso": True, "cliente": cliente})
-
-@app.route("/api/pedidos", methods=["GET", "POST"])
-def api_pedidos():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+        return jsonify({"sucesso": False, "cadastrado": False})
     
-    if request.method == "GET":
-        status = request.args.get("status")
-        pedidos = list(dados.get("pedidos", {}).values())
-        if status:
-            pedidos = [p for p in pedidos if p.get("status") == status]
-        return jsonify({"sucesso": True, "pedidos": pedidos})
+    return jsonify({
+        "sucesso": True,
+        "cadastrado": True,
+        "cliente": {
+            "discord_id": cliente.get("discord_id"),
+            "discord_nome": cliente.get("discord_nome"),
+            "uid": cliente.get("uid"),
+            "nick_jogo": cliente.get("nick_jogo"),
+            "pontos": cliente.get("pontos", 0),
+            "total_acumulado": cliente.get("total_acumulado", 0),
+            "total_utilizado": cliente.get("total_utilizado", 0),
+            "ultima_compra": cliente.get("ultima_compra"),
+            "ultimo_resgate": cliente.get("ultimo_resgate")
+        }
+    })
+
+@app.route("/api/cliente/cadastrar", methods=["POST"])
+def api_cliente_cadastrar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
     
     req = request.json
-    discord_id = req.get("discord_id")
-    servico = req.get("servico")
-    valor = req.get("valor")
-    jogo = req.get("jogo", "Wuthering Waves")
-    observacoes = req.get("observacoes", "")
-    cupom = req.get("cupom")
+    uid = req.get("uid", "").strip()
+    nick_jogo = req.get("nick_jogo", "").strip()
     
-    if not discord_id or not servico or not valor:
-        return jsonify({"sucesso": False, "mensagem": "Dados incompletos"})
+    if not uid or not nick_jogo:
+        return jsonify({"sucesso": False, "mensagem": "UID e Nick do jogo são obrigatórios"})
     
-    sucesso, pedido = criar_pedido(discord_id, servico, float(valor), jogo, observacoes, cupom)
-    return jsonify({
-        "sucesso": sucesso,
-        "mensagem": "Pedido criado!" if sucesso else pedido,
-        "pedido": pedido if sucesso else None
-    })
-
-@app.route("/api/pedidos/<pedido_id>/aprovar", methods=["POST"])
-def api_aprovar_pedido(pedido_id):
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    aprovado_por = session['usuario']['nome_usuario']
-    sucesso, pedido = aprovar_pedido(pedido_id, aprovado_por)
-    return jsonify({
-        "sucesso": sucesso,
-        "mensagem": "Pedido aprovado e adicionado à fila!" if sucesso else pedido,
-        "pedido": pedido if sucesso else None
-    })
-
-@app.route("/api/pedidos/<pedido_id>/concluir", methods=["POST"])
-def api_concluir_pedido(pedido_id):
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    sucesso, pedido = concluir_pedido(pedido_id)
-    return jsonify({
-        "sucesso": sucesso,
-        "mensagem": "Pedido concluído!" if sucesso else pedido,
-        "pedido": pedido if sucesso else None
-    })
-
-@app.route("/api/pedidos/<pedido_id>/cancelar", methods=["POST"])
-def api_cancelar_pedido(pedido_id):
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    motivo = request.json.get("motivo", "")
-    sucesso, pedido = cancelar_pedido(pedido_id, motivo)
-    return jsonify({
-        "sucesso": sucesso,
-        "mensagem": "Pedido cancelado!" if sucesso else pedido,
-        "pedido": pedido if sucesso else None
-    })
-
-@app.route("/api/pedidos/cliente/<discord_id>")
-def api_pedidos_cliente(discord_id):
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    pedidos = obter_pedidos_cliente(discord_id)
-    return jsonify({"sucesso": True, "pedidos": pedidos})
-
-@app.route("/api/cupons", methods=["GET", "POST"])
-def api_cupons():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+    discord_id = session['usuario']['id']
+    discord_nome = session['usuario']['nome_usuario']
     
-    if request.method == "GET":
-        return jsonify({"sucesso": True, "cupons": listar_cupons()})
+    # Verificar se já está cadastrado
+    if obter_cliente(discord_id):
+        return jsonify({"sucesso": False, "mensagem": "Você já está cadastrado"})
     
+    sucesso, mensagem = criar_cliente(discord_id, discord_nome, uid, nick_jogo)
+    return jsonify({"sucesso": sucesso, "mensagem": mensagem})
+
+@app.route("/api/cliente/atualizar", methods=["POST"])
+def api_cliente_atualizar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    discord_id = session['usuario']['id']
     req = request.json
-    codigo = req.get("codigo")
-    desconto = req.get("desconto")
-    tipo = req.get("tipo", "percentual")
-    limite_usos = req.get("limite_usos", 1)
-    expiracao_dias = req.get("expiracao_dias", 30)
     
-    if not codigo or not desconto:
-        return jsonify({"sucesso": False, "mensagem": "Código e desconto são obrigatórios"})
-    
-    sucesso, cupom = criar_cupom(codigo, float(desconto), tipo, int(limite_usos), int(expiracao_dias), session['usuario']['nome_usuario'])
-    return jsonify({
-        "sucesso": sucesso,
-        "mensagem": "Cupom criado!" if sucesso else cupom,
-        "cupom": cupom if sucesso else None
-    })
+    sucesso, mensagem = atualizar_cliente(discord_id, **req)
+    return jsonify({"sucesso": sucesso, "mensagem": mensagem})
 
-@app.route("/api/cupons/<codigo>/validar")
-def api_validar_cupom(codigo):
-    sucesso, resultado = validar_cupom(codigo)
-    return jsonify({"sucesso": sucesso, "mensagem": "Cupom válido!" if sucesso else resultado, "cupom": resultado if sucesso else None})
-
-@app.route("/api/fidelidade/<discord_id>")
-def api_fidelidade(discord_id):
+@app.route("/api/cliente/historico")
+def api_cliente_historico():
     if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    discord_id = session['usuario']['id']
     cliente = obter_cliente(discord_id)
+    
     if not cliente:
         return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
     
     return jsonify({
         "sucesso": True,
-        "fidelidade": {
-            "nivel": cliente.get("nivel_fidelidade", "bronze"),
-            "pontos": cliente.get("pontos_fidelidade", 0),
-            "total_gasto": cliente.get("total_gasto", 0),
-            "desconto": obter_desconto_fidelidade(cliente.get("total_gasto", 0)),
-            "pontos_para_cupom": dados.get("fidelidade", {}).get("pontos_necessarios_cupom", 1000)
-        }
+        "historico": cliente.get("historico", [])[-50:]  # Últimos 50 itens
     })
+
+@app.route("/api/cliente/cupons")
+def api_cliente_cupons():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    discord_id = session['usuario']['id']
+    cliente = obter_cliente(discord_id)
+    
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
+    
+    cupons_cliente = []
+    todos_cupons = dados.get("fidelidade", {}).get("cupons", {})
+    
+    for codigo in cliente.get("cupons", []):
+        if codigo in todos_cupons:
+            cupons_cliente.append(todos_cupons[codigo])
+    
+    return jsonify({"sucesso": True, "cupons": cupons_cliente})
+
+@app.route("/api/cliente/servicos_andamento")
+def api_cliente_servicos_andamento():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    discord_id = session['usuario']['id']
+    cliente = obter_cliente(discord_id)
+    
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
+    
+    return jsonify({
+        "sucesso": True,
+        "servicos": cliente.get("servicos_andamento", [])
+    })
+
+# ========================
+# APIs DE SERVIÇOS
+# ========================
+
+@app.route("/api/servicos", methods=["GET"])
+def api_servicos_listar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    servicos = dados.get("servicos", {})
+    mostrar_inativos = session['usuario'].get('eh_admin', False)
+    
+    lista = []
+    for sid, servico in servicos.items():
+        if not mostrar_inativos and servico.get("status") != "ativo":
+            continue
+        lista.append(servico)
+    
+    return jsonify({"sucesso": True, "servicos": lista})
+
+@app.route("/api/servicos", methods=["POST"])
+def api_servicos_criar():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    req = request.json
+    sucesso, resultado = criar_servico(
+        req.get("nome", ""),
+        req.get("categoria", ""),
+        req.get("descricao", ""),
+        float(req.get("valor", 0)),
+        int(req.get("pontos", 0)),
+        req.get("imagem", "")
+    )
+    return jsonify({"sucesso": sucesso, "mensagem": "Serviço criado!" if sucesso else resultado, "id": resultado if sucesso else None})
+
+@app.route("/api/servicos/<id_servico>", methods=["PUT", "DELETE"])
+def api_servicos_editar(id_servico):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    if request.method == "DELETE":
+        sucesso, mensagem = excluir_servico(id_servico)
+        return jsonify({"sucesso": sucesso, "mensagem": mensagem})
+    
+    req = request.json
+    sucesso, mensagem = atualizar_servico(id_servico, **req)
+    return jsonify({"sucesso": sucesso, "mensagem": mensagem})
+
+# ========================
+# APIs DE SOLICITAÇÕES
+# ========================
+
+@app.route("/api/solicitacoes", methods=["GET"])
+def api_solicitacoes_listar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    solicitacoes = dados.get("solicitacoes", {})
+    is_admin = session['usuario'].get('eh_admin', False)
+    discord_id = session['usuario']['id']
+    
+    lista = []
+    for sid, solicitacao in solicitacoes.items():
+        if is_admin:
+            lista.append(solicitacao)
+        elif solicitacao.get("cliente_id") == discord_id:
+            lista.append(solicitacao)
+    
+    # Ordenar por data mais recente
+    lista.sort(key=lambda x: x.get("data_solicitacao", ""), reverse=True)
+    
+    return jsonify({"sucesso": True, "solicitacoes": lista})
+
+@app.route("/api/solicitacoes", methods=["POST"])
+def api_solicitacoes_criar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
+    
+    req = request.json
+    discord_id = session['usuario']['id']
+    
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Você precisa estar cadastrado"})
+    
+    sucesso, resultado = criar_solicitacao(
+        discord_id,
+        req.get("servico_id", ""),
+        req.get("jogo", ""),
+        req.get("observacoes", ""),
+        req.get("cupom_codigo", "")
+    )
+    return jsonify({"sucesso": sucesso, "mensagem": "Solicitação enviada!" if sucesso else resultado, "id": resultado if sucesso else None})
+
+@app.route("/api/solicitacoes/<id_solicitacao>/aprovar", methods=["POST"])
+def api_solicitacoes_aprovar(id_solicitacao):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    admin_id = session['usuario']['id']
+    sucesso, resultado = aprovar_solicitacao(id_solicitacao, admin_id)
+    return jsonify({"sucesso": sucesso, "mensagem": "Solicitação aprovada!" if sucesso else resultado})
+
+@app.route("/api/solicitacoes/<id_solicitacao>/recusar", methods=["POST"])
+def api_solicitacoes_recusar(id_solicitacao):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    req = request.json
+    admin_id = session['usuario']['id']
+    motivo = req.get("motivo", "Sem motivo informado")
+    sucesso, resultado = recusar_solicitacao(id_solicitacao, motivo, admin_id)
+    return jsonify({"sucesso": sucesso, "mensagem": resultado})
+
+@app.route("/api/solicitacoes/<id_solicitacao>/concluir", methods=["POST"])
+def api_solicitacoes_concluir(id_solicitacao):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    admin_id = session['usuario']['id']
+    sucesso, resultado = concluir_solicitacao(id_solicitacao, admin_id)
+    return jsonify({"sucesso": sucesso, "mensagem": resultado})
+
+# ========================
+# APIs DE FIDELIDADE
+# ========================
+
+@app.route("/api/fidelidade/config", methods=["GET", "POST"])
+def api_fidelidade_config():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    if request.method == "GET":
+        return jsonify({
+            "sucesso": True,
+            "config": dados.get("fidelidade", {})
+        })
+    
+    req = request.json
+    fidelidade = dados.setdefault("fidelidade", {})
+    
+    if "pontos_por_real" in req:
+        fidelidade["pontos_por_real"] = float(req["pontos_por_real"])
+    
+    salvar_dados_github("Configuração de fidelidade atualizada")
+    return jsonify({"sucesso": True, "mensagem": "Configuração salva!"})
+
+@app.route("/api/fidelidade/recompensas", methods=["GET", "POST", "DELETE"])
+def api_fidelidade_recompensas():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    fidelidade = dados.setdefault("fidelidade", {})
+    
+    if request.method == "GET":
+        return jsonify({"sucesso": True, "recompensas": fidelidade.get("recompensas", [])})
+    
+    elif request.method == "POST":
+        req = request.json
+        recompensa = {
+            "id": str(int(datetime.now().timestamp())),
+            "nome": req.get("nome", ""),
+            "pontos": int(req.get("pontos", 0)),
+            "descricao": req.get("descricao", ""),
+            "tipo": req.get("tipo", "desconto"),
+            "valor": req.get("valor", ""),
+            "status": "ativo"
+        }
+        fidelidade.setdefault("recompensas", []).append(recompensa)
+        salvar_dados_github(f"Recompensa adicionada: {recompensa['nome']}")
+        return jsonify({"sucesso": True, "mensagem": "Recompensa adicionada!", "recompensa": recompensa})
+    
+    elif request.method == "DELETE":
+        recompensa_id = request.args.get("id")
+        if not recompensa_id:
+            return jsonify({"sucesso": False, "mensagem": "ID da recompensa necessário"})
+        
+        recompensas = fidelidade.get("recompensas", [])
+        for i, r in enumerate(recompensas):
+            if r.get("id") == recompensa_id:
+                recompensas.pop(i)
+                salvar_dados_github(f"Recompensa removida: {r.get('nome')}")
+                return jsonify({"sucesso": True, "mensagem": "Recompensa removida!"})
+        
+        return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
+
+@app.route("/api/fidelidade/recompensas/<recompensa_id>", methods=["PUT"])
+def api_fidelidade_recompensa_editar(recompensa_id):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    req = request.json
+    fidelidade = dados.setdefault("fidelidade", {})
+    recompensas = fidelidade.get("recompensas", [])
+    
+    for i, r in enumerate(recompensas):
+        if r.get("id") == recompensa_id:
+            for key, value in req.items():
+                if key in r:
+                    r[key] = value
+            salvar_dados_github(f"Recompensa atualizada: {r.get('nome')}")
+            return jsonify({"sucesso": True, "mensagem": "Recompensa atualizada!"})
+    
+    return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
 
 @app.route("/api/fidelidade/resgatar", methods=["POST"])
-def api_resgatar_cupom():
+def api_fidelidade_resgatar():
     if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    discord_id = request.json.get("discord_id")
-    if not discord_id:
-        return jsonify({"sucesso": False, "mensagem": "Discord ID é obrigatório"})
+        return jsonify({"sucesso": False, "mensagem": "Não logado"}), 401
     
-    sucesso, resultado = resgatar_pontos_para_cupom(discord_id)
-    return jsonify({
-        "sucesso": sucesso,
-        "mensagem": "Cupom resgatado!" if sucesso else resultado,
-        "cupom": resultado if sucesso else None
-    })
-
-@app.route("/api/servicos/disponiveis")
-def api_servicos_disponiveis():
-    return jsonify({"sucesso": True, "servicos": obter_servicos_disponiveis()})
-
-@app.route("/api/servicos/categorias")
-def api_servicos_categorias():
-    return jsonify({"sucesso": True, "categorias": obter_categorias_servicos()})
-
-@app.route("/api/fila_servicos")
-def api_fila_servicos():
-    fila = obter_fila_servicos()
+    req = request.json
+    recompensa_id = req.get("recompensa_id")
+    discord_id = session['usuario']['id']
+    
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
+    
+    fidelidade = dados.get("fidelidade", {})
+    recompensas = fidelidade.get("recompensas", [])
+    
+    recompensa = None
+    for r in recompensas:
+        if r.get("id") == recompensa_id and r.get("status") == "ativo":
+            recompensa = r
+            break
+    
+    if not recompensa:
+        return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada ou indisponível"})
+    
+    pontos_necessarios = recompensa.get("pontos", 0)
+    if cliente.get("pontos", 0) < pontos_necessarios:
+        return jsonify({"sucesso": False, "mensagem": f"Pontos insuficientes. Você tem {cliente.get('pontos', 0)} pontos"})
+    
+    # Remover pontos
+    sucesso, mensagem = remover_pontos_cliente(discord_id, pontos_necessarios, f"Resgate: {recompensa.get('nome')}")
+    if not sucesso:
+        return jsonify({"sucesso": False, "mensagem": mensagem})
+    
+    # Criar cupom
+    tipo = recompensa.get("tipo", "desconto")
+    valor = recompensa.get("valor", "")
+    sucesso, cupom = criar_cupom(discord_id, tipo, valor)
+    
+    if not sucesso:
+        return jsonify({"sucesso": False, "mensagem": "Erro ao criar cupom"})
+    
     return jsonify({
         "sucesso": True,
-        "fila": {
-            "nome": fila["nome"],
-            "aberta": fila["configuracoes"]["aberta"],
-            "tamanho_maximo": fila["configuracoes"]["tamanho_maximo"],
-            "contagem": len(fila["entradas"]),
-            "entradas": [{"posicao": e["posicao"], "nome_usuario": e["nome_usuario"], "servico": e["servico"], "jogo": e.get("jogo", ""), "pedido_id": e.get("pedido_id"), "timestamp": e["timestamp"], "id": e["id"]} for e in fila["entradas"]]
-        }
+        "mensagem": f"Recompensa resgatada! Código: {cupom.get('codigo')}",
+        "cupom": cupom
     })
 
-@app.route("/api/fila_servicos/adicionar", methods=["POST"])
-def api_fila_servicos_adicionar():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    req = request.json
-    nome = req.get("nome_usuario", "").strip()
-    servico = req.get("servico", "").strip()
-    jogo = req.get("jogo", "Wuthering Waves")
-    pedido_id = req.get("pedido_id")
+# ========================
+# APIs DE CLIENTES (ADMIN)
+# ========================
+
+@app.route("/api/admin/clientes", methods=["GET"])
+def api_admin_clientes():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
-    if not nome or not servico:
-        return jsonify({"sucesso": False, "mensagem": "Nome e serviço são obrigatórios"})
+    clientes = dados.get("clientes", {})
+    return jsonify({"sucesso": True, "clientes": list(clientes.values())})
+
+@app.route("/api/admin/clientes/<discord_id>", methods=["GET", "PUT"])
+def api_admin_cliente(discord_id):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
-    sucesso, entrada = adicionar_fila_servicos(nome, servico, jogo, nome, pedido_id)
-    return jsonify({"sucesso": sucesso, "mensagem": f"{nome} adicionado!" if sucesso else entrada})
+    if request.method == "GET":
+        cliente = obter_cliente(discord_id)
+        if not cliente:
+            return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
+        return jsonify({"sucesso": True, "cliente": cliente})
+    
+    elif request.method == "PUT":
+        req = request.json
+        sucesso, mensagem = atualizar_cliente(discord_id, **req)
+        return jsonify({"sucesso": sucesso, "mensagem": mensagem})
 
-@app.route("/api/fila_servicos/remover", methods=["POST"])
-def api_fila_servicos_remover():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    entrada_id = request.json.get("entrada_id")
-    if not entrada_id:
-        return jsonify({"sucesso": False, "mensagem": "ID da entrada é obrigatório"})
-    sucesso, _ = remover_fila_servicos(entrada_id)
-    return jsonify({"sucesso": sucesso})
-
-@app.route("/api/fila_servicos/concluir", methods=["POST"])
-def api_fila_servicos_concluir():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    entrada_id = request.json.get("entrada_id")
-    if not entrada_id:
-        return jsonify({"sucesso": False, "mensagem": "ID da entrada é obrigatório"})
-    sucesso, entrada = concluir_fila_servicos(entrada_id)
-    return jsonify({"sucesso": sucesso, "mensagem": "Serviço concluído!" if sucesso else entrada})
-
-@app.route("/api/fila_servicos/configuracoes", methods=["POST"])
-def api_fila_servicos_configuracoes():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
+@app.route("/api/admin/clientes/<discord_id>/pontos", methods=["POST"])
+def api_admin_cliente_pontos(discord_id):
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
     req = request.json
-    fila = obter_fila_servicos()
-    if "aberta" in req:
-        fila["configuracoes"]["aberta"] = req["aberta"]
-    if "tamanho_maximo" in req:
-        fila["configuracoes"]["tamanho_maximo"] = max(1, min(int(req["tamanho_maximo"]), 100))
-    if "nome" in req:
-        fila["nome"] = req["nome"][:50]
-    salvar_dados_github("Config fila serviços WW atualizada")
-    return jsonify({"sucesso": True})
+    pontos = int(req.get("pontos", 0))
+    acao = req.get("acao", "adicionar")
+    
+    if acao == "adicionar":
+        sucesso, mensagem = adicionar_pontos_cliente(discord_id, pontos, req.get("motivo", "Admin"))
+    elif acao == "remover":
+        sucesso, mensagem = remover_pontos_cliente(discord_id, pontos, req.get("motivo", "Admin"))
+    else:
+        return jsonify({"sucesso": False, "mensagem": "Ação inválida"})
+    
+    return jsonify({"sucesso": sucesso, "mensagem": mensagem})
+
+@app.route("/api/admin/solicitacoes", methods=["GET"])
+def api_admin_solicitacoes():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    solicitacoes = dados.get("solicitacoes", {})
+    return jsonify({"sucesso": True, "solicitacoes": list(solicitacoes.values())})
 
 # ========================
-# DASHBOARD PRINCIPAL (VERSÃO SIMPLIFICADA)
+# DASHBOARD PRINCIPAL (ADMIN)
 # ========================
 
 @app.route("/dashboard")
 def dashboard():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin'):
         return redirect(url_for('login'))
     
-    return '''
+    usuario = session['usuario']
+    config = dados.get("config", {})
+    fila = obter_dados_fila()
+    anti_spam = dados.get("anti_spam", {})
+    links = obter_links_fila()
+    botoes_precos = links.get("botoes_precos", [])
+    clientes = dados.get("clientes", {})
+    servicos = dados.get("servicos", {})
+    solicitacoes = dados.get("solicitacoes", {})
+    fidelidade = dados.get("fidelidade", {})
+    recompensas = fidelidade.get("recompensas", [])
+    
+    botoes_precos_json = json.dumps(botoes_precos)
+    recompensas_json = json.dumps(recompensas)
+    servicos_json = json.dumps(list(servicos.values()))
+    solicitacoes_pendentes = json.dumps([s for s in solicitacoes.values() if s.get("status") == "pendente"])
+    
+    return f'''
     <!DOCTYPE html>
-    <html>
+    <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
-        <title>Dashboard</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Painel Admin - Bot</title>
         <style>
-            body { font-family: Arial, sans-serif; background: #0a0a0a; color: #fff; padding: 20px; }
-            .container { max-width: 1200px; margin: 0 auto; }
-            .card { background: #1a1a1a; padding: 20px; border-radius: 10px; margin: 10px 0; border: 1px solid #333; }
-            .btn { background: #5865F2; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 5px; }
-            .btn:hover { background: #4752C4; }
-            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
-            .stat { background: #2a2a2a; padding: 20px; border-radius: 10px; text-align: center; }
-            .stat h2 { margin: 0; color: #5865F2; }
-            .tab-nav { display: flex; gap: 10px; flex-wrap: wrap; margin: 20px 0; }
-            .tab-btn { padding: 10px 20px; background: #333; border: none; border-radius: 5px; color: #fff; cursor: pointer; }
-            .tab-btn.active { background: #5865F2; }
-            .tab { display: none; }
-            .tab.active { display: block; }
+            :root {{ --primary: #5865F2; --primary-dark: #4752C4; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; --dark: #1a1a1a; --darker: #121212; --light: #e0e0e0; --gray: #333; }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: 'Segoe UI', sans-serif; background: var(--darker); color: var(--light); }}
+            header {{ background: var(--dark); padding: 1rem 2rem; border-bottom: 1px solid var(--gray); }}
+            .header-content {{ display: flex; justify-content: space-between; align-items: center; max-width: 1400px; margin: 0 auto; flex-wrap: wrap; gap: 10px; }}
+            h1 {{ color: var(--primary); }}
+            .user-info {{ display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }}
+            .avatar {{ width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--primary); }}
+            .btn {{ padding: 0.5rem 1rem; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.2s; font-size: 0.9rem; }}
+            .btn-primary {{ background: var(--primary); color: white; }}
+            .btn-primary:hover {{ background: var(--primary-dark); }}
+            .btn-success {{ background: var(--success); color: white; }}
+            .btn-success:hover {{ background: #059669; }}
+            .btn-danger {{ background: var(--danger); color: white; }}
+            .btn-danger:hover {{ background: #dc2626; }}
+            .btn-warning {{ background: var(--warning); color: white; }}
+            .btn-warning:hover {{ background: #d97706; }}
+            .btn-sm {{ padding: 0.25rem 0.5rem; font-size: 0.8rem; }}
+            .btn-xs {{ padding: 0.15rem 0.4rem; font-size: 0.7rem; }}
+            .container {{ max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }}
+            .tab-nav {{ display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 2px solid var(--gray); flex-wrap: wrap; }}
+            .tab-btn {{ padding: 0.75rem 1.5rem; background: var(--gray); border: none; border-radius: 5px 5px 0 0; cursor: pointer; font-weight: 600; color: var(--light); transition: all 0.2s; }}
+            .tab-btn:hover {{ background: #444; }}
+            .tab-btn.active {{ background: var(--primary); color: white; }}
+            .tab {{ display: none; animation: fadeIn 0.3s; }}
+            .tab.active {{ display: block; }}
+            @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+            .card {{ background: var(--dark); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; border: 1px solid var(--gray); }}
+            .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }}
+            .stat-card {{ background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.5rem; border-radius: 10px; text-align: center; }}
+            .stat-card h3 {{ font-size: 2rem; }}
+            .form-group {{ margin-bottom: 1.5rem; }}
+            label {{ display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--primary); }}
+            .form-control {{ width: 100%; padding: 0.75rem; background: var(--darker); border: 1px solid var(--gray); border-radius: 5px; color: var(--light); }}
+            .form-control:focus {{ outline: none; border-color: var(--primary); }}
+            .form-control option {{ background: var(--darker); }}
+            .alert {{ padding: 1rem; border-radius: 5px; margin: 1rem 0; display: none; }}
+            .alert-success {{ background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }}
+            .alert-error {{ background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid var(--gray); }}
+            th {{ background: var(--gray); }}
+            .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }}
+            .grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
+            .grid-4 {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }}
+            @media (max-width: 768px) {{ .grid-2, .grid-3, .grid-4 {{ grid-template-columns: 1fr; }} }}
+            .switch {{ position: relative; display: inline-block; width: 60px; height: 34px; }}
+            .switch input {{ opacity: 0; width: 0; height: 0; }}
+            .slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }}
+            .slider:before {{ position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }}
+            input:checked + .slider {{ background-color: #2196F3; }}
+            input:checked + .slider:before {{ transform: translateX(26px); }}
+            .info-box {{ background: #1a1a2e; border-left: 4px solid #5865F2; padding: 1rem; margin: 1rem 0; border-radius: 5px; }}
+            .config-badge {{ display: inline-block; background: #2196F3; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 5px; }}
+            .botoes-lista {{ display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }}
+            .botao-item {{ background: #1a1a1a; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }}
+            .botao-info {{ flex: 1; }}
+            .botao-nome {{ font-weight: bold; color: #f59e0b; }}
+            .botao-url {{ font-size: 12px; color: #888; word-break: break-all; }}
+            .botao-acoes {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+            .status-badge {{ padding: 2px 10px; border-radius: 20px; font-size: 12px; }}
+            .status-ativo {{ background: #1a472a; color: #4ade80; }}
+            .status-inativo {{ background: #7f1d1d; color: #f87171; }}
+            .status-pendente {{ background: #7f6d1d; color: #fbbf24; }}
+            .status-aprovado {{ background: #1a472a; color: #4ade80; }}
+            .status-concluido {{ background: #1a3a6a; color: #60a5fa; }}
+            .status-recusado {{ background: #7f1d1d; color: #f87171; }}
+            .modal {{ display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; }}
+            .modal.active {{ display: flex; }}
+            .modal-content {{ background: var(--dark); padding: 2rem; border-radius: 10px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; border: 1px solid var(--gray); }}
+            .modal-close {{ float: right; background: none; border: none; color: var(--light); font-size: 1.5rem; cursor: pointer; }}
+            .scroll-table {{ overflow-x: auto; }}
         </style>
     </head>
     <body>
+        <header>
+            <div class="header-content">
+                <h1>🎮 Painel Admin</h1>
+                <div class="user-info">
+                    <img src="https://cdn.discordapp.com/avatars/{usuario['id']}/{usuario.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <span>{usuario['nome_usuario']}</span>
+                    <a href="/" class="btn btn-primary">🏠 Início</a>
+                    <a href="/cliente" class="btn btn-success">👤 Área Cliente</a>
+                    <a href="/fila" class="btn btn-primary">📋 Fila</a>
+                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
+                </div>
+            </div>
+        </header>
+        
         <div class="container">
-            <h1> Dashboard</h1>
-            <div class="card">
-                <div class="grid">
-                    <div class="stat"><h2>''' + str(len(dados.get("clientes", {}))) + '''</h2><p>Clientes</p></div>
-                    <div class="stat"><h2>''' + str(len(obter_pedidos_pendentes())) + '''</h2><p>Pedidos Pendentes</p></div>
-                    <div class="stat"><h2>''' + str(len(dados.get("pedidos", {}))) + '''</h2><p>Total Pedidos</p></div>
-                    <div class="stat"><h2>''' + str(len(dados.get("cupons", {}))) + '''</h2><p>Cupons</p></div>
-                </div>
-            </div>
             <div class="tab-nav">
-                <button class="tab-btn active" onclick="showTab('clientes')">Clientes</button>
-                <button class="tab-btn" onclick="showTab('pedidos')">Pedidos</button>
-                <button class="tab-btn" onclick="showTab('cupons')">Cupons</button>
-                <button class="tab-btn" onclick="showTab('fila_ww')">Fila WW</button>
+                <button class="tab-btn active" onclick="showTab('inicio')">🏠 Início</button>
+                <button class="tab-btn" onclick="showTab('servicos')">🛒 Serviços</button>
+                <button class="tab-btn" onclick="showTab('solicitacoes')">📋 Solicitações</button>
+                <button class="tab-btn" onclick="showTab('clientes')">👥 Clientes</button>
+                <button class="tab-btn" onclick="showTab('fidelidade')">⭐ Fidelidade</button>
+                <button class="tab-btn" onclick="showTab('fila')">📋 Fila</button>
+                <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos</button>
+                <button class="tab-btn" onclick="showTab('configuracoes')">⚙️ Configurações</button>
             </div>
-            <div id="clientes" class="tab active">
-                <div class="card">
-                    <h2>Clientes Cadastrados</h2>
-                    <div id="clientes-lista"></div>
+            
+            <!-- Aba Início -->
+            <div id="inicio" class="tab active">
+                <div class="grid-3">
+                    <div class="card">
+                        <h2>📊 Estatísticas</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card"><h3>{len(clientes)}</h3><p>Clientes</p></div>
+                            <div class="stat-card"><h3>{len(servicos)}</h3><p>Serviços</p></div>
+                            <div class="stat-card"><h3>{len([s for s in solicitacoes.values() if s.get('status') == 'pendente'])}</h3><p>Solicitações Pendentes</p></div>
+                            <div class="stat-card"><h3>{len(fila['entradas'])}</h3><p>Na Fila</p></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>⚡ Status</h2>
+                        <p><strong>Bot:</strong> {'✅ Online' if bot.is_ready() else '❌ Offline'}</p>
+                        <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
+                        <p><strong>Pontos por R$:</strong> {fidelidade.get('pontos_por_real', 1)}</p>
+                        <p><strong>Total de Cupons:</strong> {len(fidelidade.get('cupons', {}))}</p>
+                    </div>
+                    <div class="card">
+                        <h2>📜 Regras</h2>
+                        <a href="/fidelidade/regras" class="btn btn-primary" target="_blank">Ver Regras do Sistema</a>
+                        <p style="margin-top: 10px; font-size: 0.9rem; color: #888;">Sistema de Fidelidade ZankonYTB</p>
+                    </div>
                 </div>
             </div>
-            <div id="pedidos" class="tab">
+            
+            <!-- Aba Serviços -->
+            <div id="servicos" class="tab">
                 <div class="card">
-                    <h2>Pedidos</h2>
-                    <div id="pedidos-lista"></div>
+                    <h2>🛒 Gerenciar Serviços</h2>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Nome do Serviço</label>
+                            <input type="text" id="servico-nome" class="form-control" placeholder="Ex: Build Completa">
+                        </div>
+                        <div class="form-group">
+                            <label>Categoria</label>
+                            <input type="text" id="servico-categoria" class="form-control" placeholder="Ex: Builds, Quests">
+                        </div>
+                        <div class="form-group">
+                            <label>Valor (R$)</label>
+                            <input type="number" id="servico-valor" class="form-control" placeholder="20" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Pontos Gerados</label>
+                            <input type="number" id="servico-pontos" class="form-control" placeholder="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Imagem (URL)</label>
+                            <input type="url" id="servico-imagem" class="form-control" placeholder="https://exemplo.com/imagem.jpg">
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="servico-status" class="form-control">
+                                <option value="ativo">Ativo</option>
+                                <option value="inativo">Inativo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Descrição</label>
+                        <textarea id="servico-descricao" class="form-control" rows="2" placeholder="Descrição do serviço"></textarea>
+                    </div>
+                    <button onclick="criarServico()" class="btn btn-success">➕ Adicionar Serviço</button>
+                    <div id="servico-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>📋 Lista de Serviços</h2>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>Nome</th><th>Categoria</th><th>Valor</th><th>Pontos</th><th>Status</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="servicos-tabela"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-            <div id="cupons" class="tab">
+            
+            <!-- Aba Solicitações -->
+            <div id="solicitacoes" class="tab">
                 <div class="card">
-                    <h2>Cupons</h2>
-                    <div id="cupons-lista"></div>
+                    <h2>📋 Solicitações Pendentes</h2>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>Cliente</th><th>UID</th><th>Serviço</th><th>Valor</th><th>Data</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="solicitacoes-pendentes"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>📋 Histórico de Solicitações</h2>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>Cliente</th><th>Serviço</th><th>Status</th><th>Data</th><th>Admin</th></tr>
+                            </thead>
+                            <tbody id="solicitacoes-historico"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-            <div id="fila_ww" class="tab">
+            
+            <!-- Aba Clientes -->
+            <div id="clientes" class="tab">
                 <div class="card">
-                    <h2>Fila WW</h2>
-                    <div id="fila-ww-lista"></div>
+                    <h2>👥 Gerenciar Clientes</h2>
+                    <div class="form-group">
+                        <label>Buscar Cliente</label>
+                        <input type="text" id="buscar-cliente" class="form-control" placeholder="Nome, UID ou Discord ID" onkeyup="filtrarClientes()">
+                    </div>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>Discord</th><th>UID</th><th>Nick</th><th>Pontos</th><th>Total</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="clientes-tabela"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Fidelidade -->
+            <div id="fidelidade" class="tab">
+                <div class="card">
+                    <h2>⭐ Configuração de Fidelidade</h2>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Pontos por R$ 1,00</label>
+                            <input type="number" id="pontos-por-real" class="form-control" value="{fidelidade.get('pontos_por_real', 1)}" step="0.1" min="0.1">
+                        </div>
+                    </div>
+                    <button onclick="salvarConfigFidelidade()" class="btn btn-primary">💾 Salvar Configuração</button>
+                    <div id="fidelidade-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>🎁 Recompensas</h2>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Nome da Recompensa</label>
+                            <input type="text" id="recompensa-nome" class="form-control" placeholder="Ex: Desafio Rápido Grátis">
+                        </div>
+                        <div class="form-group">
+                            <label>Pontos Necessários</label>
+                            <input type="number" id="recompensa-pontos" class="form-control" placeholder="100">
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo</label>
+                            <select id="recompensa-tipo" class="form-control">
+                                <option value="desconto">Desconto</option>
+                                <option value="servico">Serviço Grátis</option>
+                                <option value="beneficio">Benefício</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Valor/Descrição</label>
+                            <input type="text" id="recompensa-valor" class="form-control" placeholder="Ex: R$5 ou '1 Dia de Quests'">
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Descrição Detalhada</label>
+                            <textarea id="recompensa-descricao" class="form-control" rows="2" placeholder="Descrição da recompensa"></textarea>
+                        </div>
+                    </div>
+                    <button onclick="adicionarRecompensa()" class="btn btn-success">➕ Adicionar Recompensa</button>
+                    <div id="recompensa-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>📋 Lista de Recompensas</h2>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>Nome</th><th>Pontos</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="recompensas-tabela"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Fila (existente) -->
+            <div id="fila" class="tab">
+                <div class="card">
+                    <h2>📋 Configurações da Fila</h2>
+                    <div class="grid-2">
+                        <div><label>Nome da Fila</label><input type="text" id="fila-nome" class="form-control" value="{escape_html(fila['nome'])}"></div>
+                        <div><label>Tamanho Máximo</label><input type="number" id="fila-max" class="form-control" value="{fila['configuracoes']['tamanho_maximo']}" min="1" max="100"></div>
+                    </div>
+                    
+                    <h3 style="margin-top: 20px;">🔗 Links do Discord (convite)</h3>
+                    <div class="form-group">
+                        <label>Link do Discord (convite)</label>
+                        <input type="url" id="link-discord" class="form-control" placeholder="https://discord.gg/seuconvite" value="{escape_html(links.get('discord_convite', ''))}">
+                    </div>
+                    
+                    <h3 style="margin-top: 20px;">💰 Botões de Preço (Múltiplos)</h3>
+                    <div class="form-group">
+                        <label>Novo Botão - Nome</label>
+                        <input type="text" id="novo-botao-nome" class="form-control" placeholder="Ex: Tabela de Preços">
+                    </div>
+                    <div class="form-group">
+                        <label>Novo Botão - URL</label>
+                        <input type="url" id="novo-botao-url" class="form-control" placeholder="https://docs.google.com/...">
+                    </div>
+                    <button onclick="adicionarBotaoPreco()" class="btn btn-success">➕ Adicionar Botão</button>
+                    
+                    <div id="botoes-precos-lista" class="botoes-lista" style="margin-top: 20px;"></div>
+                    
+                    <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+                        <button onclick="salvarConfigFila()" class="btn btn-primary">💾 Salvar Configurações</button>
+                        <button onclick="alternarStatusFila()" id="toggle-fila-btn" class="btn {'btn-success' if fila['configuracoes']['aberta'] else 'btn-danger'}">{'🔓 Fechar Fila' if fila['configuracoes']['aberta'] else '🔒 Abrir Fila'}</button>
+                        <button onclick="limparFila()" class="btn btn-danger">🗑️ Limpar Fila</button>
+                    </div>
+                    <div id="fila-status" style="margin-top: 1rem; padding: 0.5rem; background: #1a1a1a; border-radius: 5px;">Status: {'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'} | {len(fila['entradas'])}/{fila['configuracoes']['tamanho_maximo']}</div>
+                </div>
+                
+                <div class="card">
+                    <h2>📋 Lista de Espera</h2>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>Entrada</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="fila-tabela"><tr><td colspan="6">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 10px;"><button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button></div>
+                </div>
+            </div>
+            
+            <!-- Aba Comandos (existente) -->
+            <div id="comandos" class="tab">
+                <div class="card">
+                    <h2>📝 Criar Embed Personalizada</h2>
+                    <div class="form-group">
+                        <label>Canal</label>
+                        <select id="embed-canal" class="form-control"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Título</label>
+                        <input type="text" id="embed-titulo" class="form-control" placeholder="Título da mensagem">
+                    </div>
+                    <div class="form-group">
+                        <label>Corpo da Mensagem</label>
+                        <textarea id="embed-corpo" class="form-control" rows="3" placeholder="Conteúdo da mensagem"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Cor (hexadecimal)</label>
+                        <input type="text" id="embed-cor" class="form-control" value="#5865F2" placeholder="#5865F2">
+                    </div>
+                    <div class="form-group">
+                        <label>Imagem (URL opcional)</label>
+                        <input type="url" id="embed-imagem" class="form-control" placeholder="https://exemplo.com/imagem.jpg">
+                    </div>
+                    <div class="form-group">
+                        <label>Menção</label>
+                        <select id="embed-mencao" class="form-control"><option value="">Nenhuma</option><option value="everyone">@everyone</option><option value="here">@here</option></select>
+                    </div>
+                    <button onclick="criarEmbed()" class="btn btn-primary">📝 Criar Embed</button>
+                    <div id="embed-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Configurações -->
+            <div id="configuracoes" class="tab">
+                <div class="card">
+                    <h2>⚙️ Configurações Gerais</h2>
+                    <div class="grid-2">
+                        <div>
+                            <h3>👋 Boas-vindas</h3>
+                            <div class="form-group">
+                                <label>Canal de Boas-vindas</label>
+                                <select id="welcome-canal" class="form-control"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Mensagem</label>
+                                <textarea id="welcome-mensagem" class="form-control" rows="2"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Imagem de Fundo (URL)</label>
+                                <input type="url" id="welcome-imagem" class="form-control" placeholder="https://exemplo.com/imagem.jpg">
+                            </div>
+                            <button onclick="salvarBoasVindas()" class="btn btn-primary">💾 Salvar</button>
+                            <div id="welcome-alert" class="alert"></div>
+                        </div>
+                        <div>
+                            <h3>⭐ Sistema XP</h3>
+                            <div class="form-group">
+                                <label>Taxa de XP</label>
+                                <input type="number" id="xp-taxa" class="form-control" min="1" max="10">
+                            </div>
+                            <div class="form-group">
+                                <label>Canal de Level Up</label>
+                                <select id="xp-canal" class="form-control"></select>
+                            </div>
+                            <button onclick="salvarXP()" class="btn btn-primary">💾 Salvar</button>
+                            <div id="xp-alert" class="alert"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>🛡️ Anti-Spam</h2>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Status</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-ativado" {'checked' if anti_spam.get('ativado', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Remover XP por Spam</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-remover-xp" {'checked' if anti_spam.get('remover_xp', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Deletar Mensagens</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-deletar" {'checked' if anti_spam.get('deletar_mensagens', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Limite de Mensagens</label>
+                            <input type="number" id="as-limite" class="form-control" value="{anti_spam.get('limite_mensagens', 5)}" min="2" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Intervalo (segundos)</label>
+                            <input type="number" id="as-intervalo" class="form-control" value="{anti_spam.get('intervalo_segundos', 5)}" min="2" max="30">
+                        </div>
+                        <div class="form-group">
+                            <label>Tempo de Mute (minutos)</label>
+                            <input type="number" id="as-mute" class="form-control" value="{anti_spam.get('tempo_mute_minutos', 2)}" min="1" max="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Penalidade de XP</label>
+                            <input type="number" id="as-xp-penalidade" class="form-control" value="{anti_spam.get('xp_penalidade', 50)}" min="10" max="500">
+                        </div>
+                        <div class="form-group">
+                            <label>Cargos Ignorados</label>
+                            <input type="text" id="as-cargos" class="form-control" value="{','.join(anti_spam.get('cargos_ignorados', ['Administrador', 'Moderador', 'Staff', 'Dono']))}">
+                        </div>
+                        <div class="form-group">
+                            <label>Comandos Ignorados</label>
+                            <input type="text" id="as-comandos" class="form-control" value="{','.join(anti_spam.get('comandos_ignorados', ['$w','$wa','$wg','$h','$ha','$hg','$tu','$dk','$mmi','$vote','$rolls','$k','$mu']))}">
+                        </div>
+                    </div>
+                    <button onclick="salvarAntiSpam()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="as-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>🔗 Bloqueio de Links</h2>
+                    <div class="form-group">
+                        <label>Canal para bloquear links</label>
+                        <select id="links-canal" class="form-control"></select>
+                    </div>
+                    <button onclick="alternarBloqueioLinks()" class="btn btn-danger">🔒 Alternar Bloqueio</button>
+                    <div id="links-status" style="margin-top: 1rem; padding: 0.5rem; background: #1a1a1a; border-radius: 5px;"></div>
+                    <div id="links-alert" class="alert"></div>
                 </div>
             </div>
         </div>
+        
+        <!-- Modal para editar cliente -->
+        <div id="modal-cliente" class="modal">
+            <div class="modal-content">
+                <button class="modal-close" onclick="fecharModal('modal-cliente')">×</button>
+                <h2 id="modal-cliente-titulo">Editar Cliente</h2>
+                <div id="modal-cliente-conteudo"></div>
+            </div>
+        </div>
+        
         <script>
-            function showTab(id) {
+            let canais = [];
+            let cargos = [];
+            let membros = [];
+            let configAtual = {{}};
+            let botoesPrecos = {botoes_precos_json};
+            let recompensas = {recompensas_json};
+            let servicosLista = {servicos_json};
+            let solicitacoesPendentes = {solicitacoes_pendentes};
+            
+            async function carregarDados() {{
+                try {{
+                    const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes, configComandosRes, filaConfigRes] = await Promise.all([
+                        fetch('/api/servidor/canais'),
+                        fetch('/api/servidor/cargos'),
+                        fetch('/api/servidor/membros'),
+                        fetch('/api/config/boasvindas'),
+                        fetch('/api/config/xp'),
+                        fetch('/api/config/links'),
+                        fetch('/api/anti_spam'),
+                        fetch('/api/config/comandos'),
+                        fetch('/api/fila/configuracoes')
+                    ]);
+                    
+                    const canaisData = await canaisRes.json();
+                    const cargosData = await cargosRes.json();
+                    const membrosData = await membrosRes.json();
+                    const configBV = await configBoasVindas.json();
+                    const configXPdata = await configXP.json();
+                    const linksData = await linksRes.json();
+                    const antiSpamData = await antiSpamRes.json();
+                    const configComandosData = await configComandosRes.json();
+                    const filaConfig = await filaConfigRes.json();
+                    
+                    if (canaisData.sucesso) canais = canaisData.canais;
+                    if (cargosData.sucesso) cargos = cargosData.cargos;
+                    if (membrosData.sucesso) membros = membrosData.membros;
+                    
+                    popularSelects();
+                    
+                    if (configBV.sucesso) {{
+                        document.getElementById('welcome-mensagem').value = configBV.mensagem || '';
+                        document.getElementById('welcome-imagem').value = configBV.imagem || '';
+                        const welcomeCanal = document.getElementById('welcome-canal');
+                        if (welcomeCanal) welcomeCanal.value = configBV.canal || '';
+                    }}
+                    
+                    if (configXPdata.sucesso) {{
+                        document.getElementById('xp-taxa').value = configXPdata.taxa || 3;
+                        const xpCanal = document.getElementById('xp-canal');
+                        if (xpCanal) xpCanal.value = configXPdata.canal || '';
+                    }}
+                    
+                    if (configComandosData.sucesso) {{
+                        configAtual = configComandosData;
+                    }}
+                    
+                    if (linksData.sucesso && linksData.canais) {{
+                        const linksStatus = document.getElementById('links-status');
+                        if (linksStatus) {{
+                            const nomes = linksData.canais.map(c => {{
+                                const canal = canais.find(ca => ca.id == c);
+                                return canal ? '#' + canal.nome : c;
+                            }}).join(', ');
+                            linksStatus.innerHTML = nomes ? 'Canais bloqueados: ' + nomes : 'Nenhum canal bloqueado';
+                        }}
+                    }}
+                    
+                    if (antiSpamData.sucesso && antiSpamData.config) {{
+                        document.getElementById('as-ativado').checked = antiSpamData.config.ativado;
+                        document.getElementById('as-remover-xp').checked = antiSpamData.config.remover_xp;
+                        document.getElementById('as-deletar').checked = antiSpamData.config.deletar_mensagens;
+                        document.getElementById('as-limite').value = antiSpamData.config.limite_mensagens;
+                        document.getElementById('as-intervalo').value = antiSpamData.config.intervalo_segundos;
+                        document.getElementById('as-mute').value = antiSpamData.config.tempo_mute_minutos;
+                        document.getElementById('as-xp-penalidade').value = antiSpamData.config.xp_penalidade;
+                        document.getElementById('as-cargos').value = antiSpamData.config.cargos_ignorados;
+                        document.getElementById('as-comandos').value = antiSpamData.config.comandos_ignorados;
+                    }}
+                    
+                    if (filaConfig.sucesso && filaConfig.links) {{
+                        document.getElementById('link-discord').value = filaConfig.links.discord_convite || '';
+                        if (filaConfig.links.botoes_precos) {{
+                            botoesPrecos = filaConfig.links.botoes_precos;
+                        }}
+                    }}
+                    
+                    await carregarFila();
+                    carregarServicos();
+                    carregarSolicitacoes();
+                    carregarClientes();
+                    carregarRecompensas();
+                    carregarBotoesPrecos();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function popularSelects() {{
+                const selects = ['welcome-canal', 'xp-canal', 'embed-canal', 'links-canal'];
+                selects.forEach(id => {{
+                    const select = document.getElementById(id);
+                    if (select) {{
+                        select.innerHTML = '<option value="">Selecione um canal</option>';
+                        canais.forEach(c => {{
+                            const option = document.createElement('option');
+                            option.value = c.id;
+                            option.textContent = '#' + c.nome;
+                            select.appendChild(option);
+                        }});
+                    }}
+                }});
+            }}
+            
+            function showTab(tabId) {{
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.getElementById(id).classList.add('active');
+                document.getElementById(tabId).classList.add('active');
                 event.target.classList.add('active');
-                if (id === 'clientes') carregarClientes();
-                if (id === 'pedidos') carregarPedidos();
-                if (id === 'cupons') carregarCupons();
-                if (id === 'fila_ww') carregarFilaWW();
-            }
+                if (tabId === 'fila') carregarFila();
+                if (tabId === 'servicos') carregarServicos();
+                if (tabId === 'solicitacoes') carregarSolicitacoes();
+                if (tabId === 'clientes') carregarClientes();
+                if (tabId === 'fidelidade') carregarRecompensas();
+            }}
             
-            async function carregarClientes() {
-                const resp = await fetch('/api/clientes');
-                const data = await resp.json();
-                const div = document.getElementById('clientes-lista');
-                if (data.sucesso && Object.keys(data.clientes).length > 0) {
-                    let html = '<table style="width:100%;border-collapse:collapse;">';
-                    html += '<tr style="background:#333;"><th>Discord</th><th>UID</th><th>Nível</th><th>Gasto</th><th>Pontos</th></tr>';
-                    Object.values(data.clientes).forEach(c => {
-                        html += `<tr><td>${c.discord_nome}</td><td>${c.uid}</td><td>${c.nivel_fidelidade}</td><td>R$ ${c.total_gasto}</td><td>${c.pontos_fidelidade}</td></tr>`;
-                    });
-                    html += '</table>';
-                    div.innerHTML = html;
-                } else {
-                    div.innerHTML = 'Nenhum cliente cadastrado';
-                }
-            }
+            function showAlert(id, msg, sucesso) {{
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.textContent = msg;
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 5000);
+            }}
             
-            async function carregarPedidos() {
-                const resp = await fetch('/api/pedidos');
-                const data = await resp.json();
-                const div = document.getElementById('pedidos-lista');
-                if (data.sucesso && data.pedidos.length > 0) {
-                    let html = '<table style="width:100%;border-collapse:collapse;">';
-                    html += '<tr style="background:#333;"><th>ID</th><th>Cliente</th><th>Serviço</th><th>Valor</th><th>Status</th></tr>';
-                    data.pedidos.forEach(p => {
-                        html += `<tr><td>${p.id}</td><td>${p.cliente_nome}</td><td>${p.servico}</td><td>R$ ${p.valor_final}</td><td>${p.status}</td></tr>`;
-                    });
-                    html += '</table>';
-                    div.innerHTML = html;
-                } else {
-                    div.innerHTML = 'Nenhum pedido encontrado';
-                }
-            }
+            function escapeHtml(texto) {{ if (!texto) return ''; return texto.replace(/[&<>]/g, function(m) {{ if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }}); }}
             
-            async function carregarCupons() {
-                const resp = await fetch('/api/cupons');
-                const data = await resp.json();
-                const div = document.getElementById('cupons-lista');
-                if (data.sucesso && data.cupons.length > 0) {
-                    let html = '<table style="width:100%;border-collapse:collapse;">';
-                    html += '<tr style="background:#333;"><th>Código</th><th>Desconto</th><th>Usos</th><th>Expiração</th></tr>';
-                    data.cupons.forEach(c => {
-                        html += `<tr><td>${c.codigo}</td><td>${c.desconto}${c.tipo === 'percentual' ? '%' : ' R$'}</td><td>${c.usos}/${c.limite_usos}</td><td>${c.expiracao.slice(0,10)}</td></tr>`;
-                    });
-                    html += '</table>';
-                    div.innerHTML = html;
-                } else {
-                    div.innerHTML = 'Nenhum cupom criado';
-                }
-            }
+            function openModal(id) {{ document.getElementById(id).classList.add('active'); }}
+            function fecharModal(id) {{ document.getElementById(id).classList.remove('active'); }}
             
-            async function carregarFilaWW() {
-                const resp = await fetch('/api/fila_servicos');
-                const data = await resp.json();
-                const div = document.getElementById('fila-ww-lista');
-                if (data.sucesso && data.fila.entradas.length > 0) {
-                    let html = '<table style="width:100%;border-collapse:collapse;">';
-                    html += '<tr style="background:#333;"><th>#</th><th>Jogador</th><th>Serviço</th><th>Pedido</th></tr>';
-                    data.fila.entradas.forEach(e => {
-                        html += `<tr><td>${e.posicao}</td><td>${e.nome_usuario}</td><td>${e.servico}</td><td>${e.pedido_id || '-'}</td></tr>`;
-                    });
-                    html += '</table>';
-                    div.innerHTML = html;
-                } else {
-                    div.innerHTML = 'Ninguém na fila';
-                }
-            }
+            // ========================
+            // FUNÇÕES DA FILA
+            // ========================
             
-            document.addEventListener('DOMContentLoaded', () => {
-                carregarClientes();
-            });
+            async function carregarFila() {{
+                try {{
+                    const resp = await fetch('/fila/api');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const fila = data.fila;
+                        const tbody = document.getElementById('fila-tabela');
+                        if (fila.entradas.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="6">📭 Ninguém na fila</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = fila.entradas.map(e => `
+                                <tr>
+                                    <td><strong style="color:#ffd93d;">#${{e.posicao}}</strong></td>
+                                    <td>${{escapeHtml(e.nome_usuario)}}</td>
+                                    <td>${{escapeHtml(e.servico)}}</td>
+                                    <td>${{escapeHtml(e.jogo || '')}}</td>
+                                    <td>${{new Date(e.timestamp).toLocaleTimeString()}}</td>
+                                    <td>
+                                        <button onclick="moverCima('${{e.id}}')" class="btn btn-primary btn-xs">⬆️</button>
+                                        <button onclick="moverBaixo('${{e.id}}')" class="btn btn-primary btn-xs">⬇️</button>
+                                        <button onclick="concluir('${{e.id}}')" class="btn btn-success btn-xs">✅</button>
+                                        <button onclick="remover('${{e.id}}')" class="btn btn-danger btn-xs">❌</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                        const filaStatus = document.getElementById('fila-status');
+                        if (filaStatus) {{
+                            filaStatus.innerHTML = `Status: ${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}} | ${{fila.contagem}}/${{fila.tamanho_maximo}}`;
+                        }}
+                        const toggleBtn = document.getElementById('toggle-fila-btn');
+                        if (toggleBtn) {{
+                            toggleBtn.className = fila.aberta ? 'btn btn-danger' : 'btn btn-success';
+                            toggleBtn.textContent = fila.aberta ? '🔓 Fechar Fila' : '🔒 Abrir Fila';
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function remover(id) {{ if (confirm('Remover?')) {{ await fetch('/api/fila/remover', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }} }}
+            async function moverCima(id) {{ await fetch('/api/fila/mover-cima', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }}
+            async function moverBaixo(id) {{ await fetch('/api/fila/mover-baixo', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }}
+            async function concluir(id) {{ if (confirm('Concluir serviço?')) {{ await fetch('/api/fila/concluir', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }} }}
+            async function limparFila() {{ if (confirm('LIMPAR TODA A FILA?')) {{ await fetch('/api/fila/limpar', {{method:'POST'}}); carregarFila(); }} }}
+            async function salvarConfigFila() {{ 
+                const data = {{
+                    nome: document.getElementById('fila-nome').value,
+                    tamanho_maximo: parseInt(document.getElementById('fila-max').value),
+                    discord_convite: document.getElementById('link-discord').value
+                }};
+                await fetch('/api/fila/configuracoes', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(data)}});
+                carregarFila();
+                showAlert('fila-status', 'Configurações salvas!', true);
+            }}
+            async function alternarStatusFila() {{ await fetch('/api/fila/configuracoes', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{aberta:null}})}}); carregarFila(); }}
+            function atualizarFila() {{ carregarFila(); }}
+            
+            // ========================
+            // FUNÇÕES DOS BOTÕES DE PREÇO
+            // ========================
+            
+            function carregarBotoesPrecos() {{
+                const container = document.getElementById('botoes-precos-lista');
+                if (!container) return;
+                
+                if (botoesPrecos.length === 0) {{
+                    container.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">Nenhum botão de preço configurado.</div>';
+                    return;
+                }}
+                
+                let html = '';
+                botoesPrecos.forEach((botao, index) => {{
+                    html += `
+                        <div class="botao-item">
+                            <div class="botao-info">
+                                <div class="botao-nome">💰 ${{escapeHtml(botao.nome)}}</div>
+                                <div class="botao-url">${{escapeHtml(botao.url)}}</div>
+                            </div>
+                            <div class="botao-acoes">
+                                <button onclick="editarBotaoPreco(${{index}})" class="btn btn-primary btn-sm">✏️ Editar</button>
+                                <button onclick="removerBotaoPreco(${{index}})" class="btn btn-danger btn-sm">🗑️ Remover</button>
+                            </div>
+                        </div>
+                    `;
+                }});
+                container.innerHTML = html;
+            }}
+            
+            async function adicionarBotaoPreco() {{
+                const nome = document.getElementById('novo-botao-nome').value.trim();
+                const url = document.getElementById('novo-botao-url').value.trim();
+                
+                if (!nome || !url) {{
+                    showAlert('fila-status', 'Preencha nome e URL', false);
+                    return;
+                }}
+                
+                try {{
+                    const resp = await fetch('/api/fila/botoes/adicionar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{nome, url}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        document.getElementById('novo-botao-nome').value = '';
+                        document.getElementById('novo-botao-url').value = '';
+                        await carregarBotoesNovamente();
+                        showAlert('fila-status', result.mensagem, true);
+                    }} else {{
+                        showAlert('fila-status', result.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('fila-status', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function carregarBotoesNovamente() {{
+                try {{
+                    const resp = await fetch('/api/fila/botoes');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        botoesPrecos = data.botoes;
+                        carregarBotoesPrecos();
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function removerBotaoPreco(index) {{
+                if (!confirm('Remover este botão?')) return;
+                try {{
+                    const resp = await fetch('/api/fila/botoes/remover', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{index}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        await carregarBotoesNovamente();
+                        showAlert('fila-status', result.mensagem, true);
+                    }} else {{
+                        showAlert('fila-status', result.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('fila-status', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            function editarBotaoPreco(index) {{
+                const botao = botoesPrecos[index];
+                const novoNome = prompt('Digite o novo nome do botão:', botao.nome);
+                if (!novoNome) return;
+                const novaUrl = prompt('Digite a nova URL:', botao.url);
+                if (!novaUrl) return;
+                
+                fetch('/api/fila/botoes/atualizar', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{index, nome: novoNome, url: novaUrl}})
+                }}).then(async (resp) => {{
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        await carregarBotoesNovamente();
+                        showAlert('fila-status', result.mensagem, true);
+                    }} else {{
+                        showAlert('fila-status', result.mensagem, false);
+                    }}
+                }}).catch(e => showAlert('fila-status', 'Erro: ' + e.message, false));
+            }}
+            
+            // ========================
+            // FUNÇÕES DE SERVIÇOS
+            // ========================
+            
+            async function carregarServicos() {{
+                try {{
+                    const resp = await fetch('/api/servicos');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        servicosLista = data.servicos;
+                        const tbody = document.getElementById('servicos-tabela');
+                        if (servicosLista.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="6">Nenhum serviço cadastrado</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = servicosLista.map(s => `
+                                <tr>
+                                    <td>${{escapeHtml(s.nome)}}</td>
+                                    <td>${{escapeHtml(s.categoria || '')}}</td>
+                                    <td>R$ ${{s.valor}}</td>
+                                    <td>${{s.pontos}}</td>
+                                    <td><span class="status-badge status-${{s.status}}">${{s.status || 'ativo'}}</span></td>
+                                    <td>
+                                        <button onclick="editarServico('${{s.id}}')" class="btn btn-primary btn-xs">✏️</button>
+                                        <button onclick="toggleServico('${{s.id}}')" class="btn btn-warning btn-xs">${{s.status === 'ativo' ? '🔇' : '🔊'}}</button>
+                                        <button onclick="excluirServico('${{s.id}}')" class="btn btn-danger btn-xs">🗑️</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function criarServico() {{
+                const data = {{
+                    nome: document.getElementById('servico-nome').value.trim(),
+                    categoria: document.getElementById('servico-categoria').value.trim(),
+                    descricao: document.getElementById('servico-descricao').value.trim(),
+                    valor: parseFloat(document.getElementById('servico-valor').value) || 0,
+                    pontos: parseInt(document.getElementById('servico-pontos').value) || 0,
+                    imagem: document.getElementById('servico-imagem').value.trim(),
+                    status: document.getElementById('servico-status').value
+                }};
+                
+                if (!data.nome) {{
+                    showAlert('servico-alert', 'Nome do serviço é obrigatório', false);
+                    return;
+                }}
+                
+                try {{
+                    const resp = await fetch('/api/servicos', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify(data)
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        document.getElementById('servico-nome').value = '';
+                        document.getElementById('servico-categoria').value = '';
+                        document.getElementById('servico-descricao').value = '';
+                        document.getElementById('servico-valor').value = '';
+                        document.getElementById('servico-pontos').value = '';
+                        document.getElementById('servico-imagem').value = '';
+                        carregarServicos();
+                        showAlert('servico-alert', 'Serviço criado com sucesso!', true);
+                    }} else {{
+                        showAlert('servico-alert', result.mensagem || 'Erro ao criar serviço', false);
+                    }}
+                }} catch(e) {{
+                    showAlert('servico-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            function editarServico(id) {{
+                const servico = servicosLista.find(s => s.id === id);
+                if (!servico) return;
+                
+                const novoNome = prompt('Nome do serviço:', servico.nome);
+                if (novoNome !== null) servico.nome = novoNome;
+                
+                const novaCategoria = prompt('Categoria:', servico.categoria || '');
+                if (novaCategoria !== null) servico.categoria = novaCategoria;
+                
+                const novaDescricao = prompt('Descrição:', servico.descricao || '');
+                if (novaDescricao !== null) servico.descricao = novaDescricao;
+                
+                const novoValor = prompt('Valor (R$):', servico.valor);
+                if (novoValor !== null) servico.valor = parseFloat(novoValor) || 0;
+                
+                const novosPontos = prompt('Pontos:', servico.pontos);
+                if (novosPontos !== null) servico.pontos = parseInt(novosPontos) || 0;
+                
+                fetch(`/api/servicos/${{id}}`, {{
+                    method: 'PUT',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify(servico)
+                }}).then(async (resp) => {{
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        carregarServicos();
+                        showAlert('servico-alert', 'Serviço atualizado!', true);
+                    }} else {{
+                        showAlert('servico-alert', result.mensagem || 'Erro ao atualizar', false);
+                    }}
+                }}).catch(e => showAlert('servico-alert', 'Erro: ' + e.message, false));
+            }}
+            
+            async function toggleServico(id) {{
+                const servico = servicosLista.find(s => s.id === id);
+                if (!servico) return;
+                
+                const novoStatus = servico.status === 'ativo' ? 'inativo' : 'ativo';
+                servico.status = novoStatus;
+                
+                try {{
+                    const resp = await fetch(`/api/servicos/${{id}}`, {{
+                        method: 'PUT',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{status: novoStatus}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        carregarServicos();
+                        showAlert('servico-alert', `Serviço ${novoStatus === 'ativo' ? 'ativado' : 'desativado'}!`, true);
+                    }}
+                }} catch(e) {{ showAlert('servico-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function excluirServico(id) {{
+                if (!confirm('Excluir este serviço?')) return;
+                try {{
+                    const resp = await fetch(`/api/servicos/${{id}}`, {{method: 'DELETE'}});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        carregarServicos();
+                        showAlert('servico-alert', 'Serviço excluído!', true);
+                    }}
+                }} catch(e) {{ showAlert('servico-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            // ========================
+            // FUNÇÕES DE SOLICITAÇÕES
+            // ========================
+            
+            async function carregarSolicitacoes() {{
+                try {{
+                    const resp = await fetch('/api/solicitacoes');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const solicitacoes = data.solicitacoes;
+                        
+                        // Pendentes
+                        const pendentes = solicitacoes.filter(s => s.status === 'pendente');
+                        const tbodyPendentes = document.getElementById('solicitacoes-pendentes');
+                        if (pendentes.length === 0) {{
+                            tbodyPendentes.innerHTML = '<tr><td colspan="6">Nenhuma solicitação pendente</td></tr>';
+                        }} else {{
+                            tbodyPendentes.innerHTML = pendentes.map(s => `
+                                <tr>
+                                    <td>${{escapeHtml(s.cliente_nome || '')}}</td>
+                                    <td>${{escapeHtml(s.cliente_uid || '')}}</td>
+                                    <td>${{escapeHtml(s.servico_nome || '')}}</td>
+                                    <td>R$ ${{s.servico_valor || 0}}</td>
+                                    <td>${{new Date(s.data_solicitacao).toLocaleDateString()}}</td>
+                                    <td>
+                                        <button onclick="aprovarSolicitacao('${{s.id}}')" class="btn btn-success btn-xs">✅ Aceitar</button>
+                                        <button onclick="recusarSolicitacao('${{s.id}}')" class="btn btn-danger btn-xs">❌ Recusar</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                        
+                        // Histórico
+                        const historico = solicitacoes.filter(s => s.status !== 'pendente');
+                        const tbodyHistorico = document.getElementById('solicitacoes-historico');
+                        if (historico.length === 0) {{
+                            tbodyHistorico.innerHTML = '<tr><td colspan="5">Nenhum histórico</td></tr>';
+                        }} else {{
+                            tbodyHistorico.innerHTML = historico.slice(0, 20).map(s => `
+                                <tr>
+                                    <td>${{escapeHtml(s.cliente_nome || '')}}</td>
+                                    <td>${{escapeHtml(s.servico_nome || '')}}</td>
+                                    <td><span class="status-badge status-${{s.status}}">${{s.status}}</span></td>
+                                    <td>${{new Date(s.data_solicitacao).toLocaleDateString()}}</td>
+                                    <td>${{escapeHtml(s.admin_aprovacao || s.admin_recusa || s.admin_conclusao || '-')}}</td>
+                                </tr>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function aprovarSolicitacao(id) {{
+                if (!confirm('Aprovar esta solicitação? Ela será adicionada à fila.')) return;
+                try {{
+                    const resp = await fetch(`/api/solicitacoes/${{id}}/aprovar`, {{method: 'POST'}});
+                    const result = await resp.json();
+                    showAlert('solicitacoes-pendentes', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        carregarSolicitacoes();
+                        carregarFila();
+                    }}
+                }} catch(e) {{ showAlert('solicitacoes-pendentes', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function recusarSolicitacao(id) {{
+                const motivo = prompt('Motivo da recusa:');
+                if (motivo === null) return;
+                try {{
+                    const resp = await fetch(`/api/solicitacoes/${{id}}/recusar`, {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{motivo: motivo || 'Sem motivo'}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('solicitacoes-pendentes', result.mensagem, result.sucesso);
+                    if (result.sucesso) carregarSolicitacoes();
+                }} catch(e) {{ showAlert('solicitacoes-pendentes', 'Erro: ' + e.message, false); }}
+            }}
+            
+            // ========================
+            // FUNÇÕES DE CLIENTES
+            // ========================
+            
+            async function carregarClientes() {{
+                try {{
+                    const resp = await fetch('/api/admin/clientes');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const tbody = document.getElementById('clientes-tabela');
+                        if (data.clientes.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="6">Nenhum cliente cadastrado</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = data.clientes.map(c => `
+                                <tr class="cliente-row" data-nome="${{c.discord_nome || ''}}" data-uid="${{c.uid || ''}}" data-id="${{c.discord_id}}">
+                                    <td>${{escapeHtml(c.discord_nome || '')}}</td>
+                                    <td>${{escapeHtml(c.uid || '')}}</td>
+                                    <td>${{escapeHtml(c.nick_jogo || '')}}</td>
+                                    <td><strong style="color:#f59e0b;">${{c.pontos || 0}}</strong></td>
+                                    <td>${{c.total_acumulado || 0}}</td>
+                                    <td>
+                                        <button onclick="verCliente('${{c.discord_id}}')" class="btn btn-primary btn-xs">👁️</button>
+                                        <button onclick="editarCliente('${{c.discord_id}}')" class="btn btn-warning btn-xs">✏️</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function filtrarClientes() {{
+                const termo = document.getElementById('buscar-cliente').value.toLowerCase();
+                const rows = document.querySelectorAll('.cliente-row');
+                rows.forEach(row => {{
+                    const nome = row.dataset.nome?.toLowerCase() || '';
+                    const uid = row.dataset.uid?.toLowerCase() || '';
+                    const id = row.dataset.id || '';
+                    if (nome.includes(termo) || uid.includes(termo) || id.includes(termo)) {{
+                        row.style.display = '';
+                    }} else {{
+                        row.style.display = 'none';
+                    }}
+                }});
+            }}
+            
+            async function verCliente(discordId) {{
+                try {{
+                    const resp = await fetch(`/api/admin/clientes/${{discordId}}`);
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const c = data.cliente;
+                        document.getElementById('modal-cliente-titulo').textContent = `👤 Cliente: ${{c.discord_nome || ''}}`;
+                        document.getElementById('modal-cliente-conteudo').innerHTML = `
+                            <div class="grid-2">
+                                <div><strong>Discord ID:</strong> ${{c.discord_id}}</div>
+                                <div><strong>UID:</strong> ${{escapeHtml(c.uid || '')}}</div>
+                                <div><strong>Nick do Jogo:</strong> ${{escapeHtml(c.nick_jogo || '')}}</div>
+                                <div><strong>Pontos:</strong> <strong style="color:#f59e0b;">${{c.pontos || 0}}</strong></div>
+                                <div><strong>Total Acumulado:</strong> ${{c.total_acumulado || 0}}</div>
+                                <div><strong>Total Utilizado:</strong> ${{c.total_utilizado || 0}}</div>
+                                <div><strong>Última Compra:</strong> ${{c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString() : '-'}}</div>
+                                <div><strong>Último Resgate:</strong> ${{c.ultimo_resgate ? new Date(c.ultimo_resgate).toLocaleDateString() : '-'}}</div>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <h4>Serviços em Andamento: ${{(c.servicos_andamento || []).length}}</h4>
+                                ${{(c.servicos_andamento || []).map(s => `<div>• ${{escapeHtml(s.servico)}} - ${{new Date(s.data).toLocaleDateString()}}</div>`).join('') || '<div>Nenhum</div>'}}
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <h4>Últimos Históricos:</h4>
+                                ${{(c.historico || []).slice(-5).reverse().map(h => `<div>• ${{h.tipo}} - ${{h.data ? new Date(h.data).toLocaleDateString() : '-'}}</div>`).join('') || '<div>Nenhum</div>'}}
+                            </div>
+                            <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button onclick="adicionarPontos('${{c.discord_id}}')" class="btn btn-success">➕ Adicionar Pontos</button>
+                                <button onclick="removerPontos('${{c.discord_id}}')" class="btn btn-danger">➖ Remover Pontos</button>
+                            </div>
+                        `;
+                        openModal('modal-cliente');
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function editarCliente(discordId) {{
+                const novoNick = prompt('Novo Nick do Jogo:');
+                if (novoNick !== null) {{
+                    fetch(`/api/admin/clientes/${{discordId}}`, {{
+                        method: 'PUT',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{nick_jogo: novoNick}})
+                    }}).then(async (resp) => {{
+                        const result = await resp.json();
+                        if (result.sucesso) {{
+                            carregarClientes();
+                            showAlert('clientes', 'Nick atualizado!', true);
+                        }}
+                    }});
+                }}
+            }}
+            
+            async function adicionarPontos(discordId) {{
+                const pontos = prompt('Quantos pontos adicionar?');
+                if (!pontos || isNaN(pontos)) return;
+                const motivo = prompt('Motivo:') || 'Admin';
+                try {{
+                    const resp = await fetch(`/api/admin/clientes/${{discordId}}/pontos`, {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{acao: 'adicionar', pontos: parseInt(pontos), motivo}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('modal-cliente-conteudo', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        setTimeout(() => {{
+                            verCliente(discordId);
+                            carregarClientes();
+                        }}, 1000);
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function removerPontos(discordId) {{
+                const pontos = prompt('Quantos pontos remover?');
+                if (!pontos || isNaN(pontos)) return;
+                const motivo = prompt('Motivo:') || 'Admin';
+                try {{
+                    const resp = await fetch(`/api/admin/clientes/${{discordId}}/pontos`, {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{acao: 'remover', pontos: parseInt(pontos), motivo}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('modal-cliente-conteudo', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        setTimeout(() => {{
+                            verCliente(discordId);
+                            carregarClientes();
+                        }}, 1000);
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            // ========================
+            // FUNÇÕES DE FIDELIDADE
+            // ========================
+            
+            async function carregarRecompensas() {{
+                try {{
+                    const resp = await fetch('/api/fidelidade/recompensas');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        recompensas = data.recompensas;
+                        const tbody = document.getElementById('recompensas-tabela');
+                        if (recompensas.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="6">Nenhuma recompensa cadastrada</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = recompensas.map(r => `
+                                <tr>
+                                    <td>${{escapeHtml(r.nome || '')}}</td>
+                                    <td><strong style="color:#f59e0b;">${{r.pontos || 0}}</strong></td>
+                                    <td>${{r.tipo || 'desconto'}}</td>
+                                    <td>${{escapeHtml(r.valor || '')}}</td>
+                                    <td><span class="status-badge status-${{r.status || 'ativo'}}">${{r.status || 'ativo'}}</span></td>
+                                    <td>
+                                        <button onclick="editarRecompensa('${{r.id}}')" class="btn btn-primary btn-xs">✏️</button>
+                                        <button onclick="excluirRecompensa('${{r.id}}')" class="btn btn-danger btn-xs">🗑️</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function adicionarRecompensa() {{
+                const data = {{
+                    nome: document.getElementById('recompensa-nome').value.trim(),
+                    pontos: parseInt(document.getElementById('recompensa-pontos').value) || 0,
+                    tipo: document.getElementById('recompensa-tipo').value,
+                    valor: document.getElementById('recompensa-valor').value.trim(),
+                    descricao: document.getElementById('recompensa-descricao').value.trim()
+                }};
+                
+                if (!data.nome || data.pontos <= 0) {{
+                    showAlert('recompensa-alert', 'Nome e pontos são obrigatórios', false);
+                    return;
+                }}
+                
+                try {{
+                    const resp = await fetch('/api/fidelidade/recompensas', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify(data)
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        document.getElementById('recompensa-nome').value = '';
+                        document.getElementById('recompensa-pontos').value = '';
+                        document.getElementById('recompensa-valor').value = '';
+                        document.getElementById('recompensa-descricao').value = '';
+                        carregarRecompensas();
+                        showAlert('recompensa-alert', 'Recompensa adicionada!', true);
+                    }} else {{
+                        showAlert('recompensa-alert', result.mensagem || 'Erro', false);
+                    }}
+                }} catch(e) {{ showAlert('recompensa-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            function editarRecompensa(id) {{
+                const recompensa = recompensas.find(r => r.id === id);
+                if (!recompensa) return;
+                
+                const novoNome = prompt('Nome:', recompensa.nome);
+                if (novoNome !== null) recompensa.nome = novoNome;
+                
+                const novosPontos = prompt('Pontos:', recompensa.pontos);
+                if (novosPontos !== null) recompensa.pontos = parseInt(novosPontos) || 0;
+                
+                const novoValor = prompt('Valor:', recompensa.valor || '');
+                if (novoValor !== null) recompensa.valor = novoValor;
+                
+                const novaDescricao = prompt('Descrição:', recompensa.descricao || '');
+                if (novaDescricao !== null) recompensa.descricao = novaDescricao;
+                
+                fetch(`/api/fidelidade/recompensas/${{id}}`, {{
+                    method: 'PUT',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify(recompensa)
+                }}).then(async (resp) => {{
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        carregarRecompensas();
+                        showAlert('recompensa-alert', 'Recompensa atualizada!', true);
+                    }}
+                }}).catch(e => showAlert('recompensa-alert', 'Erro: ' + e.message, false));
+            }}
+            
+            async function excluirRecompensa(id) {{
+                if (!confirm('Excluir esta recompensa?')) return;
+                try {{
+                    const resp = await fetch(`/api/fidelidade/recompensas?id=${{id}}`, {{method: 'DELETE'}});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        carregarRecompensas();
+                        showAlert('recompensa-alert', 'Recompensa excluída!', true);
+                    }}
+                }} catch(e) {{ showAlert('recompensa-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarConfigFidelidade() {{
+                const pontosPorReal = parseFloat(document.getElementById('pontos-por-real').value);
+                if (!pontosPorReal || pontosPorReal <= 0) {{
+                    showAlert('fidelidade-alert', 'Valor inválido', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/fidelidade/config', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{pontos_por_real: pontosPorReal}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('fidelidade-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('fidelidade-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            // ========================
+            // FUNÇÕES DE CONFIGURAÇÕES
+            // ========================
+            
+            async function salvarAntiSpam() {{
+                const data = {{
+                    ativado: document.getElementById('as-ativado').checked,
+                    remover_xp: document.getElementById('as-remover-xp').checked,
+                    deletar_mensagens: document.getElementById('as-deletar').checked,
+                    limite_mensagens: parseInt(document.getElementById('as-limite').value),
+                    intervalo_segundos: parseInt(document.getElementById('as-intervalo').value),
+                    tempo_mute_minutos: parseInt(document.getElementById('as-mute').value),
+                    xp_penalidade: parseInt(document.getElementById('as-xp-penalidade').value),
+                    cargos_ignorados: document.getElementById('as-cargos').value,
+                    comandos_ignorados: document.getElementById('as-comandos').value
+                }};
+                try {{
+                    const resp = await fetch('/api/anti_spam', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('as-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('as-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarBoasVindas() {{
+                const data = {{
+                    canal_id: document.getElementById('welcome-canal').value,
+                    mensagem: document.getElementById('welcome-mensagem').value,
+                    imagem_url: document.getElementById('welcome-imagem').value
+                }};
+                try {{
+                    const resp = await fetch('/api/config/boasvindas', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('welcome-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('welcome-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarXP() {{
+                const data = {{ taxa: parseInt(document.getElementById('xp-taxa').value), canal_id: document.getElementById('xp-canal').value }};
+                try {{
+                    const resp = await fetch('/api/config/xp', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('xp-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function alternarBloqueioLinks() {{
+                const canalId = document.getElementById('links-canal').value;
+                if (!canalId) {{ 
+                    showAlert('links-alert', 'Selecione um canal', false);
+                    return; 
+                }}
+                try {{
+                    const resp = await fetch('/api/config/links', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{canal_id: canalId}})}});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        const linksRes = await fetch('/api/config/links');
+                        const linksData = await linksRes.json();
+                        const nomes = linksData.canais.map(c => {{
+                            const canal = canais.find(ca => ca.id == c);
+                            return canal ? '#' + canal.nome : c;
+                        }}).join(', ');
+                        document.getElementById('links-status').innerHTML = nomes ? 'Canais bloqueados: ' + nomes : 'Nenhum canal bloqueado';
+                        showAlert('links-alert', result.mensagem, true);
+                    }}
+                }} catch(e) {{ showAlert('links-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function criarEmbed() {{
+                const data = {{
+                    canal_id: document.getElementById('embed-canal').value,
+                    titulo: document.getElementById('embed-titulo').value,
+                    corpo: document.getElementById('embed-corpo').value,
+                    cor: document.getElementById('embed-cor').value,
+                    url_imagem: document.getElementById('embed-imagem').value,
+                    mencao: document.getElementById('embed-mencao').value
+                }};
+                if (!data.canal_id || !data.titulo || !data.corpo) {{
+                    alert('Preencha canal, título e corpo');
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/comando/embed', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('embed-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('embed-titulo').value = '';
+                        document.getElementById('embed-corpo').value = '';
+                        document.getElementById('embed-imagem').value = '';
+                    }}
+                }} catch(e) {{ showAlert('embed-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            document.addEventListener('DOMContentLoaded', carregarDados);
         </script>
     </body>
     </html>
     '''
+
+# ========================
+# ÁREA DO CLIENTE
+# ========================
+
+@app.route("/cliente")
+def cliente_area():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    usuario = session['usuario']
+    discord_id = usuario['id']
+    
+    cliente = obter_cliente(discord_id)
+    servicos = dados.get("servicos", {})
+    servicos_ativos = [s for s in servicos.values() if s.get("status") == "ativo"]
+    recompensas = dados.get("fidelidade", {}).get("recompensas", [])
+    recompensas_ativas = [r for r in recompensas if r.get("status") == "ativo"]
+    
+    # Verificar se cliente tem cadastro
+    cadastrado = cliente is not None
+    
+    return f'''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Área do Cliente</title>
+        <style>
+            :root {{ --primary: #5865F2; --primary-dark: #4752C4; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; --dark: #1a1a1a; --darker: #121212; --light: #e0e0e0; --gray: #333; }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: 'Segoe UI', sans-serif; background: var(--darker); color: var(--light); min-height: 100vh; }}
+            header {{ background: var(--dark); padding: 1rem 2rem; border-bottom: 1px solid var(--gray); }}
+            .header-content {{ display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; flex-wrap: wrap; gap: 10px; }}
+            h1 {{ color: var(--primary); }}
+            .user-info {{ display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }}
+            .avatar {{ width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--primary); }}
+            .btn {{ padding: 0.5rem 1rem; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.2s; font-size: 0.9rem; }}
+            .btn-primary {{ background: var(--primary); color: white; }}
+            .btn-primary:hover {{ background: var(--primary-dark); }}
+            .btn-success {{ background: var(--success); color: white; }}
+            .btn-success:hover {{ background: #059669; }}
+            .btn-danger {{ background: var(--danger); color: white; }}
+            .btn-danger:hover {{ background: #dc2626; }}
+            .btn-warning {{ background: var(--warning); color: white; }}
+            .btn-warning:hover {{ background: #d97706; }}
+            .btn-sm {{ padding: 0.25rem 0.5rem; font-size: 0.8rem; }}
+            .btn-xs {{ padding: 0.15rem 0.4rem; font-size: 0.7rem; }}
+            .container {{ max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }}
+            .card {{ background: var(--dark); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; border: 1px solid var(--gray); }}
+            .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; }}
+            .stat-card {{ background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.2rem; border-radius: 10px; text-align: center; }}
+            .stat-card h3 {{ font-size: 1.5rem; }}
+            .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }}
+            .grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
+            @media (max-width: 768px) {{ .grid-2, .grid-3 {{ grid-template-columns: 1fr; }} }}
+            .form-group {{ margin-bottom: 1.5rem; }}
+            label {{ display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--primary); }}
+            .form-control {{ width: 100%; padding: 0.75rem; background: var(--darker); border: 1px solid var(--gray); border-radius: 5px; color: var(--light); }}
+            .form-control:focus {{ outline: none; border-color: var(--primary); }}
+            .alert {{ padding: 1rem; border-radius: 5px; margin: 1rem 0; display: none; }}
+            .alert-success {{ background: #1a472a; color: #4ade80; border: 1px solid #2ecc71; }}
+            .alert-error {{ background: #7f1d1d; color: #f87171; border: 1px solid #ef4444; }}
+            .tab-nav {{ display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 2px solid var(--gray); flex-wrap: wrap; }}
+            .tab-btn {{ padding: 0.75rem 1.5rem; background: var(--gray); border: none; border-radius: 5px 5px 0 0; cursor: pointer; font-weight: 600; color: var(--light); transition: all 0.2s; }}
+            .tab-btn:hover {{ background: #444; }}
+            .tab-btn.active {{ background: var(--primary); color: white; }}
+            .tab {{ display: none; animation: fadeIn 0.3s; }}
+            .tab.active {{ display: block; }}
+            @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+            .status-badge {{ padding: 2px 10px; border-radius: 20px; font-size: 12px; }}
+            .status-ativo {{ background: #1a472a; color: #4ade80; }}
+            .status-inativo {{ background: #7f1d1d; color: #f87171; }}
+            .status-pendente {{ background: #7f6d1d; color: #fbbf24; }}
+            .status-concluido {{ background: #1a3a6a; color: #60a5fa; }}
+            .progress-bar {{ width: 100%; height: 20px; background: var(--gray); border-radius: 10px; overflow: hidden; }}
+            .progress-fill {{ height: 100%; background: linear-gradient(90deg, #5865F2, #10b981); transition: width 0.5s; }}
+            .info-box {{ background: #1a1a2e; border-left: 4px solid #5865F2; padding: 1rem; margin: 1rem 0; border-radius: 5px; }}
+            .scroll-table {{ overflow-x: auto; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ text-align: left; padding: 10px; border-bottom: 1px solid var(--gray); }}
+            th {{ background: var(--gray); }}
+            .empty-state {{ text-align: center; padding: 40px; color: #888; }}
+            .cupom-code {{ font-family: monospace; font-size: 1.2rem; background: #1a1a1a; padding: 4px 12px; border-radius: 4px; color: #4ade80; border: 1px solid #333; }}
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="header-content">
+                <h1>👤 Área do Cliente</h1>
+                <div class="user-info">
+                    <img src="https://cdn.discordapp.com/avatars/{usuario['id']}/{usuario.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <span>{usuario['nome_usuario']}</span>
+                    <a href="/" class="btn btn-primary">🏠 Início</a>
+                    {f'<a href="/dashboard" class="btn btn-primary">🚀 Painel Admin</a>' if usuario.get('eh_admin') else ''}
+                    <a href="/fila" class="btn btn-primary">📋 Fila</a>
+                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
+                </div>
+            </div>
+        </header>
+        
+        <div class="container">
+            {'' if cadastrado else '''
+            <div class="card">
+                <h2>📝 Cadastro</h2>
+                <p>Para usar o sistema de fidelidade, você precisa se cadastrar.</p>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>UID do Jogo</label>
+                        <input type="text" id="cadastro-uid" class="form-control" placeholder="Seu UID">
+                    </div>
+                    <div class="form-group">
+                        <label>Nick do Jogo</label>
+                        <input type="text" id="cadastro-nick" class="form-control" placeholder="Seu nick">
+                    </div>
+                </div>
+                <button onclick="cadastrarCliente()" class="btn btn-success">✅ Cadastrar</button>
+                <div id="cadastro-alert" class="alert"></div>
+            </div>
+            '''}
+            
+            {f'''
+            <div class="card">
+                <h2>💰 Seus Pontos</h2>
+                <div class="stats-grid">
+                    <div class="stat-card"><h3>{cliente.get('pontos', 0)}</h3><p>Saldo Atual</p></div>
+                    <div class="stat-card" style="background: linear-gradient(135deg, #10b981, #059669);"><h3>{cliente.get('total_acumulado', 0)}</h3><p>Total Acumulado</p></div>
+                    <div class="stat-card" style="background: linear-gradient(135deg, #f59e0b, #d97706);"><h3>{cliente.get('total_utilizado', 0)}</h3><p>Total Utilizado</p></div>
+                    <div class="stat-card" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);"><h3>{cliente.get('ultima_compra', 'Nunca')}</h3><p>Última Compra</p></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>📊 Progresso</h2>
+                <p><strong>Próximo prêmio:</strong> {next(recompensas_ativas, {}).get('nome', 'Nenhum disponível')}</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {min(100, (cliente.get('pontos', 0) / max(next(recompensas_ativas, {}).get('pontos', 100), 1)) * 100)}%;"></div>
+                </div>
+                <p style="margin-top: 5px; color: #888;">{cliente.get('pontos', 0)} / {max(next(recompensas_ativas, {}).get('pontos', 100), 1)} pontos para o próximo prêmio</p>
+            </div>
+            
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="showTab('servicos')">🛒 Solicitar Serviço</button>
+                <button class="tab-btn" onclick="showTab('loja')">🏪 Loja</button>
+                <button class="tab-btn" onclick="showTab('historico')">📜 Histórico</button>
+                <button class="tab-btn" onclick="showTab('cupons')">🎟️ Meus Cupons</button>
+                <button class="tab-btn" onclick="showTab('andamento')">⏳ Em Andamento</button>
+            </div>
+            
+            <!-- Aba Serviços -->
+            <div id="servicos" class="tab active">
+                <div class="card">
+                    <h2>🛒 Solicitar Serviço</h2>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Serviço</label>
+                            <select id="solicitar-servico" class="form-control">
+                                <option value="">Selecione um serviço</option>
+                                {''.join(f'<option value="{s["id"]}">{s["nome"]} - R${s["valor"]} ({s["pontos"]} pontos)</option>' for s in servicos_ativos)}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Jogo</label>
+                            <input type="text" id="solicitar-jogo" class="form-control" placeholder="Nome do jogo">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Cupom (opcional)</label>
+                        <input type="text" id="solicitar-cupom" class="form-control" placeholder="Código do cupom">
+                    </div>
+                    <div class="form-group">
+                        <label>Observações</label>
+                        <textarea id="solicitar-obs" class="form-control" rows="2" placeholder="Detalhes adicionais"></textarea>
+                    </div>
+                    <button onclick="solicitarServico()" class="btn btn-success">📤 Enviar Solicitação</button>
+                    <div id="solicitar-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Loja -->
+            <div id="loja" class="tab">
+                <div class="card">
+                    <h2>🏪 Loja de Fidelidade</h2>
+                    <div class="info-box">
+                        💡 Você tem <strong style="color:#f59e0b;">{cliente.get('pontos', 0)} pontos</strong> disponíveis.
+                    </div>
+                    <div id="recompensas-cliente">
+                        {''.join(f'''
+                        <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid #333;">
+                            <div>
+                                <strong style="color: #f59e0b;">{r.get('nome', '')}</strong>
+                                <div style="font-size: 0.9rem; color: #888;">{r.get('descricao', '')}</div>
+                                <div>Pontos: <strong style="color: #4ade80;">{r.get('pontos', 0)}</strong> | Tipo: {r.get('tipo', 'desconto')}</div>
+                            </div>
+                            <button onclick="resgatarRecompensa('{r.get('id', '')}')" class="btn btn-primary" {'disabled' if cliente.get('pontos', 0) < r.get('pontos', 0) else ''}>
+                                {('✅ Resgatar' if cliente.get('pontos', 0) >= r.get('pontos', 0) else f'🔒 Faltam {r.get('pontos', 0) - cliente.get('pontos', 0)} pts')}
+                            </button>
+                        </div>
+                        ''' for r in recompensas_ativas) or '<div class="empty-state">Nenhuma recompensa disponível no momento.</div>'}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Histórico -->
+            <div id="historico" class="tab">
+                <div class="card">
+                    <h2>📜 Histórico Completo</h2>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr><th>Data</th><th>Tipo</th><th>Detalhes</th><th>Valor</th></tr>
+                            </thead>
+                            <tbody id="historico-tabela">
+                                <tr><td colspan="4">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Cupons -->
+            <div id="cupons" class="tab">
+                <div class="card">
+                    <h2>🎟️ Meus Cupons</h2>
+                    <div id="cupons-lista">
+                        <div class="empty-state">Carregando...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Em Andamento -->
+            <div id="andamento" class="tab">
+                <div class="card">
+                    <h2>⏳ Serviços em Andamento</h2>
+                    <div id="andamento-lista">
+                        <div class="empty-state">Carregando...</div>
+                    </div>
+                </div>
+            </div>
+            ''' if cadastrado else ''}
+        </div>
+        
+        <script>
+            let recompensasCliente = {json.dumps(recompensas_ativas)};
+            let servicosAtivos = {json.dumps(servicos_ativos)};
+            
+            function showTab(tabId) {{
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                const tab = document.getElementById(tabId);
+                if (tab) tab.classList.add('active');
+                const btn = document.querySelector(`.tab-btn[onclick*="${{tabId}}"]`);
+                if (btn) btn.classList.add('active');
+                if (tabId === 'historico') carregarHistorico();
+                if (tabId === 'cupons') carregarCupons();
+                if (tabId === 'andamento') carregarAndamento();
+            }}
+            
+            function showAlert(id, msg, sucesso) {{
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.textContent = msg;
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 5000);
+            }}
+            
+            function escapeHtml(texto) {{ if (!texto) return ''; return texto.replace(/[&<>]/g, function(m) {{ if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }}); }}
+            
+            // ========================
+            // CADASTRO
+            // ========================
+            
+            async function cadastrarCliente() {{
+                const uid = document.getElementById('cadastro-uid').value.trim();
+                const nick = document.getElementById('cadastro-nick').value.trim();
+                if (!uid || !nick) {{
+                    showAlert('cadastro-alert', 'Preencha UID e Nick', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/cliente/cadastrar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{uid, nick_jogo: nick}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        showAlert('cadastro-alert', 'Cadastro realizado com sucesso! Recarregando...', true);
+                        setTimeout(() => location.reload(), 1500);
+                    }} else {{
+                        showAlert('cadastro-alert', result.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('cadastro-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            // ========================
+            // SOLICITAR SERVIÇO
+            // ========================
+            
+            async function solicitarServico() {{
+                const servicoId = document.getElementById('solicitar-servico').value;
+                const jogo = document.getElementById('solicitar-jogo').value.trim();
+                const obs = document.getElementById('solicitar-obs').value.trim();
+                const cupom = document.getElementById('solicitar-cupom').value.trim();
+                
+                if (!servicoId) {{
+                    showAlert('solicitar-alert', 'Selecione um serviço', false);
+                    return;
+                }}
+                
+                try {{
+                    const resp = await fetch('/api/solicitacoes', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{servico_id: servicoId, jogo, observacoes: obs, cupom_codigo: cupom || undefined}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        document.getElementById('solicitar-jogo').value = '';
+                        document.getElementById('solicitar-obs').value = '';
+                        document.getElementById('solicitar-cupom').value = '';
+                        showAlert('solicitar-alert', 'Solicitação enviada com sucesso! Aguarde a aprovação.', true);
+                    }} else {{
+                        showAlert('solicitar-alert', result.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('solicitar-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            // ========================
+            // LOJA - RESGATE
+            // ========================
+            
+            async function resgatarRecompensa(recompensaId) {{
+                if (!confirm('Resgatar esta recompensa?')) return;
+                try {{
+                    const resp = await fetch('/api/fidelidade/resgatar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{recompensa_id: recompensaId}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        alert(`✅ Recompensa resgatada! Código: ${{result.cupom.codigo}}\nGuarde este código para usar no seu próximo pedido.`);
+                        location.reload();
+                    }} else {{
+                        alert('❌ ' + result.mensagem);
+                    }}
+                }} catch(e) {{
+                    alert('Erro: ' + e.message);
+                }}
+            }}
+            
+            // ========================
+            // HISTÓRICO
+            // ========================
+            
+            async function carregarHistorico() {{
+                try {{
+                    const resp = await fetch('/api/cliente/historico');
+                    const data = await resp.json();
+                    const tbody = document.getElementById('historico-tabela');
+                    if (data.sucesso && data.historico.length > 0) {{
+                        tbody.innerHTML = data.historico.slice().reverse().map(h => `
+                            <tr>
+                                <td>${{h.data ? new Date(h.data).toLocaleDateString() : '-'}}</td>
+                                <td>${{escapeHtml(h.tipo || '')}}</td>
+                                <td>${{escapeHtml(h.motivo || h.servico || h.codigo || '')}}</td>
+                                <td>${{h.pontos ? h.pontos + ' pts' : h.valor ? 'R$ ' + h.valor : '-'}}</td>
+                            </tr>
+                        `).join('');
+                    }} else {{
+                        tbody.innerHTML = '<tr><td colspan="4">Nenhum histórico encontrado</td></tr>';
+                    }}
+                }} catch(e) {{
+                    document.getElementById('historico-tabela').innerHTML = '<tr><td colspan="4">Erro ao carregar histórico</td></tr>';
+                }}
+            }}
+            
+            // ========================
+            // CUPONS
+            // ========================
+            
+            async function carregarCupons() {{
+                try {{
+                    const resp = await fetch('/api/cliente/cupons');
+                    const data = await resp.json();
+                    const container = document.getElementById('cupons-lista');
+                    if (data.sucesso && data.cupons.length > 0) {{
+                        container.innerHTML = data.cupons.map(c => `
+                            <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div>
+                                    <div class="cupom-code">${{escapeHtml(c.codigo)}}</div>
+                                    <div style="font-size: 0.9rem; color: #888;">Tipo: ${{c.tipo}} | Valor: ${{escapeHtml(c.valor)}}</div>
+                                    <div style="font-size: 0.8rem;">Criado: ${{new Date(c.data_criacao).toLocaleDateString()}} | Validade: ${{new Date(c.validade).toLocaleDateString()}}</div>
+                                </div>
+                                <span class="status-badge status-${{c.status === 'ativo' ? 'ativo' : 'inativo'}}">${{c.status === 'ativo' ? '✅ Disponível' : '❌ ' + c.status}}</span>
+                            </div>
+                        `).join('');
+                    }} else {{
+                        container.innerHTML = '<div class="empty-state">Você não possui cupons.</div>';
+                    }}
+                }} catch(e) {{
+                    document.getElementById('cupons-lista').innerHTML = '<div class="empty-state">Erro ao carregar cupons</div>';
+                }}
+            }}
+            
+            // ========================
+            // SERVIÇOS EM ANDAMENTO
+            // ========================
+            
+            async function carregarAndamento() {{
+                try {{
+                    const resp = await fetch('/api/cliente/servicos_andamento');
+                    const data = await resp.json();
+                    const container = document.getElementById('andamento-lista');
+                    if (data.sucesso && data.servicos.length > 0) {{
+                        container.innerHTML = data.servicos.map(s => `
+                            <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #333;">
+                                <strong>${{escapeHtml(s.servico || '')}}</strong>
+                                <div style="font-size: 0.9rem; color: #888;">Solicitado em: ${{s.data ? new Date(s.data).toLocaleDateString() : '-'}}</div>
+                                <span class="status-badge status-pendente">⏳ Em andamento</span>
+                            </div>
+                        `).join('');
+                    }} else {{
+                        container.innerHTML = '<div class="empty-state">Nenhum serviço em andamento.</div>';
+                    }}
+                }} catch(e) {{
+                    document.getElementById('andamento-lista').innerHTML = '<div class="empty-state">Erro ao carregar</div>';
+                }}
+            }}
+            
+            // Carregar dados iniciais
+            {'carregarHistorico(); carregarCupons(); carregarAndamento();' if cadastrado else ''}
+        </script>
+    </body>
+    </html>
+    '''
+
+# ========================
+# PÁGINA DE REGRAS
+# ========================
+
+@app.route("/fidelidade/regras")
+def fidelidade_regras():
+    return '''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Regras - Sistema de Fidelidade</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); min-height: 100vh; padding: 20px; color: #fff; }
+            .container { max-width: 800px; margin: 0 auto; }
+            .header { text-align: center; margin-bottom: 30px; padding: 30px; background: rgba(0,0,0,0.5); border-radius: 20px; }
+            h1 { background: linear-gradient(135deg, #ff6b6b, #ffd93d); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            .card { background: rgba(0,0,0,0.4); border-radius: 15px; padding: 25px; margin: 15px 0; border: 1px solid rgba(255,255,255,0.1); }
+            .card h2 { color: #ffd93d; margin-bottom: 15px; }
+            .card ul { list-style: none; padding: 0; }
+            .card li { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            .card li:last-child { border-bottom: none; }
+            .card li::before { content: "•"; color: #ffd93d; margin-right: 10px; }
+            .btn { display: inline-block; background: #5865F2; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 10px 0; transition: all 0.3s; }
+            .btn:hover { background: #4752C4; transform: translateY(-2px); }
+            .highlight { color: #ffd93d; font-weight: bold; }
+            .footer { text-align: center; margin-top: 30px; font-size: 0.8rem; color: #888; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>📜 Sistema de Fidelidade ZankonYTB</h1>
+                <p>Regras de Uso</p>
+            </div>
+            
+            <div class="card">
+                <h2>📌 1. Pontos Pessoais e Vinculados ao UID</h2>
+                <ul>
+                    <li>Seus pontos são <span class="highlight">pessoais, intransferíveis</span> e atrelados diretamente ao seu cadastro e ao seu UID do jogo.</li>
+                    <li>Não é permitido transferir pontos para amigos ou juntar o saldo de compras de contas diferentes para resgatar prêmios.</li>
+                </ul>
+            </div>
+            
+            <div class="card">
+                <h2>🎫 2. Cupons de Uso Único</h2>
+                <ul>
+                    <li>Ao trocar seus pontos, o sistema gera um <span class="highlight">código exclusivo</span> para você.</li>
+                    <li>Esse token é de <span class="highlight">uso único</span>.</li>
+                    <li>Uma vez inserido e validado no seu pedido, ele é consumido automaticamente e não poderá ser reutilizado.</li>
+                </ul>
+            </div>
+            
+            <div class="card">
+                <h2>📦 3. Um Benefício por Pedido</h2>
+                <ul>
+                    <li>Os descontos e resgates <span class="highlight">não são cumulativos</span>.</li>
+                    <li>É permitido utilizar apenas <span class="highlight">um benefício por pedido</span>.</li>
+                    <li>Não é possível utilizar vários cupons juntos.</li>
+                </ul>
+            </div>
+            
+            <div class="card">
+                <h2>⏰ 4. Validade</h2>
+                <ul>
+                    <li>Saldo de pontos expira após <span class="highlight">90 dias sem novos serviços concluídos</span>.</li>
+                    <li>Cupons possuem validade de <span class="highlight">30 dias após o resgate</span>.</li>
+                </ul>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <a href="/" class="btn">🏠 Voltar ao Início</a>
+                <a href="/cliente" class="btn" style="background: #10b981;">👤 Área do Cliente</a>
+            </div>
+            
+            <div class="footer">
+                <p>Última atualização: Janeiro 2025</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+
+# ========================
+# API PARA MEMBRO ADVERTÊNCIAS
+# ========================
 
 @app.route("/api/membro/advertencias")
 def api_membro_advertencias():
@@ -2327,6 +4194,7 @@ def api_membro_advertencias():
 # ========================
 
 async def verificar_canal_permitido(interaction: discord.Interaction, comando: str) -> bool:
+    """Verifica se o comando pode ser usado no canal atual"""
     config = dados.get("config", {})
     canal_permitido = config.get(f"canal_{comando}", None)
     
@@ -2339,7 +4207,7 @@ async def verificar_canal_permitido(interaction: discord.Interaction, comando: s
     return False
 
 # ========================
-# COMANDOS SLASH DO DISCORD
+# COMANDOS SLASH DO DISCORD (COM VERIFICAÇÃO DE CANAL)
 # ========================
 
 @tree.command(name="perfil", description="Mostra o seu perfil com XP e nível")
@@ -2353,7 +4221,7 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
         else:
             canal_menção = "nenhum canal configurado"
         await interaction.response.send_message(
-            f"O comando `/perfil` só pode ser usado no canal {canal_menção}!",
+            f"❌ O comando `/perfil` só pode ser usado no canal {canal_menção}!",
             ephemeral=True
         )
         return
@@ -2432,7 +4300,7 @@ async def slash_rank(interaction: discord.Interaction):
         else:
             canal_menção = "nenhum canal configurado"
         await interaction.response.send_message(
-            f"O comando `/rank` só pode ser usado no canal {canal_menção}!",
+            f"❌ O comando `/rank` só pode ser usado no canal {canal_menção}!",
             ephemeral=True
         )
         return
@@ -2450,233 +4318,11 @@ async def slash_rank(interaction: discord.Interaction):
     texto = "\n".join(linhas) if linhas else "Sem dados ainda."
     
     embed = discord.Embed(
-        title=" Top 10 Ranking de XP",
+        title="🏆 Top 10 Ranking de XP",
         description=texto,
         color=discord.Color.gold()
     )
     await interaction.followup.send(embed=embed)
-
-# ========================
-# NOVOS COMANDOS SLASH PARA SERVIÇOS WW
-# ========================
-
-@tree.command(name="cadastrar", description="Cadastra você no sistema de serviços Wuthering Waves")
-@app_commands.describe(uid="Seu UID do Wuthering Waves", nome_ingame="Seu nome no jogo (opcional)")
-async def slash_cadastrar(interaction: discord.Interaction, uid: str, nome_ingame: str = None):
-    discord_id = str(interaction.user.id)
-    
-    if obter_cliente(discord_id):
-        await interaction.response.send_message("Você já está cadastrado!", ephemeral=True)
-        return
-    
-    sucesso, resultado = cadastrar_cliente(
-        discord_id=discord_id,
-        discord_nome=interaction.user.display_name,
-        uid=uid,
-        nome_ingame=nome_ingame or interaction.user.display_name
-    )
-    
-    if sucesso:
-        embed = discord.Embed(
-            title="Cadastro Realizado!",
-            description=f"Você foi cadastrado com sucesso no sistema de serviços!\n\n"
-                       f"**UID:** {uid}\n"
-                       f"**Nome In-Game:** {nome_ingame or interaction.user.display_name}\n\n"
-                       f"Use `/pedido` para solicitar um serviço.",
-            color=discord.Color.green()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    else:
-        await interaction.response.send_message(f"{resultado}", ephemeral=True)
-
-@tree.command(name="pedido", description="Cria um pedido de serviço Wuthering Waves")
-@app_commands.describe(servico="Nome do serviço desejado", valor="Valor do serviço em R$", observacoes="Observações sobre o pedido", cupom="Código do cupom de desconto (opcional)")
-async def slash_pedido(interaction: discord.Interaction, servico: str, valor: str, observacoes: str = None, cupom: str = None):
-    discord_id = str(interaction.user.id)
-    
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        await interaction.response.send_message(
-            "Você não está cadastrado! Use `/cadastrar` primeiro.",
-            ephemeral=True
-        )
-        return
-    
-    try:
-        valor_float = float(valor.replace(',', '.'))
-        if valor_float <= 0:
-            raise ValueError("Valor deve ser positivo")
-    except:
-        await interaction.response.send_message("Valor inválido. Use um número positivo (ex: 10.50)", ephemeral=True)
-        return
-    
-    sucesso, resultado = criar_pedido(
-        discord_id=discord_id,
-        servico=servico,
-        valor=valor_float,
-        jogo="Wuthering Waves",
-        observacoes=observacoes or "",
-        cupom_codigo=cupom
-    )
-    
-    if sucesso:
-        embed = discord.Embed(
-            title="Pedido Criado!",
-            description=f"Seu pedido foi criado e aguarda aprovação.\n\n"
-                       f"**ID:** {resultado['id']}\n"
-                       f"**Serviço:** {servico}\n"
-                       f"**Valor:** R$ {valor_float:.2f}\n"
-                       f"**Valor Final:** R$ {resultado['valor_final']:.2f}\n"
-                       f"**Desconto:** R$ {resultado['desconto_aplicado']:.2f}\n"
-                       f"**Status:** Pendente\n\n"
-                       f"Use `/meuperfil` para acompanhar seus pedidos.",
-            color=discord.Color.blue()
-        )
-        await interaction.response.send_message(embed=embed)
-        
-        canal_pedidos_id = dados.get("servicos_config", {}).get("canal_pedidos")
-        if canal_pedidos_id:
-            canal = interaction.guild.get_channel(int(canal_pedidos_id))
-            if canal:
-                embed_admin = discord.Embed(
-                    title=f"Novo Pedido #{resultado['id']}",
-                    description=f"**Cliente:** {interaction.user.mention}\n"
-                               f"**Serviço:** {servico}\n"
-                               f"**Valor:** R$ {valor_float:.2f}\n"
-                               f"**Valor Final:** R$ {resultado['valor_final']:.2f}\n"
-                               f"**Observações:** {observacoes or 'Nenhuma'}\n"
-                               f"**Cupom:** {cupom or 'Nenhum'}\n\n"
-                               f"Use o painel para aprovar este pedido.",
-                    color=discord.Color.gold()
-                )
-                await canal.send(embed=embed_admin)
-    else:
-        await interaction.response.send_message(f"{resultado}", ephemeral=True)
-
-@tree.command(name="meuperfil", description="Mostra seu perfil no sistema Wuthering Waves")
-async def slash_meuperfil(interaction: discord.Interaction):
-    discord_id = str(interaction.user.id)
-    
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        await interaction.response.send_message(
-            "Você não está cadastrado! Use `/cadastrar` primeiro.",
-            ephemeral=True
-        )
-        return
-    
-    pedidos = obter_pedidos_cliente(discord_id)[:5]
-    nivel_fidelidade = cliente.get("nivel_fidelidade", "bronze")
-    desconto = obter_desconto_fidelidade(cliente.get("total_gasto", 0))
-    
-    emojis = {"bronze": "", "prata": "", "ouro": "", "diamante": ""}
-    emoji = emojis.get(nivel_fidelidade, "")
-    
-    embed = discord.Embed(
-        title=f"Perfil de {interaction.user.display_name}",
-        color=discord.Color.blue()
-    )
-    
-    embed.add_field(
-        name="Informações",
-        value=f"**UID:** {cliente.get('uid', 'N/A')}\n"
-              f"**Nome In-Game:** {cliente.get('nome_ingame', 'N/A')}\n"
-              f"**Cadastro:** {cliente.get('data_cadastro', 'N/A')[:10]}",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Fidelidade",
-        value=f"**Nível:** {emoji} {nivel_fidelidade.upper()}\n"
-              f"**Desconto:** {desconto}%\n"
-              f"**Total Gasto:** R$ {cliente.get('total_gasto', 0):.2f}\n"
-              f"**Pontos:** {cliente.get('pontos_fidelidade', 0)}",
-        inline=False
-    )
-    
-    if pedidos:
-        pedidos_texto = ""
-        for p in pedidos[:3]:
-            status_emoji = {
-                "pendente": "",
-                "aprovado": "",
-                "concluido": "",
-                "cancelado": ""
-            }.get(p.get("status", "pendente"), "")
-            pedidos_texto += f"{status_emoji} **{p.get('id', 'N/A')}** - {p.get('servico', 'N/A')} - R$ {p.get('valor_final', 0):.2f}\n"
-        
-        if len(pedidos) > 3:
-            pedidos_texto += f"\n... e mais {len(pedidos) - 3} pedidos"
-        
-        embed.add_field(
-            name="Últimos Pedidos",
-            value=pedidos_texto,
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="Pedidos",
-            value="Nenhum pedido ainda. Use `/pedido` para começar!",
-            inline=False
-        )
-    
-    await interaction.response.send_message(embed=embed)
-
-@tree.command(name="fila_ww", description="Mostra a fila de serviços Wuthering Waves")
-async def slash_fila_ww(interaction: discord.Interaction):
-    fila = obter_fila_servicos()
-    
-    if not fila["entradas"]:
-        embed = discord.Embed(
-            title="Fila de Serviços WW",
-            description=" Ninguém na fila no momento!",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text=f"Status: {' Aberta' if fila['configuracoes']['aberta'] else ' Fechada'}")
-        await interaction.response.send_message(embed=embed)
-        return
-    
-    texto = ""
-    for i, entrada in enumerate(fila["entradas"][:15], 1):
-        texto += f"`#{i}` **{entrada.get('nome_usuario', 'Desconhecido')}** - {entrada.get('servico', 'N/A')}\n"
-    
-    if len(fila["entradas"]) > 15:
-        texto += f"\n... e mais {len(fila['entradas']) - 15} pessoas na fila"
-    
-    embed = discord.Embed(
-        title="Fila de Serviços WW",
-        description=texto,
-        color=discord.Color.blue()
-    )
-    embed.set_footer(
-        text=f"Total: {len(fila['entradas'])} | {' Aberta' if fila['configuracoes']['aberta'] else ' Fechada'} | Máximo: {fila['configuracoes']['tamanho_maximo']}"
-    )
-    await interaction.response.send_message(embed=embed)
-
-@tree.command(name="cupom", description="Valida um cupom de desconto")
-@app_commands.describe(codigo="Código do cupom para validar")
-async def slash_cupom(interaction: discord.Interaction, codigo: str):
-    sucesso, resultado = validar_cupom(codigo)
-    
-    if sucesso:
-        cupom = resultado
-        embed = discord.Embed(
-            title="Cupom Válido!",
-            description=f"**Código:** {cupom['codigo']}\n"
-                       f"**Desconto:** {cupom['desconto']}{'%' if cupom['tipo'] == 'percentual' else ' R$'}\n"
-                       f"**Tipo:** {'Percentual' if cupom['tipo'] == 'percentual' else 'Valor Fixo'}\n"
-                       f"**Usos:** {cupom.get('usos', 0)}/{cupom.get('limite_usos', 1)}\n"
-                       f"**Expiração:** {cupom.get('expiracao', 'N/A')[:10]}",
-            color=discord.Color.green()
-        )
-        await interaction.response.send_message(embed=embed)
-    else:
-        embed = discord.Embed(
-            title="Cupom Inválido",
-            description=resultado,
-            color=discord.Color.red()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ========================
 # AUTO PING
@@ -2700,24 +4346,24 @@ Thread(target=auto_ping, daemon=True).start()
 @bot.event
 async def on_ready():
     print(f"\n{'='*50}")
-    print(f"BOT INICIADO: {bot.user}")
+    print(f"🤖 BOT INICIADO: {bot.user}")
     print(f"{'='*50}")
     
-    print("Carregando dados do GitHub...")
+    print("📂 Carregando dados do GitHub...")
     carregar_dados_github()
     
-    print("Sincronizando comandos slash...")
+    print("⚙️ Sincronizando comandos slash...")
     try:
         if GUILD_ID:
             await tree.sync(guild=discord.Object(id=int(GUILD_ID)))
-            print(f"Comandos sincronizados no servidor")
+            print(f"✅ Comandos sincronizados no servidor")
         else:
             await tree.sync()
-            print("Comandos globais sincronizados")
+            print("✅ Comandos globais sincronizados")
     except Exception as e:
-        print(f"Erro ao sincronizar: {e}")
+        print(f"❌ Erro ao sincronizar: {e}")
     
-    print("Restaurando botões persistentes...")
+    print("🔄 Restaurando botões persistentes...")
     botoes_cargos = dados.get("botoes_cargos", {})
     restaurados = 0
     for msg_id_str, dicionario_botoes in botoes_cargos.items():
@@ -2742,10 +4388,10 @@ async def on_ready():
                                         return
                                     if cargo in membro.roles:
                                         await membro.remove_roles(cargo, reason="Botão de cargo")
-                                        await interaction.response.send_message(f"Você removeu o cargo {cargo.mention}.", ephemeral=True)
+                                        await interaction.response.send_message(f"Você **removeu** o cargo {cargo.mention}.", ephemeral=True)
                                     else:
                                         await membro.add_roles(cargo, reason="Botão de cargo")
-                                        await interaction.response.send_message(f"Você recebeu o cargo {cargo.mention}.", ephemeral=True)
+                                        await interaction.response.send_message(f"Você **recebeu** o cargo {cargo.mention}.", ephemeral=True)
                                     adicionar_log(f"botao_cargo: usuario={membro.id} cargo={cargo.id}")
                             
                             class PersistentRoleButtonView(ui.View):
@@ -2765,22 +4411,24 @@ async def on_ready():
                     break
         except:
             pass
-    print(f"{restaurados}/{len(botoes_cargos)} botões restaurados")
+    print(f"✅ {restaurados}/{len(botoes_cargos)} botões restaurados")
     
     await asyncio.sleep(2)
     iniciar_processador_acoes()
     
     config = dados.get("config", {})
     links = obter_links_fila()
-    total_clientes = len(dados.get("clientes", {}))
-    pedidos_pendentes = len(obter_pedidos_pendentes())
-    
+    clientes_count = len(dados.get("clientes", {}))
+    servicos_count = len(dados.get("servicos", {}))
     print(f"{'='*50}")
-    print(f"BOT PRONTO!")
-    print(f"Comandos: /perfil, /rank, /cadastrar, /pedido, /meuperfil, /fila_ww, /cupom")
-    print(f"Anti-Spam: {'ATIVADO' if dados.get('anti_spam', {}).get('ativado', True) else 'DESATIVADO'}")
-    print(f"Clientes cadastrados: {total_clientes}")
-    print(f"Pedidos pendentes: {pedidos_pendentes}")
+    print(f"✨ BOT PRONTO! Comandos: /perfil e /rank")
+    print(f"🛡️ Anti-Spam: {'ATIVADO' if dados.get('anti_spam', {}).get('ativado', True) else 'DESATIVADO'}")
+    print(f"🚫 Comandos da Mudae: NÃO ganham XP e NÃO contam como spam")
+    print(f"👥 Clientes cadastrados: {clientes_count}")
+    print(f"🛒 Serviços disponíveis: {servicos_count}")
+    print(f"⭐ Sistema de Fidelidade: ATIVO")
+    print(f"📢 Canal do /perfil: {config.get('canal_perfil') or 'TODOS OS CANAIS'}")
+    print(f"📢 Canal do /rank: {config.get('canal_rank') or 'TODOS OS CANAIS'}")
     print(f"{'='*50}\n")
 
 @bot.event
@@ -2933,9 +4581,9 @@ async def on_message(message: discord.Message):
                     
                     xp_msg = f" e teve **{anti_spam_config.get('xp_penalidade', 50)} XP removido**" if xp_removido else ""
                     try:
-                        await message.author.send(f"**Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}\nPor favor, evite enviar muitas mensagens repetidas em um curto período.\n")
+                        await message.author.send(f"⚠️ **Você foi mutado por {duracao} minutos** devido a spam no servidor {message.guild.name}!{xp_msg}\nPor favor, evite enviar muitas mensagens repetidas em um curto período.\n")
                     except:
-                        await message.channel.send(f"{message.author.mention}, você foi mutado por **{duracao} minutos** por spam!{xp_msg}")
+                        await message.channel.send(f"⚠️ {message.author.mention}, você foi mutado por **{duracao} minutos** por spam!{xp_msg}")
                     
                     adicionar_log(f"anti_spam: {message.author.name} mutado por {duracao} min | {quantidade} msgs em {anti_spam_config.get('intervalo_segundos', 5)}s | XP removido: {xp_removido}")
                 
@@ -2949,7 +4597,7 @@ async def on_message(message: discord.Message):
             if not any(r.name in cargos_ignorados for r in message.author.roles):
                 try:
                     await message.delete()
-                    await message.channel.send(f"{message.author.mention}, links não são permitidos aqui!")
+                    await message.channel.send(f"⚠️ {message.author.mention}, links não são permitidos aqui!")
                 except:
                     pass
                 return
@@ -2972,7 +4620,7 @@ async def on_message(message: discord.Message):
         if canal_levelup_id:
             canal = message.guild.get_channel(int(canal_levelup_id))
             if canal:
-                await canal.send(f"{message.author.mention} subiu para o nível **{nivel_atual}**!")
+                await canal.send(f"🎉 {message.author.mention} subiu para o nível **{nivel_atual}**!")
         
         cargo_id = dados.get("cargos_nivel", {}).get(str(nivel_atual))
         if cargo_id:
