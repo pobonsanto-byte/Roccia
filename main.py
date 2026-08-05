@@ -95,7 +95,7 @@ dados = {
     "botoes_cargos": {},
     "links_fila": {
         "discord_convite": "",
-        "botoes_precos": []  # NOVO: lista de botões personalizados
+        "botoes_precos": []
     },
     "anti_spam": {
         "ativado": True,
@@ -113,25 +113,80 @@ dados = {
             "$daily", "$Daily", "$rep", "$Rep", "$rep+", "$Rep+",
             "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
         ]
-    }
+    },
+    # NOVO: recompensas dinâmicas de fidelidade
+    "recompensas_fidelidade": [
+        {
+            "id": "quests_60",
+            "nome": "1 Dia de Quests Diárias Grátis",
+            "pontos": 60,
+            "tipo": "servico",
+            "desconto": 0
+        },
+        {
+            "id": "desafio_100",
+            "nome": "Desafio Rápido Grátis (Portinha/Hologramas)",
+            "pontos": 100,
+            "tipo": "servico",
+            "desconto": 0
+        },
+        {
+            "id": "cupom_5",
+            "nome": "Cupom de R$ 5,00",
+            "pontos": 100,
+            "tipo": "cupom",
+            "desconto": 5.0
+        },
+        {
+            "id": "analise_200",
+            "nome": "1 Análise de Conta / Companion Quest Grátis",
+            "pontos": 200,
+            "tipo": "servico",
+            "desconto": 0
+        },
+        {
+            "id": "cupom_10",
+            "nome": "Cupom de R$ 10,00",
+            "pontos": 200,
+            "tipo": "cupom",
+            "desconto": 10.0
+        },
+        {
+            "id": "build_400",
+            "nome": "1 Build Completa de Personagem Grátis",
+            "pontos": 400,
+            "tipo": "servico",
+            "desconto": 0
+        },
+        {
+            "id": "cupom_20",
+            "nome": "Cupom de R$ 20,00",
+            "pontos": 400,
+            "tipo": "cupom",
+            "desconto": 20.0
+        }
+    ]
 }
 
 # Dicionário para armazenar mensagens recentes dos usuários
 mensagens_recentes = {}  # {user_id: [timestamps]}
 
 # ==========================================
-# CONFIGURAÇÃO DO SISTEMA DE FIDELIDADE
+# CONFIGURAÇÃO DO SISTEMA DE FIDELIDADE (dinâmico)
 # ==========================================
 
-RECOMPENSAS_FIDELIDADE = {
-    "quests_60": {"pontos": 60, "nome": "1 Dia de Quests Diárias Grátis", "tipo": "servico"},
-    "desafio_100": {"pontos": 100, "nome": "Desafio Rápido Grátis (Portinha/Hologramas)", "tipo": "servico"},
-    "cupom_5": {"pontos": 100, "nome": "Cupom de R$ 5,00", "tipo": "cupom", "desconto": 5.0},
-    "analise_200": {"pontos": 200, "nome": "1 Análise de Conta / Companion Quest Grátis", "tipo": "servico"},
-    "cupom_10": {"pontos": 200, "nome": "Cupom de R$ 10,00", "tipo": "cupom", "desconto": 10.0},
-    "build_400": {"pontos": 400, "nome": "1 Build Completa de Personagem Grátis", "tipo": "servico"},
-    "cupom_20": {"pontos": 400, "nome": "Cupom de R$ 20,00", "tipo": "cupom", "desconto": 20.0},
-}
+def obter_recompensas():
+    """Retorna a lista de recompensas do JSON, garantindo existência"""
+    if "recompensas_fidelidade" not in dados:
+        dados["recompensas_fidelidade"] = []
+    return dados["recompensas_fidelidade"]
+
+def obter_recompensa_por_id(recompensa_id: str):
+    recs = obter_recompensas()
+    for r in recs:
+        if r["id"] == recompensa_id:
+            return r
+    return None
 
 def obter_ou_criar_perfil_fidelidade(uid: str):
     """Garante a estrutura no JSON 'dados' para o UID informado e verifica expirações"""
@@ -181,6 +236,7 @@ def carregar_dados_github():
                 raw = base64.b64decode(conteudo_b64)
                 carregado = json.loads(raw.decode("utf-8"))
                 dados.update(carregado)
+                # Garantir campos obrigatórios
                 if "fila" not in dados:
                     dados["fila"] = {
                         "nome": "Fila de Serviços",
@@ -225,6 +281,17 @@ def carregar_dados_github():
                     }
                 if "botoes_precos" not in dados.get("links_fila", {}):
                     dados["links_fila"]["botoes_precos"] = []
+                if "recompensas_fidelidade" not in dados:
+                    # Se não existir, cria com os padrões
+                    dados["recompensas_fidelidade"] = [
+                        {"id": "quests_60", "nome": "1 Dia de Quests Diárias Grátis", "pontos": 60, "tipo": "servico", "desconto": 0},
+                        {"id": "desafio_100", "nome": "Desafio Rápido Grátis (Portinha/Hologramas)", "pontos": 100, "tipo": "servico", "desconto": 0},
+                        {"id": "cupom_5", "nome": "Cupom de R$ 5,00", "pontos": 100, "tipo": "cupom", "desconto": 5.0},
+                        {"id": "analise_200", "nome": "1 Análise de Conta / Companion Quest Grátis", "pontos": 200, "tipo": "servico", "desconto": 0},
+                        {"id": "cupom_10", "nome": "Cupom de R$ 10,00", "pontos": 200, "tipo": "cupom", "desconto": 10.0},
+                        {"id": "build_400", "nome": "1 Build Completa de Personagem Grátis", "pontos": 400, "tipo": "servico", "desconto": 0},
+                        {"id": "cupom_20", "nome": "Cupom de R$ 20,00", "pontos": 400, "tipo": "cupom", "desconto": 20.0}
+                    ]
                 print("✅ Dados carregados do GitHub.")
                 return True
         else:
@@ -1070,7 +1137,7 @@ def logout():
     return redirect(url_for('home'))
 
 # ==========================================
-# ROTAS PÚBLICAS: PORTAL DO CLIENTE (/fidelidade)
+# ROTAS PÚBLICAS: PORTAL DO CLIENTE (/pedido)
 # ==========================================
 
 @app.route("/pedido")
@@ -1129,56 +1196,25 @@ def pagina_fidelidade():
                     <p style="font-size:0.85rem; color:#aaa; margin-top:10px;">* R$ 1,00 gasto em serviços = 1 Ponto acumulado.</p>
                 </div>
 
-                <!-- Resgate de Recompensas -->
+                <!-- Resgate de Recompensas (dinâmico) -->
                 <div class="card">
                     <h2>🏆 Trocar Pontos por Vantagens</h2>
-                    <div class="reward-grid">
-                        <div class="reward-card">
-                            <h4>60 Pontos</h4>
-                            <p>1 Dia de Quests Diárias Grátis</p>
-                            <button onclick="resgatarItem('quests_60')">Resgatar</button>
-                        </div>
-                        <div class="reward-card">
-                            <h4>100 Pontos</h4>
-                            <p>Desafio Rápido Grátis (Portinha / Hologramas)</p>
-                            <button onclick="resgatarItem('desafio_100')">Resgatar</button>
-                        </div>
-                        <div class="reward-card">
-                            <h4>100 Pontos</h4>
-                            <p>Cupom de R$ 5,00 de Desconto</p>
-                            <button onclick="resgatarItem('cupom_5')">Resgatar</button>
-                        </div>
-                        <div class="reward-card">
-                            <h4>200 Pontos</h4>
-                            <p>Análise de Conta / Companion Quest</p>
-                            <button onclick="resgatarItem('analise_200')">Resgatar</button>
-                        </div>
-                        <div class="reward-card">
-                            <h4>200 Pontos</h4>
-                            <p>Cupom de R$ 10,00 de Desconto</p>
-                            <button onclick="resgatarItem('cupom_10')">Resgatar</button>
-                        </div>
-                        <div class="reward-card">
-                            <h4>400 Pontos</h4>
-                            <p>1 Build Completa de Personagem</p>
-                            <button onclick="resgatarItem('build_400')">Resgatar</button>
-                        </div>
-                        <div class="reward-card">
-                            <h4>400 Pontos</h4>
-                            <p>Cupom de R$ 20,00 de Desconto</p>
-                            <button onclick="resgatarItem('cupom_20')">Resgatar</button>
-                        </div>
+                    <div id="recompensas-container" class="reward-grid">
+                        <!-- Carregado via JS -->
                     </div>
 
                     <h3>🎟️ Seus Cupons Resgatados Ativos</h3>
                     <div id="lista-cupons"><p>Nenhum cupom ativo no momento.</p></div>
                 </div>
 
-                <!-- Formulario de Solicitação de Serviço -->
+                <!-- Formulario de Solicitação de Serviço (com Jogo) -->
                 <div class="card">
                     <h2>📝 Solicitar Novo Serviço</h2>
                     <label>Nome do Serviço Desejado:</label>
                     <input type="text" id="ped-servico" placeholder="Ex: Farm de Bóss, Quests, Exploração">
+
+                    <label>Jogo:</label>
+                    <input type="text" id="ped-jogo" placeholder="Ex: Genshin Impact, Honkai Star Rail">
 
                     <label>Valor Combinado (R$):</label>
                     <input type="number" id="ped-valor" step="0.50" placeholder="Ex: 25.00">
@@ -1200,12 +1236,13 @@ def pagina_fidelidade():
                             <tr>
                                 <th>Data</th>
                                 <th>Serviço</th>
+                                <th>Jogo</th>
                                 <th>Valor</th>
                                 <th>Pontos Ganhos</th>
                             </tr>
                         </thead>
                         <tbody id="lista-historico">
-                            <tr><td colspan="4">Nenhum serviço concluído ainda.</td></tr>
+                            <tr><td colspan="5">Nenhum serviço concluído ainda.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1226,6 +1263,40 @@ def pagina_fidelidade():
 
         <script>
             let currentUID = '';
+            let recompensas = [];
+
+            // Carrega recompensas do servidor
+            async function carregarRecompensas() {
+                try {
+                    const resp = await fetch('/api/fidelidade/recompensas');
+                    const data = await resp.json();
+                    if (data.sucesso) {
+                        recompensas = data.recompensas;
+                    }
+                } catch(e) {
+                    console.error('Erro ao carregar recompensas:', e);
+                }
+            }
+
+            function renderizarRecompensas() {
+                const container = document.getElementById('recompensas-container');
+                if (!container) return;
+                if (recompensas.length === 0) {
+                    container.innerHTML = '<p>Nenhuma recompensa disponível no momento.</p>';
+                    return;
+                }
+                let html = '';
+                recompensas.forEach(r => {
+                    html += `
+                        <div class="reward-card">
+                            <h4>${r.pontos} Pontos</h4>
+                            <p>${r.nome}</p>
+                            <button onclick="resgatarItem('${r.id}')">Resgatar</button>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            }
 
             async function consultarPerfil() {
                 const uid = document.getElementById('cliente-uid').value.trim();
@@ -1256,19 +1327,20 @@ def pagina_fidelidade():
                             cuponsDiv.innerHTML = '<p>Nenhum cupom ativo no momento.</p>';
                         }
 
-                        // Renderiza Histórico
+                        // Renderiza Histórico (incluindo jogo)
                         const histBody = document.getElementById('lista-historico');
                         if (data.perfil.historico && data.perfil.historico.length > 0) {
                             histBody.innerHTML = data.perfil.historico.map(h => `
                                 <tr>
                                     <td>${h.data}</td>
                                     <td>${h.servico}</td>
+                                    <td>${h.jogo || '-'}</td>
                                     <td>R$ ${parseFloat(h.valor).toFixed(2)}</td>
                                     <td style="color:#1dd1a1;">+${h.pontos} pts</td>
                                 </tr>
                             `).join('');
                         } else {
-                            histBody.innerHTML = '<tr><td colspan="4">Nenhum serviço concluído ainda.</td></tr>';
+                            histBody.innerHTML = '<tr><td colspan="5">Nenhum serviço concluído ainda.</td></tr>';
                         }
                     }
                 } catch(e) {
@@ -1276,15 +1348,18 @@ def pagina_fidelidade():
                 }
             }
 
-            async function resgatarItem(chaveRecompensa) {
+            async function resgatarItem(recompensaId) {
                 if (!currentUID) return;
-                if (!confirm('Deseja trocar seus pontos por este benefício?')) return;
+                // Buscar dados da recompensa para exibir confirmação
+                const rec = recompensas.find(r => r.id === recompensaId);
+                if (!rec) { alert('Recompensa não encontrada!'); return; }
+                if (!confirm(`Deseja trocar ${rec.pontos} pontos por "${rec.nome}"?`)) return;
 
                 try {
                     const resp = await fetch('/api/fidelidade/resgatar', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ uid: currentUID, recompensa: chaveRecompensa })
+                        body: JSON.stringify({ uid: currentUID, recompensa: recompensaId })
                     });
                     const res = await resp.json();
                     alert(res.mensagem);
@@ -1295,12 +1370,13 @@ def pagina_fidelidade():
             async function enviarPedidoServico() {
                 if (!currentUID) return;
                 const servico = document.getElementById('ped-servico').value.trim();
+                const jogo = document.getElementById('ped-jogo').value.trim();
                 const valor = parseFloat(document.getElementById('ped-valor').value);
                 const discord = document.getElementById('ped-discord').value.trim();
                 const cupom = document.getElementById('ped-cupom').value.trim();
 
                 if (!servico || isNaN(valor) || valor <= 0 || !discord) {
-                    alert('Preencha o serviço, valor válido e seu Discord.');
+                    alert('Preencha o serviço, jogo (opcional), valor válido e seu Discord.');
                     return;
                 }
 
@@ -1311,6 +1387,7 @@ def pagina_fidelidade():
                         body: JSON.stringify({
                             uid: currentUID,
                             servico: servico,
+                            jogo: jogo,
                             valor: valor,
                             discord: discord,
                             cupom_token: cupom
@@ -1320,12 +1397,19 @@ def pagina_fidelidade():
                     alert(res.mensagem);
                     if (res.sucesso) {
                         document.getElementById('ped-servico').value = '';
+                        document.getElementById('ped-jogo').value = '';
                         document.getElementById('ped-valor').value = '';
                         document.getElementById('ped-cupom').value = '';
                         consultarPerfil();
                     }
                 } catch(e) { alert('Erro: ' + e.message); }
             }
+
+            // Inicialização
+            document.addEventListener('DOMContentLoaded', async function() {
+                await carregarRecompensas();
+                renderizarRecompensas();
+            });
         </script>
     </body>
     </html>
@@ -1344,13 +1428,16 @@ def api_fidelidade_consultar():
 def api_fidelidade_resgatar():
     req = request.get_json() or {}
     uid = req.get("uid")
-    chave_rec = req.get("recompensa")
+    recompensa_id = req.get("recompensa")
     
-    if not uid or chave_rec not in RECOMPENSAS_FIDELIDADE:
+    if not uid or not recompensa_id:
         return jsonify({"sucesso": False, "mensagem": "Dados inválidos"})
     
+    rec = obter_recompensa_por_id(recompensa_id)
+    if not rec:
+        return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
+    
     perfil = obter_ou_criar_perfil_fidelidade(uid)
-    rec = RECOMPENSAS_FIDELIDADE[chave_rec]
     
     if perfil["pontos"] < rec["pontos"]:
         return jsonify({"sucesso": False, "mensagem": f"Pontos insuficientes! Você precisa de {rec['pontos']} pontos."})
@@ -1358,13 +1445,13 @@ def api_fidelidade_resgatar():
     # Deduz os pontos do cliente
     perfil["pontos"] -= rec["pontos"]
     
-    # Gera um token único de uso pessoal (Ex: ZNK-A1B2C3)
+    # Gera um token único de uso pessoal
     token = f"ZNK-{secrets.token_hex(3).upper()}"
     agora = time.time()
     
     novo_cupom = {
         "token": token,
-        "recompensa_id": chave_rec,
+        "recompensa_id": rec["id"],
         "nome": rec["nome"],
         "tipo": rec["tipo"],
         "desconto": rec.get("desconto", 0),
@@ -1388,6 +1475,7 @@ def api_fidelidade_solicitar_servico():
     req = request.get_json() or {}
     uid = req.get("uid")
     servico = req.get("servico")
+    jogo = req.get("jogo", "")
     valor = float(req.get("valor", 0))
     discord = req.get("discord")
     cupom_token = req.get("cupom_token", "").strip().upper()
@@ -1428,6 +1516,7 @@ def api_fidelidade_solicitar_servico():
         "uid": uid,
         "discord": discord,
         "servico": servico,
+        "jogo": jogo,
         "valor": valor,
         "cupom_usado": cupom_aplicado,
         "timestamp": time.time(),
@@ -1442,6 +1531,77 @@ def api_fidelidade_solicitar_servico():
         "sucesso": True, 
         "mensagem": "Pedido enviado com sucesso! Aguarde a aprovação do Administrador."
     })
+
+# ==========================================
+# ROTAS DE ADMIN PARA GERENCIAR RECOMPENSAS
+# ==========================================
+
+@app.route("/api/fidelidade/recompensas", methods=["GET"])
+def api_fidelidade_recompensas():
+    """Retorna a lista de recompensas disponíveis"""
+    recs = obter_recompensas()
+    return jsonify({"sucesso": True, "recompensas": recs})
+
+@app.route("/api/fidelidade/recompensas", methods=["POST"])
+def api_fidelidade_recompensas_adicionar():
+    """Adiciona uma nova recompensa"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado"}), 401
+    
+    req = request.get_json() or {}
+    nome = req.get("nome", "").strip()
+    pontos = int(req.get("pontos", 0))
+    tipo = req.get("tipo", "servico")
+    desconto = float(req.get("desconto", 0))
+    
+    if not nome or pontos <= 0:
+        return jsonify({"sucesso": False, "mensagem": "Nome e pontos são obrigatórios"})
+    
+    recs = obter_recompensas()
+    # Gerar id único baseado em timestamp
+    new_id = f"rec_{int(time.time())}"
+    nova = {
+        "id": new_id,
+        "nome": nome,
+        "pontos": pontos,
+        "tipo": tipo,
+        "desconto": desconto if tipo == "cupom" else 0
+    }
+    recs.append(nova)
+    salvar_dados_github(f"Recompensa adicionada: {nome}")
+    return jsonify({"sucesso": True, "mensagem": "Recompensa adicionada!", "recompensa": nova})
+
+@app.route("/api/fidelidade/recompensas/<recompensa_id>", methods=["PUT"])
+def api_fidelidade_recompensas_editar(recompensa_id):
+    """Edita uma recompensa existente"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado"}), 401
+    
+    req = request.get_json() or {}
+    recs = obter_recompensas()
+    for i, r in enumerate(recs):
+        if r["id"] == recompensa_id:
+            recs[i]["nome"] = req.get("nome", r["nome"]).strip()
+            recs[i]["pontos"] = int(req.get("pontos", r["pontos"]))
+            recs[i]["tipo"] = req.get("tipo", r["tipo"])
+            recs[i]["desconto"] = float(req.get("desconto", r.get("desconto", 0))) if recs[i]["tipo"] == "cupom" else 0
+            salvar_dados_github(f"Recompensa editada: {recs[i]['nome']}")
+            return jsonify({"sucesso": True, "mensagem": "Recompensa atualizada!", "recompensa": recs[i]})
+    return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
+
+@app.route("/api/fidelidade/recompensas/<recompensa_id>", methods=["DELETE"])
+def api_fidelidade_recompensas_remover(recompensa_id):
+    """Remove uma recompensa"""
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado"}), 401
+    
+    recs = obter_recompensas()
+    for i, r in enumerate(recs):
+        if r["id"] == recompensa_id:
+            recs.pop(i)
+            salvar_dados_github(f"Recompensa removida: {r['nome']}")
+            return jsonify({"sucesso": True, "mensagem": "Recompensa removida!"})
+    return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
 
 # ==========================================
 # ROTAS DO ADMINISTRADOR PARA GESTÃO DE PEDIDOS
@@ -1473,7 +1633,7 @@ def api_fidelidade_admin_aprovar():
         "posicao": len(dados["fila"]["entradas"]) + 1,
         "nome_usuario": f"{pedido['discord']} (UID: {pedido['uid']})",
         "servico": pedido["servico"],
-        "jogo": f"Valor: R$ {pedido['valor']:.2f}",
+        "jogo": pedido.get("jogo", ""),
         "valor": pedido["valor"],
         "uid": pedido["uid"],
         "timestamp": time.time()
@@ -1498,7 +1658,6 @@ def api_fidelidade_admin_recusar():
     salvar_dados_github("Pedido recusado")
     
     return jsonify({"sucesso": True, "mensagem": "Pedido recusado e removido."})
-
 
 # ========================
 # ROTAS DA FILA
@@ -1655,9 +1814,10 @@ def api_fila_concluir():
             perfil["pontos"] += pontos_ganhos
             perfil["ultimo_pedido_ts"] = time.time() # Atualiza para evitar expiração nos próximos 90 dias
             
-            # Registra no histórico do cliente
+            # Registra no histórico do cliente (incluindo jogo)
             perfil["historico"].insert(0, {
                 "servico": item_concluido.get("servico", "Serviço"),
+                "jogo": item_concluido.get("jogo", ""),
                 "valor": valor,
                 "pontos": pontos_ganhos,
                 "data": time.strftime("%d/%m/%Y")
@@ -1938,7 +2098,7 @@ def api_botoes_cargo_criar():
     return jsonify({"sucesso": sucesso, "mensagem": "✅ Botões criados!" if sucesso else "❌ Falha"})
 
 # ========================
-# DASHBOARD PRINCIPAL (CORRIGIDO)
+# DASHBOARD PRINCIPAL (COM GESTÃO DE RECOMPENSAS)
 # ========================
 
 @app.route("/dashboard")
@@ -1952,8 +2112,10 @@ def dashboard():
     anti_spam = dados.get("anti_spam", {})
     links = obter_links_fila()
     botoes_precos = links.get("botoes_precos", [])
+    recompensas = obter_recompensas()
     
     botoes_precos_json = json.dumps(botoes_precos)
+    recompensas_json = json.dumps(recompensas)
     
     return f'''
     <!DOCTYPE html>
@@ -2018,6 +2180,11 @@ def dashboard():
             .botao-nome {{ font-weight: bold; color: #f59e0b; }}
             .botao-url {{ font-size: 12px; color: #888; word-break: break-all; }}
             .botao-acoes {{ display: flex; gap: 8px; }}
+            .recompensa-item {{ background: #1a1a1a; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 8px; }}
+            .recompensa-info {{ flex: 1; }}
+            .recompensa-nome {{ font-weight: bold; color: #feca57; }}
+            .recompensa-detalhes {{ font-size: 12px; color: #aaa; }}
+            .recompensa-acoes {{ display: flex; gap: 8px; }}
         </style>
     </head>
     <body>
@@ -2037,14 +2204,15 @@ def dashboard():
         <div class="container">
             <div class="tab-nav">
                 <button class="tab-btn active" onclick="showTab('inicio')">🏠 Início</button>
-                <button class="tab-btn" onclick="showTab('comandos_canais')">📢 Canais de Comandos</button>
+                <button class="tab-btn" onclick="showTab('comandos_canais')">📢 Canais</button>
                 <button class="tab-btn" onclick="showTab('antispam')">🛡️ Anti-Spam</button>
                 <button class="tab-btn" onclick="showTab('boasvindas')">👋 Boas-vindas</button>
-                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
+                <button class="tab-btn" onclick="showTab('xp')">⭐ XP</button>
                 <button class="tab-btn" onclick="showTab('cargos')">🪪 Cargos</button>
                 <button class="tab-btn" onclick="showTab('moderacao')">🛡️ Moderação</button>
                 <button class="tab-btn" onclick="showTab('fila')">📋 Fila</button>
-                <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos Rápidos</button>
+                <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos</button>
+                <button class="tab-btn" onclick="showTab('recompensas')">🎁 Recompensas</button>
             </div>
             
             <!-- Aba Início -->
@@ -2064,8 +2232,7 @@ def dashboard():
                         <p><strong>Processador:</strong> {'✅ Ativo' if processador_acoes_rodando else '❌ Inativo'}</p>
                         <p><strong>Ações na fila:</strong> {len(acoes_fila_bot)}</p>
                         <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
-                        <p><strong>Comandos da Mudae:</strong>  NÃO ganham XP</p>
-                        <p><strong>Comandos Discord:</strong> /perfil e /rank (apenas nos canais configurados)</p>
+                        <p><strong>Recompensas cadastradas:</strong> {len(recompensas)}</p>
                     </div>
                 </div>
             </div>
@@ -2420,6 +2587,45 @@ def dashboard():
                     <div id="embed-alert" class="alert"></div>
                 </div>
             </div>
+            
+            <!-- NOVA ABA: RECOMPENSAS FIDELIDADE -->
+            <div id="recompensas" class="tab">
+                <div class="card">
+                    <h2>🎁 Gerenciar Recompensas de Fidelidade</h2>
+                    <div class="info-box">
+                        💡 <strong>Recompensas:</strong> Os clientes podem trocar seus pontos por esses benefícios. 
+                        Cada recompensa deve ter um nome, custo em pontos, tipo (serviço ou cupom) e, se for cupom, um valor de desconto.
+                    </div>
+                    <div id="recompensas-lista" style="margin: 15px 0;">
+                        <!-- Lista dinâmica -->
+                    </div>
+                    <hr>
+                    <h3>➕ Adicionar Nova Recompensa</h3>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Nome</label>
+                            <input type="text" id="nova-rec-nome" class="form-control" placeholder="Ex: 1 Dia de Quests Grátis">
+                        </div>
+                        <div class="form-group">
+                            <label>Pontos Necessários</label>
+                            <input type="number" id="nova-rec-pontos" class="form-control" placeholder="60" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo</label>
+                            <select id="nova-rec-tipo" class="form-control">
+                                <option value="servico">Serviço</option>
+                                <option value="cupom">Cupom</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Desconto (R$) - Apenas para cupons</label>
+                        <input type="number" step="0.50" id="nova-rec-desconto" class="form-control" placeholder="5.00" value="0">
+                    </div>
+                    <button onclick="adicionarRecompensa()" class="btn btn-success">➕ Adicionar Recompensa</button>
+                    <div id="rec-alert" class="alert"></div>
+                </div>
+            </div>
         </div>
         
         <script>
@@ -2428,7 +2634,124 @@ def dashboard():
             let membros = [];
             let configAtual = {{}};
             let botoesPrecos = {botoes_precos_json};
+            let recompensas = {recompensas_json};
             
+            // ========== FUNÇÕES DE RECOMPENSAS ==========
+            function carregarRecompensas() {{
+                const container = document.getElementById('recompensas-lista');
+                if (!container) return;
+                if (recompensas.length === 0) {{
+                    container.innerHTML = '<p>Nenhuma recompensa cadastrada.</p>';
+                    return;
+                }}
+                let html = '';
+                recompensas.forEach((r, idx) => {{
+                    html += `
+                        <div class="recompensa-item">
+                            <div class="recompensa-info">
+                                <div class="recompensa-nome">${{escapeHtml(r.nome)}}</div>
+                                <div class="recompensa-detalhes">${{r.pontos}} pontos | Tipo: ${{r.tipo}} ${r.tipo === 'cupom' ? '| Desconto: R$ '+r.desconto.toFixed(2) : ''}</div>
+                            </div>
+                            <div class="recompensa-acoes">
+                                <button onclick="editarRecompensa('${{r.id}}')" class="btn btn-primary btn-sm">✏️ Editar</button>
+                                <button onclick="removerRecompensa('${{r.id}}')" class="btn btn-danger btn-sm">🗑️ Remover</button>
+                            </div>
+                        </div>
+                    `;
+                }});
+                container.innerHTML = html;
+            }}
+
+            async function adicionarRecompensa() {{
+                const nome = document.getElementById('nova-rec-nome').value.trim();
+                const pontos = parseInt(document.getElementById('nova-rec-pontos').value);
+                const tipo = document.getElementById('nova-rec-tipo').value;
+                const desconto = parseFloat(document.getElementById('nova-rec-desconto').value) || 0;
+
+                if (!nome || isNaN(pontos) || pontos <= 0) {{
+                    showAlert('rec-alert', 'Preencha nome e pontos corretamente.', false);
+                    return;
+                }}
+
+                try {{
+                    const resp = await fetch('/api/fidelidade/recompensas', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{ nome, pontos, tipo, desconto }})
+                    }});
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        recompensas = await carregarRecompensasAPI();
+                        carregarRecompensas();
+                        document.getElementById('nova-rec-nome').value = '';
+                        document.getElementById('nova-rec-pontos').value = '';
+                        document.getElementById('nova-rec-desconto').value = '0';
+                        showAlert('rec-alert', data.mensagem, true);
+                    }} else {{
+                        showAlert('rec-alert', data.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('rec-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+
+            async function removerRecompensa(id) {{
+                if (!confirm('Remover esta recompensa?')) return;
+                try {{
+                    const resp = await fetch(`/api/fidelidade/recompensas/${{id}}`, {{ method: 'DELETE' }});
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        recompensas = await carregarRecompensasAPI();
+                        carregarRecompensas();
+                        showAlert('rec-alert', data.mensagem, true);
+                    }} else {{
+                        showAlert('rec-alert', data.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('rec-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+
+            async function editarRecompensa(id) {{
+                const rec = recompensas.find(r => r.id === id);
+                if (!rec) return;
+                const novoNome = prompt('Novo nome:', rec.nome);
+                if (novoNome === null) return;
+                const novosPontos = parseInt(prompt('Novos pontos:', rec.pontos));
+                if (isNaN(novosPontos) || novosPontos <= 0) return;
+                const novoTipo = prompt('Novo tipo (servico ou cupom):', rec.tipo);
+                if (novoTipo === null) return;
+                let novoDesconto = rec.desconto;
+                if (novoTipo === 'cupom') {{
+                    novoDesconto = parseFloat(prompt('Novo desconto (R$):', rec.desconto)) || 0;
+                }}
+                try {{
+                    const resp = await fetch(`/api/fidelidade/recompensas/${{id}}`, {{
+                        method: 'PUT',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{ nome: novoNome, pontos: novosPontos, tipo: novoTipo, desconto: novoDesconto }})
+                    }});
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        recompensas = await carregarRecompensasAPI();
+                        carregarRecompensas();
+                        showAlert('rec-alert', data.mensagem, true);
+                    }} else {{
+                        showAlert('rec-alert', data.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('rec-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+
+            async function carregarRecompensasAPI() {{
+                const resp = await fetch('/api/fidelidade/recompensas');
+                const data = await resp.json();
+                if (data.sucesso) return data.recompensas;
+                return [];
+            }}
+
+            // ========== FUNÇÕES EXISTENTES ==========
             async function carregarDados() {{
                 try {{
                     const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes, configComandosRes, filaConfigRes] = await Promise.all([
@@ -2523,6 +2846,7 @@ def dashboard():
                     carregarCargosNivel();
                     carregarFila();
                     carregarBotoesPrecos();
+                    carregarRecompensas();
                 }} catch(e) {{ console.error(e); }}
             }}
             
@@ -2705,6 +3029,7 @@ def dashboard():
                 event.target.classList.add('active');
                 if (tabId === 'fila') carregarFila();
                 if (tabId === 'moderacao') carregarAdvertencias();
+                if (tabId === 'recompensas') carregarRecompensas();
             }}
             
             async function salvarAntiSpam() {{
@@ -3084,6 +3409,7 @@ def dashboard():
                                    '<tr><th style="padding:8px; border-bottom:1px solid #444;">UID</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Discord</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Serviço</th>' +
+                                   '<th style="padding:8px; border-bottom:1px solid #444;">Jogo</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Valor</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Cupom</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Ações</th></tr>';
@@ -3092,6 +3418,7 @@ def dashboard():
                                 <td style="padding:8px; border-bottom:1px solid #333;">${{p.uid}}</td>
                                 <td style="padding:8px; border-bottom:1px solid #333;">${{escapeHtml(p.discord)}}</td>
                                 <td style="padding:8px; border-bottom:1px solid #333;">${{escapeHtml(p.servico)}}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${{escapeHtml(p.jogo || '-')}}</td>
                                 <td style="padding:8px; border-bottom:1px solid #333; color:#1dd1a1;">R$ ${{p.valor.toFixed(2)}}</td>
                                 <td style="padding:8px; border-bottom:1px solid #333; color:#feca57;">${{p.cupom_usado || 'Nenhum'}}</td>
                                 <td style="padding:8px; border-bottom:1px solid #333;">
@@ -3132,12 +3459,12 @@ def dashboard():
             document.addEventListener('DOMContentLoaded', function() {{
                 carregarDados();
                 carregarPedidosPendentes();
+                carregarRecompensas();
             }});
         </script>
     </body>
     </html>
     '''
-
 @app.route("/api/membro/advertencias")
 def api_membro_advertencias():
     membro_id = request.args.get('membro_id')
