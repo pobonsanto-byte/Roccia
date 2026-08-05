@@ -17,13 +17,6 @@ from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 
-try:
-    from fidelidade import fidelidade_bp
-    FIDELIDADE_DISPONIVEL = True
-except ImportError:
-    FIDELIDADE_DISPONIVEL = False
-    fidelidade_bp = None
-    
 # ========================
 # CONFIGURAÇÃO DO AMBIENTE
 # ========================
@@ -60,13 +53,6 @@ processador_acoes_rodando = False
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# ========================
-# NOVO: REGISTRO DO BLUEPRINT (logo após a criação do app)
-# ========================
-if FIDELIDADE_DISPONIVEL and fidelidade_bp:
-    app.register_blueprint(fidelidade_bp)
-    print("✅ Blueprint de fidelidade registrado.")
-    
 # ========================
 # BOT SETUP
 # ========================
@@ -1136,24 +1122,6 @@ def fila_api():
             "entradas": [{"posicao": e["posicao"], "nome_usuario": e["nome_usuario"], "servico": e["servico"], "jogo": e.get("jogo", ""), "timestamp": e["timestamp"], "id": e["id"]} for e in fila["entradas"]]
         }
     })
-
-# ========================
-# MODIFICAR A ROTA /api/fila/concluir
-# ========================
-@app.route("/api/fila/concluir", methods=["POST"])
-def api_fila_concluir():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    entrada_id = request.json.get("entrada_id")
-    sucesso, removido = concluir_servico(entrada_id)
-    if sucesso and FIDELIDADE_DISPONIVEL:
-        # Chama o processamento de fidelidade, se disponível
-        try:
-            from fidelidade import processar_conclusao_servico
-            processar_conclusao_servico(removido)
-        except Exception as e:
-            print(f"⚠️ Erro ao processar conclusão na fidelidade: {e}")
-    return jsonify({"sucesso": sucesso})
 
 # ========================
 # APIs DA FILA
