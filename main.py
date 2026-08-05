@@ -16,6 +16,8 @@ from discord import app_commands
 from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
+import uuid
+import secrets
 
 # ========================
 # CONFIGURAÇÃO DO AMBIENTE
@@ -117,6 +119,51 @@ dados = {
 
 # Dicionário para armazenar mensagens recentes dos usuários
 mensagens_recentes = {}  # {user_id: [timestamps]}
+
+# ==========================================
+# CONFIGURAÇÃO DO SISTEMA DE FIDELIDADE
+# ==========================================
+
+RECOMPENSAS_FIDELIDADE = {
+    "quests_60": {"pontos": 60, "nome": "1 Dia de Quests Diárias Grátis", "tipo": "servico"},
+    "desafio_100": {"pontos": 100, "nome": "Desafio Rápido Grátis (Portinha/Hologramas)", "tipo": "servico"},
+    "cupom_5": {"pontos": 100, "nome": "Cupom de R$ 5,00", "tipo": "cupom", "desconto": 5.0},
+    "analise_200": {"pontos": 200, "nome": "1 Análise de Conta / Companion Quest Grátis", "tipo": "servico"},
+    "cupom_10": {"pontos": 200, "nome": "Cupom de R$ 10,00", "tipo": "cupom", "desconto": 10.0},
+    "build_400": {"pontos": 400, "nome": "1 Build Completa de Personagem Grátis", "tipo": "servico"},
+    "cupom_20": {"pontos": 400, "nome": "Cupom de R$ 20,00", "tipo": "cupom", "desconto": 20.0},
+}
+
+def obter_ou_criar_perfil_fidelidade(uid: str):
+    """Garante a estrutura no JSON 'dados' para o UID informado e verifica expirações"""
+    dados.setdefault("fidelidade", {})
+    uid_str = str(uid).strip()
+    
+    if uid_str not in dados["fidelidade"]:
+        dados["fidelidade"][uid_str] = {
+            "pontos": 0,
+            "ultimo_pedido_ts": time.time(),
+            "historico": [],
+            "cupons": []
+        }
+    
+    perfil = dados["fidelidade"][uid_str]
+    agora = time.time()
+    
+    # 🕒 REGRA 1: Expiração de Pontos por Inatividade (90 Dias)
+    # 90 dias em segundos = 90 * 24 * 60 * 60 = 7.776.000
+    if perfil["pontos"] > 0 and (agora - perfil.get("ultimo_pedido_ts", agora)) > (90 * 86400):
+        perfil["pontos"] = 0
+        perfil["pontos_expirados"] = True
+    
+    # 🕒 REGRA 2: Validade dos Cupons Resgatados (30 Dias)
+    # 30 dias em segundos = 30 * 24 * 60 * 60 = 2.592.000
+    for cupom in perfil.get("cupons", []):
+        if not cupom.get("usado", False) and not cupom.get("expirado", False):
+            if (agora - cupom.get("criado_em_ts", agora)) > (30 * 86400):
+                cupom["expirado"] = True
+
+    return perfil
 
 # ========================
 # FUNÇÕES UTILITÁRIAS
@@ -1025,6 +1072,437 @@ def logout():
     session.clear()
     return redirect(url_for('home'))
 
+# ==========================================
+# ROTAS PÚBLICAS: PORTAL DO CLIENTE (/fidelidade)
+# ==========================================
+
+@app.route("/fidelidade")
+def pagina_fidelidade():
+    """Página Pública para os membros consultarem pontos, solicitarem serviços e resgatarem prêmios"""
+    return '''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fidelidade & Pedidos - ZankonYTB</title>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
+            .container { max-width: 900px; margin: 0 auto; }
+            .card { background: #1e1e1e; border-radius: 10px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+            h1, h2, h3 { color: #00d2d3; margin-top: 0; }
+            .points-badge { font-size: 2.2rem; font-weight: bold; color: #ff9ff3; background: #2d2d2d; padding: 10px 20px; border-radius: 8px; display: inline-block; }
+            input, select, button { width: 100%; padding: 12px; margin-top: 8px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #444; background: #2a2a2a; color: white; box-sizing: border-box; }
+            button { background: #10ac84; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }
+            button:hover { background: #1dd1a1; }
+            .reward-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px; }
+            .reward-card { background: #282828; padding: 15px; border-radius: 8px; border: 1px solid #444; text-align: center; }
+            .reward-card h4 { margin: 0 0 10px 0; color: #feca57; }
+            .alert { padding: 12px; border-radius: 5px; display: none; margin-bottom: 15px; font-weight: bold; }
+            .alert-success { background: #2ed573; color: #000; }
+            .alert-error { background: #ff4757; color: #fff; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { padding: 10px; border-bottom: 1px solid #333; text-align: left; }
+            th { background: #252525; color: #00d2d3; }
+            .rules { background: #1a252f; border-left: 4px solid #3498db; padding: 15px; font-size: 0.9rem; line-height: 1.5; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎁 Fidelidade & Pedidos ZankonYTB</h1>
+            
+            <div id="msg-alert" class="alert"></div>
+
+            <!-- Consulta por UID -->
+            <div class="card">
+                <h2>🔎 Consultation do Usuário</h2>
+                <label>Digite seu UID do Jogo:</label>
+                <div style="display:flex; gap: 10px;">
+                    <input type="text" id="cliente-uid" placeholder="Ex: 100234891" style="margin:0;">
+                    <button onclick="consultarPerfil()" style="width: 150px; margin:0;">Consultar</button>
+                </div>
+            </div>
+
+            <!-- Painel de Status do Cliente (Oculto até consultar) -->
+            <div id="painel-cliente" style="display: none;">
+                <div class="card">
+                    <h2>👑 Seu Saldo de Fidelidade</h2>
+                    <p>UID: <strong id="disp-uid" style="color:#00d2d3;">-</strong></p>
+                    <div class="points-badge"><span id="disp-pontos">0</span> Pontos</div>
+                    <p style="font-size:0.85rem; color:#aaa; margin-top:10px;">* R$ 1,00 gasto em serviços = 1 Ponto acumulado.</p>
+                </div>
+
+                <!-- Resgate de Recompensas -->
+                <div class="card">
+                    <h2>🏆 Trocar Pontos por Vantagens</h2>
+                    <div class="reward-grid">
+                        <div class="reward-card">
+                            <h4>60 Pontos</h4>
+                            <p>1 Dia de Quests Diárias Grátis</p>
+                            <button onclick="resgatarItem('quests_60')">Resgatar</button>
+                        </div>
+                        <div class="reward-card">
+                            <h4>100 Pontos</h4>
+                            <p>Desafio Rápido Grátis (Portinha / Hologramas)</p>
+                            <button onclick="resgatarItem('desafio_100')">Resgatar</button>
+                        </div>
+                        <div class="reward-card">
+                            <h4>100 Pontos</h4>
+                            <p>Cupom de R$ 5,00 de Desconto</p>
+                            <button onclick="resgatarItem('cupom_5')">Resgatar</button>
+                        </div>
+                        <div class="reward-card">
+                            <h4>200 Pontos</h4>
+                            <p>Análise de Conta / Companion Quest</p>
+                            <button onclick="resgatarItem('analise_200')">Resgatar</button>
+                        </div>
+                        <div class="reward-card">
+                            <h4>200 Pontos</h4>
+                            <p>Cupom de R$ 10,00 de Desconto</p>
+                            <button onclick="resgatarItem('cupom_10')">Resgatar</button>
+                        </div>
+                        <div class="reward-card">
+                            <h4>400 Pontos</h4>
+                            <p>1 Build Completa de Personagem</p>
+                            <button onclick="resgatarItem('build_400')">Resgatar</button>
+                        </div>
+                        <div class="reward-card">
+                            <h4>400 Pontos</h4>
+                            <p>Cupom de R$ 20,00 de Desconto</p>
+                            <button onclick="resgatarItem('cupom_20')">Resgatar</button>
+                        </div>
+                    </div>
+
+                    <h3>🎟️ Seus Cupons Resgatados Ativos</h3>
+                    <div id="lista-cupons"><p>Nenhum cupom ativo no momento.</p></div>
+                </div>
+
+                <!-- Formulario de Solicitação de Serviço -->
+                <div class="card">
+                    <h2>📝 Solicitar Novo Serviço</h2>
+                    <label>Nome do Serviço Desejado:</label>
+                    <input type="text" id="ped-servico" placeholder="Ex: Farm de Bóss, Quests, Exploração">
+
+                    <label>Valor Combinado (R$):</label>
+                    <input type="number" id="ped-valor" step="0.50" placeholder="Ex: 25.00">
+
+                    <label>Usuário / Tag do Discord:</label>
+                    <input type="text" id="ped-discord" placeholder="Ex: usuario_discord">
+
+                    <label>Possui Cupom de Desconto? (Opcional):</label>
+                    <input type="text" id="ped-cupom" placeholder="Insira seu Token ex: ZNK-XXXXXX">
+
+                    <button onclick="enviarPedidoServico()">Enviar Pedido para Aprovação</button>
+                </div>
+
+                <!-- Histórico de Serviços Concluídos -->
+                <div class="card">
+                    <h2>📜 Seu Histórico de Pedidos</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Serviço</th>
+                                <th>Valor</th>
+                                <th>Pontos Ganhos</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lista-historico">
+                            <tr><td colspan="4">Nenhum serviço concluído ainda.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Regras do Sistema -->
+            <div class="card rules">
+                <h3>📌 Regras de Uso - Sistema de Fidelidade ZankonYTB</h3>
+                <ul>
+                    <li><strong>Pontos Pessoais:</strong> Atrelados diretamente ao seu UID. Não podem ser transferidos entre contas.</li>
+                    <li><strong>Cupons de Uso Único:</strong> Cada cupom gerado possui um token exclusivo que é queimado ao ser utilizado em um pedido.</li>
+                    <li><strong>1 Benefício por Pedido:</strong> Não é permitido acumular múltiplos cupons em uma mesma compra.</li>
+                    <li><strong>Validade dos Pontos:</strong> Expiram após <strong>90 dias</strong> sem a realização de novos pedidos.</li>
+                    <li><strong>Validade dos Cupons:</strong> Cupons resgatados devem ser utilizados em até <strong>30 dias</strong>.</li>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+            let currentUID = '';
+
+            async function consultarPerfil() {
+                const uid = document.getElementById('cliente-uid').value.trim();
+                if (!uid) { alert('Digite seu UID!'); return; }
+                currentUID = uid;
+
+                try {
+                    const resp = await fetch('/api/fidelidade/consultar?uid=' + encodeURIComponent(uid));
+                    const data = await resp.json();
+
+                    if (data.sucesso) {
+                        document.getElementById('painel-cliente').style.display = 'block';
+                        document.getElementById('disp-uid').textContent = data.uid;
+                        document.getElementById('disp-pontos').textContent = data.perfil.pontos;
+
+                        // Renderiza Cupons
+                        const cuponsDiv = document.getElementById('lista-cupons');
+                        if (data.perfil.cupons && data.perfil.cupons.length > 0) {
+                            let html = '<ul>';
+                            data.perfil.cupons.forEach(c => {
+                                if (!c.usado && !c.expirado) {
+                                    html += `<li>Token: <strong style="color:#feca57">${c.token}</strong> - ${c.nome} (Expira em: ${c.validez_str})</li>`;
+                                }
+                            });
+                            html += '</ul>';
+                            cuponsDiv.innerHTML = html;
+                        } else {
+                            cuponsDiv.innerHTML = '<p>Nenhum cupom ativo no momento.</p>';
+                        }
+
+                        // Renderiza Histórico
+                        const histBody = document.getElementById('lista-historico');
+                        if (data.perfil.historico && data.perfil.historico.length > 0) {
+                            histBody.innerHTML = data.perfil.historico.map(h => `
+                                <tr>
+                                    <td>${h.data}</td>
+                                    <td>${h.servico}</td>
+                                    <td>R$ ${parseFloat(h.valor).toFixed(2)}</td>
+                                    <td style="color:#1dd1a1;">+${h.pontos} pts</td>
+                                </tr>
+                            `).join('');
+                        } else {
+                            histBody.innerHTML = '<tr><td colspan="4">Nenhum serviço concluído ainda.</td></tr>';
+                        }
+                    }
+                } catch(e) {
+                    alert('Erro ao consultar UID: ' + e.message);
+                }
+            }
+
+            async function resgatarItem(chaveRecompensa) {
+                if (!currentUID) return;
+                if (!confirm('Deseja trocar seus pontos por este benefício?')) return;
+
+                try {
+                    const resp = await fetch('/api/fidelidade/resgatar', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid: currentUID, recompensa: chaveRecompensa })
+                    });
+                    const res = await resp.json();
+                    alert(res.mensagem);
+                    if (res.sucesso) consultarPerfil();
+                } catch(e) { alert('Erro: ' + e.message); }
+            }
+
+            async function enviarPedidoServico() {
+                if (!currentUID) return;
+                const servico = document.getElementById('ped-servico').value.trim();
+                const valor = parseFloat(document.getElementById('ped-valor').value);
+                const discord = document.getElementById('ped-discord').value.trim();
+                const cupom = document.getElementById('ped-cupom').value.trim();
+
+                if (!servico || isNaN(valor) || valor <= 0 || !discord) {
+                    alert('Preencha o serviço, valor válido e seu Discord.');
+                    return;
+                }
+
+                try {
+                    const resp = await fetch('/api/fidelidade/solicitar_servico', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            uid: currentUID,
+                            servico: servico,
+                            valor: valor,
+                            discord: discord,
+                            cupom_token: cupom
+                        })
+                    });
+                    const res = await resp.json();
+                    alert(res.mensagem);
+                    if (res.sucesso) {
+                        document.getElementById('ped-servico').value = '';
+                        document.getElementById('ped-valor').value = '';
+                        document.getElementById('ped-cupom').value = '';
+                        consultarPerfil();
+                    }
+                } catch(e) { alert('Erro: ' + e.message); }
+            }
+        </script>
+    </body>
+    </html>
+    '''
+
+@app.route("/api/fidelidade/consultar")
+def api_fidelidade_consultar():
+    uid = request.args.get('uid')
+    if not uid:
+        return jsonify({"sucesso": False, "mensagem": "UID não informado"})
+    
+    perfil = obter_ou_criar_perfil_fidelidade(uid)
+    return jsonify({"sucesso": True, "uid": uid, "perfil": perfil})
+
+@app.route("/api/fidelidade/resgatar", methods=["POST"])
+def api_fidelidade_resgatar():
+    req = request.get_json() or {}
+    uid = req.get("uid")
+    chave_rec = req.get("recompensa")
+    
+    if not uid or chave_rec not in RECOMPENSAS_FIDELIDADE:
+        return jsonify({"sucesso": False, "mensagem": "Dados inválidos"})
+    
+    perfil = obter_ou_criar_perfil_fidelidade(uid)
+    rec = RECOMPENSAS_FIDELIDADE[chave_rec]
+    
+    if perfil["pontos"] < rec["pontos"]:
+        return jsonify({"sucesso": False, "mensagem": f"Pontos insuficientes! Você precisa de {rec['pontos']} pontos."})
+    
+    # Deduz os pontos do cliente
+    perfil["pontos"] -= rec["pontos"]
+    
+    # Gera um token único de uso pessoal (Ex: ZNK-A1B2C3)
+    token = f"ZNK-{secrets.token_hex(3).upper()}"
+    agora = time.time()
+    
+    novo_cupom = {
+        "token": token,
+        "recompensa_id": chave_rec,
+        "nome": rec["nome"],
+        "tipo": rec["tipo"],
+        "desconto": rec.get("desconto", 0),
+        "criado_em_ts": agora,
+        "validez_str": time.strftime("%d/%m/%Y", time.localtime(agora + 30*86400)),
+        "usado": False,
+        "expirado": False
+    }
+    
+    perfil["cupons"].append(novo_cupom)
+    salvar_dados_github("Resgate de fidelidade")
+    
+    return jsonify({
+        "sucesso": True, 
+        "mensagem": f"Resgate concluído! Seu código de cupom gerado é: {token}", 
+        "token": token
+    })
+
+@app.route("/api/fidelidade/solicitar_servico", methods=["POST"])
+def api_fidelidade_solicitar_servico():
+    req = request.get_json() or {}
+    uid = req.get("uid")
+    servico = req.get("servico")
+    valor = float(req.get("valor", 0))
+    discord = req.get("discord")
+    cupom_token = req.get("cupom_token", "").strip().upper()
+    
+    if not uid or not servico or valor <= 0:
+        return jsonify({"sucesso": False, "mensagem": "Preencha todos os campos corretamente"})
+    
+    perfil = obter_ou_criar_perfil_fidelidade(uid)
+    cupom_aplicado = None
+    
+    # Validação do Cupom
+    if cupom_token:
+        encontrado = None
+        for c in perfil.get("cupons", []):
+            if c["token"] == cupom_token:
+                encontrado = c
+                break
+        
+        if not encontrado:
+            return jsonify({"sucesso": False, "mensagem": "Cupom não encontrado ou não pertence a este UID!"})
+        if encontrado.get("usado"):
+            return jsonify({"sucesso": False, "mensagem": "Este cupom já foi utilizado!"})
+        if encontrado.get("expirado"):
+            return jsonify({"sucesso": False, "mensagem": "Este cupom expirou (prazo de 30 dias)!"})
+        
+        # Abate o valor do cupom se for cupom financeiro
+        if encontrado["tipo"] == "cupom":
+            valor = max(0.0, valor - encontrado["desconto"])
+        
+        # Marca cupom como utilizado
+        encontrado["usado"] = True
+        cupom_aplicado = encontrado["nome"]
+    
+    dados.setdefault("pedidos_fidelidade_pendentes", [])
+    
+    novo_pedido = {
+        "id": str(uuid.uuid4())[:8],
+        "uid": uid,
+        "discord": discord,
+        "servico": servico,
+        "valor": valor,
+        "cupom_usado": cupom_aplicado,
+        "timestamp": time.time(),
+        "data_str": time.strftime("%d/%m/%Y %H:%M"),
+        "status": "aguardando_aprovacao"
+    }
+    
+    dados["pedidos_fidelidade_pendentes"].append(novo_pedido)
+    salvar_dados_github("Novo pedido de serviço solicitado")
+    
+    return jsonify({
+        "sucesso": True, 
+        "mensagem": "Pedido enviado com sucesso! Aguarde a aprovação do Administrador."
+    })
+
+# ==========================================
+# ROTAS DO ADMINISTRADOR PARA GESTÃO DE PEDIDOS
+# ==========================================
+
+@app.route("/api/fidelidade/admin/pendentes")
+def api_fidelidade_admin_pendentes():
+    """Lista pedidos aguardando aprovação do admin"""
+    pendentes = dados.get("pedidos_fidelidade_pendentes", [])
+    return jsonify({"sucesso": True, "pedidos": pendentes})
+
+@app.route("/api/fidelidade/admin/aprovar", methods=["POST"])
+def api_fidelidade_admin_aprovar():
+    """Aprova pedido do cliente e coloca AUTOMATICAMENTE na Fila do Bot"""
+    req = request.get_json() or {}
+    pedido_id = req.get("pedido_id")
+    
+    pendentes = dados.get("pedidos_fidelidade_pendentes", [])
+    pedido = next((p for p in pendentes if p["id"] == pedido_id), None)
+    
+    if not pedido:
+        return jsonify({"sucesso": False, "mensagem": "Pedido não encontrado"})
+    
+    # 1. Adiciona à Fila Global do Bot
+    dados.setdefault("fila", {"aberta": True, "entradas": [], "tamanho_maximo": 20, "configuracoes": {}})
+    
+    nova_entrada_fila = {
+        "id": str(uuid.uuid4()),
+        "posicao": len(dados["fila"]["entradas"]) + 1,
+        "nome_usuario": f"{pedido['discord']} (UID: {pedido['uid']})",
+        "servico": pedido["servico"],
+        "jogo": f"Valor: R$ {pedido['valor']:.2f}",
+        "valor": pedido["valor"],
+        "uid": pedido["uid"],
+        "timestamp": time.time()
+    }
+    
+    dados["fila"]["entradas"].append(nova_entrada_fila)
+    
+    # 2. Remove da lista de pendentes
+    dados["pedidos_fidelidade_pendentes"] = [p for p in pendentes if p["id"] != pedido_id]
+    salvar_dados_github("Pedido aprovado e enviado para a fila")
+    
+    return jsonify({"sucesso": True, "mensagem": "Pedido aprovado e inserido na Fila com sucesso!"})
+
+@app.route("/api/fidelidade/admin/recusar", methods=["POST"])
+def api_fidelidade_admin_recusar():
+    """Recusa um pedido pendente"""
+    req = request.get_json() or {}
+    pedido_id = req.get("pedido_id")
+    
+    pendentes = dados.get("pedidos_fidelidade_pendentes", [])
+    dados["pedidos_fidelidade_pendentes"] = [p for p in pendentes if p["id"] != pedido_id]
+    salvar_dados_github("Pedido recusado")
+    
+    return jsonify({"sucesso": True, "mensagem": "Pedido recusado e removido."})
+
+
 # ========================
 # ROTAS DA FILA
 # ========================
@@ -1161,10 +1639,44 @@ def api_fila_mover_baixo():
 
 @app.route("/api/fila/concluir", methods=["POST"])
 def api_fila_concluir():
-    if 'usuario' not in session:
-        return jsonify({"sucesso": False}), 401
-    sucesso, _ = concluir_servico(request.json.get("entrada_id"))
-    return jsonify({"sucesso": sucesso})
+    """Conclui o serviço da fila, move para o Histórico do Cliente e CREDITA OS PONTOS (R$ 1 = 1 Ponto)"""
+    req = request.get_json() or {}
+    entrada_id = req.get("entrada_id")
+    
+    fila = dados.get("fila", {}).get("entradas", [])
+    item_concluido = next((e for e in fila if e["id"] == entrada_id), None)
+    
+    if item_concluido:
+        # Verifica se o item possui UID associado para creditar os pontos de fidelidade
+        uid = item_concluido.get("uid")
+        valor = float(item_concluido.get("valor", 0))
+        
+        if uid and valor > 0:
+            perfil = obter_ou_criar_perfil_fidelidade(uid)
+            pontos_ganhos = int(valor) # R$ 1,00 = 1 Ponto
+            
+            perfil["pontos"] += pontos_ganhos
+            perfil["ultimo_pedido_ts"] = time.time() # Atualiza para evitar expiração nos próximos 90 dias
+            
+            # Registra no histórico do cliente
+            perfil["historico"].insert(0, {
+                "servico": item_concluido.get("servico", "Serviço"),
+                "valor": valor,
+                "pontos": pontos_ganhos,
+                "data": time.strftime("%d/%m/%Y")
+            })
+        
+        # Remove da Fila
+        dados["fila"]["entradas"] = [e for e in fila if e["id"] != entrada_id]
+        
+        # Reordena posições da fila
+        for idx, entrada in enumerate(dados["fila"]["entradas"], 1):
+            entrada["posicao"] = idx
+            
+        salvar_dados_github("Serviço concluído na fila e pontos creditados")
+        return jsonify({"sucesso": True, "mensagem": "Serviço concluído e pontos creditados ao cliente!"})
+        
+    return jsonify({"sucesso": False, "mensagem": "Entrada não encontrada na fila"})
 
 @app.route("/api/fila/limpar", methods=["POST"])
 def api_fila_limpar():
@@ -1815,6 +2327,11 @@ def dashboard():
                         <div><label>Nome da Fila</label><input type="text" id="fila-nome" class="form-control" value="{escape_html(fila['nome'])}"></div>
                         <div><label>Tamanho Máximo</label><input type="number" id="fila-max" class="form-control" value="{fila['configuracoes']['tamanho_maximo']}" min="1" max="100"></div>
                     </div>
+                    
+            <div class="card" style="margin-top: 20px; background: #1e1e1e; padding: 15px; border-radius: 8px;">
+                <h3>⏳ Pedidos de Serviços Pendentes (Fidelidade)</h3>
+                <div id="pedidos-pendentes-container"><p>Carregando pedidos...</p></div>
+            </div>
                     
                     <h3 style="margin-top: 20px;">🔗 Links do Discord (convite)</h3>
                     <div class="form-group">
@@ -2558,8 +3075,67 @@ def dashboard():
             }}
             
             function escapeHtml(texto) {{ if (!texto) return ''; return texto.replace(/[&<>]/g, function(m) {{ if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }}); }}
+
+            async function carregarPedidosPendentes() {
+                try {
+                    const resp = await fetch('/api/fidelidade/admin/pendentes');
+                    const data = await resp.json();
+                    const container = document.getElementById('pedidos-pendentes-container');
+                    
+                    if (data.sucesso && data.pedidos.length > 0) {
+                        let html = '<table style="width:100%; color:white; border-collapse: collapse;">' +
+                                   '<tr><th style="padding:8px; border-bottom:1px solid #444;">UID</th>' +
+                                   '<th style="padding:8px; border-bottom:1px solid #444;">Discord</th>' +
+                                   '<th style="padding:8px; border-bottom:1px solid #444;">Serviço</th>' +
+                                   '<th style="padding:8px; border-bottom:1px solid #444;">Valor</th>' +
+                                   '<th style="padding:8px; border-bottom:1px solid #444;">Cupom</th>' +
+                                   '<th style="padding:8px; border-bottom:1px solid #444;">Ações</th></tr>';
+                        data.pedidos.forEach(p => {
+                            html += `<tr>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${p.uid}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${escapeHtml(p.discord)}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${escapeHtml(p.servico)}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333; color:#1dd1a1;">R$ ${p.valor.toFixed(2)}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333; color:#feca57;">${p.cupom_usado || 'Nenhum'}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">
+                                    <button onclick="aprovarPedido('${p.id}')" style="background:#2ed573; color:black; border:none; border-radius:3px; padding:5px 10px; cursor:pointer; font-weight:bold;">Aprovar</button>
+                                    <button onclick="recusarPedido('${p.id}')" style="background:#ff4757; color:white; border:none; border-radius:3px; padding:5px 10px; cursor:pointer;">Recusar</button>
+                                </td>
+                            </tr>`;
+                        });
+                        html += '</table>';
+                        container.innerHTML = html;
+                    } else {
+                        container.innerHTML = '<p>Nenhum pedido pendente de aprovação.</p>';
+                    }
+                } catch(e) { console.error(e); }
+            }
+
+            async function aprovarPedido(id) {
+                if(!confirm('Aprovar pedido e enviar para a Fila?')) return;
+                await fetch('/api/fidelidade/admin/aprovar', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pedido_id: id})
+                });
+                carregarPedidosPendentes();
+                if (typeof carregarFila === 'function') carregarFila();
+            }
+
+            async function recusarPedido(id) {
+                if(!confirm('Recusar pedido?')) return;
+                await fetch('/api/fidelidade/admin/recusar', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pedido_id: id})
+                });
+                carregarPedidosPendentes();
+            }
             
-            document.addEventListener('DOMContentLoaded', carregarDados);
+            document.addEventListener('DOMContentLoaded', function() {
+                carregarDados();
+                carregarPedidosPendentes();
+            });
         </script>
     </body>
     </html>
