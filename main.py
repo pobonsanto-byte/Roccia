@@ -3189,7 +3189,8 @@ def dashboard():
                     const result = await resp.json();
                     if (result.sucesso) {{
                         carregarServicos();
-                        showAlert('servico-alert', `Serviço ${novoStatus === 'ativo' ? 'ativado' : 'desativado'}!`, true);
+                        const msg = `Serviço ${novoStatus === 'ativo' ? 'ativado' : 'desativado'}!`;
+                        showAlert('servico-alert', msg, true);
                     }}
                 }} catch(e) {{ showAlert('servico-alert', 'Erro: ' + e.message, false); }}
             }}
@@ -3996,7 +3997,7 @@ def cliente_area():
                     }});
                     const result = await resp.json();
                     if (result.sucesso) {{
-                        alert(`✅ Recompensa resgatada! Código: ${{result.cupom.codigo}}\nGuarde este código para usar no seu próximo pedido.`);
+                        alert(`✅ Recompensa resgatada! Código: ${{result.cupom.codigo}}\\nGuarde este código para usar no seu próximo pedido.`);
                         location.reload();
                     }} else {{
                         alert('❌ ' + result.mensagem);
