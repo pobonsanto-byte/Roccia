@@ -1073,7 +1073,7 @@ def logout():
 # ROTAS PÚBLICAS: PORTAL DO CLIENTE (/fidelidade)
 # ==========================================
 
-@app.route("/fidelidade")
+@app.route("/Pedido")
 def pagina_fidelidade():
     """Página Pública para os membros consultarem pontos, solicitarem serviços e resgatarem prêmios"""
     return '''
@@ -1106,13 +1106,13 @@ def pagina_fidelidade():
     </head>
     <body>
         <div class="container">
-            <h1>🎁 Fidelidade & Pedidos ZankonYTB</h1>
+            <h1>Service & Pontos ZankonYTB</h1>
             
             <div id="msg-alert" class="alert"></div>
 
             <!-- Consulta por UID -->
             <div class="card">
-                <h2>🔎 Consultation do Usuário</h2>
+                <h2>Login</h2>
                 <label>Digite seu UID do Jogo:</label>
                 <div style="display:flex; gap: 10px;">
                     <input type="text" id="cliente-uid" placeholder="Ex: 100234891" style="margin:0;">
