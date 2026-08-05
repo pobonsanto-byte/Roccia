@@ -1532,7 +1532,7 @@ def api_fidelidade_solicitar_servico():
     discord = req.get("discord")
     cupom_token = req.get("cupom_token", "").strip().upper()
 
-    if not uid or not servico or valor <= 0:
+    if not uid or not servico or valor <= -1:
         return jsonify({"sucesso": False, "mensagem": "Preencha todos os campos corretamente"})
 
     perfil = obter_ou_criar_perfil_fidelidade(uid)
