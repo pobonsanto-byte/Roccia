@@ -206,7 +206,7 @@ def obter_ou_criar_perfil_fidelidade(uid: str):
     agora = time.time()
 
     # 🕒 REGRA 1: Expiração de Pontos por Inatividade (90 Dias)
-    if perfil["pontos"] > 0 and (agora - perfil.get("ultimo_pedido_ts", agora)) > (90 * 86400):
+    if perfil["pontos"] > 0 and (agora - perfil.get("ultimo_pedido_ts", agora)) > (60 * 86400):
         perfil["pontos"] = 0
         perfil["pontos_expirados"] = True
 
@@ -1304,7 +1304,7 @@ def pagina_fidelidade():
                     <li><strong>Pontos Pessoais:</strong> Atrelados diretamente ao seu UID. Não podem ser transferidos entre contas.</li>
                     <li><strong>Cupons de Uso Único:</strong> Cada cupom gerado possui um token exclusivo que é queimado ao ser utilizado em um pedido.</li>
                     <li><strong>1 Benefício por Pedido:</strong> Não é permitido acumular múltiplos cupons em uma mesma compra.</li>
-                    <li><strong>Validade dos Pontos:</strong> Expiram após <strong>90 dias</strong> sem a realização de novos pedidos.</li>
+                    <li><strong>Validade dos Pontos:</strong> Expiram após <strong>60 dias</strong> sem a realização de novos pedidos.</li>
                     <li><strong>Validade dos Cupons:</strong> Cupons resgatados devem ser utilizados em até <strong>30 dias</strong>.</li>
                 </ul>
             </div>
