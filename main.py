@@ -4344,7 +4344,7 @@ def dashboard():
                                     <p><strong>Serviço:</strong> ${{escapeHtml(s.servico_nome)}}</p>
                                     <p><strong>Jogo:</strong> ${{escapeHtml(s.jogo || 'N/A')}}</p>
                                     <p><strong>Observações:</strong> ${{escapeHtml(s.observacoes || 'N/A')}}</p>
-                                    ${{s.cupom_aplicado ? `<p><strong>Cupom:</strong> ${{escapeHtml(s.cupom_aplicado)}}</p>` : ''}}
+                                    ${s.cupom_aplicado ? `<p><strong>Cupom:</strong> ${escapeHtml(s.cupom_aplicado)}</p>` : ''}
                                 `;
                             }}
                         }}
