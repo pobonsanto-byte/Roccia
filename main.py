@@ -5,8 +5,6 @@ import re
 import requests
 import time
 import secrets
-import random
-import string
 from io import BytesIO
 from threading import Thread
 from datetime import datetime, timezone, timedelta
@@ -115,29 +113,36 @@ dados = {
             "$bitesthedust", "$kb", "$Kb", "$l", "$L", "$ldk", "$Ldk",
         ]
     },
-    # Novas estruturas
+    # NOVAS ESTRUTURAS PARA SISTEMA DE FIDELIDADE
     "clientes": {},
     "servicos": {},
     "solicitacoes": {},
     "fidelidade": {
         "pontos_por_real": 1,
+        "recompensas": [
+            {"pontos": 60, "descricao": "1 Dia de Quests Diárias Grátis", "tipo": "quests_diarias"},
+            {"pontos": 100, "descricao": "Desafio Rápido", "tipo": "desafio_rapido"},
+            {"pontos": 100, "descricao": "Portinha", "tipo": "portinha"},
+            {"pontos": 100, "descricao": "Hologramas de Huanglong", "tipo": "hologramas"},
+            {"pontos": 100, "descricao": "Cupom de R$ 5", "tipo": "cupom_5"},
+            {"pontos": 200, "descricao": "Análise de Conta", "tipo": "analise_conta"},
+            {"pontos": 200, "descricao": "Companion Quest", "tipo": "companion_quest"},
+            {"pontos": 200, "descricao": "Cupom de R$ 10", "tipo": "cupom_10"},
+            {"pontos": 400, "descricao": "Build Completa", "tipo": "build_completa"},
+            {"pontos": 400, "descricao": "Cupom de R$ 20", "tipo": "cupom_20"}
+        ],
+        "cupons_gerados": {}
+    },
+    # Configurações do sistema de fidelidade
+    "fidelidade_config": {
         "validade_pontos_dias": 90,
         "validade_cupom_dias": 30,
-        "recompensas": [
-            {"id": "rec1", "nome": "1 Dia de Quests Diárias Grátis", "pontos": 60, "tipo": "quests"},
-            {"id": "rec2", "nome": "Desafio Rápido / Portinha / Hologramas de Huanglong", "pontos": 100, "tipo": "servico_extra", "opcoes": ["Desafio Rápido", "Portinha", "Hologramas de Huanglong"]},
-            {"id": "rec3", "nome": "Cupom de R$5", "pontos": 100, "tipo": "cupom", "valor": 5},
-            {"id": "rec4", "nome": "Análise de Conta / Companion Quest", "pontos": 200, "tipo": "servico_extra", "opcoes": ["Análise de Conta", "Companion Quest"]},
-            {"id": "rec5", "nome": "Cupom de R$10", "pontos": 200, "tipo": "cupom", "valor": 10},
-            {"id": "rec6", "nome": "Build Completa", "pontos": 400, "tipo": "servico_extra", "opcoes": ["Build Completa"]},
-            {"id": "rec7", "nome": "Cupom de R$20", "pontos": 400, "tipo": "cupom", "valor": 20}
-        ],
-        "cupons": {}
+        "multiplicador_pontos": 1
     }
 }
 
 # Dicionário para armazenar mensagens recentes dos usuários
-mensagens_recentes = {}  # {user_id: [timestamps]}
+mensagens_recentes = {}
 
 # ========================
 # FUNÇÕES UTILITÁRIAS
@@ -158,7 +163,37 @@ def carregar_dados_github():
                 raw = base64.b64decode(conteudo_b64)
                 carregado = json.loads(raw.decode("utf-8"))
                 dados.update(carregado)
-                # Garantir que todas as chaves existam
+                
+                # Garantir que todas as novas chaves existam
+                if "clientes" not in dados:
+                    dados["clientes"] = {}
+                if "servicos" not in dados:
+                    dados["servicos"] = {}
+                if "solicitacoes" not in dados:
+                    dados["solicitacoes"] = {}
+                if "fidelidade" not in dados:
+                    dados["fidelidade"] = {
+                        "pontos_por_real": 1,
+                        "recompensas": [
+                            {"pontos": 60, "descricao": "1 Dia de Quests Diárias Grátis", "tipo": "quests_diarias"},
+                            {"pontos": 100, "descricao": "Desafio Rápido", "tipo": "desafio_rapido"},
+                            {"pontos": 100, "descricao": "Portinha", "tipo": "portinha"},
+                            {"pontos": 100, "descricao": "Hologramas de Huanglong", "tipo": "hologramas"},
+                            {"pontos": 100, "descricao": "Cupom de R$ 5", "tipo": "cupom_5"},
+                            {"pontos": 200, "descricao": "Análise de Conta", "tipo": "analise_conta"},
+                            {"pontos": 200, "descricao": "Companion Quest", "tipo": "companion_quest"},
+                            {"pontos": 200, "descricao": "Cupom de R$ 10", "tipo": "cupom_10"},
+                            {"pontos": 400, "descricao": "Build Completa", "tipo": "build_completa"},
+                            {"pontos": 400, "descricao": "Cupom de R$ 20", "tipo": "cupom_20"}
+                        ],
+                        "cupons_gerados": {}
+                    }
+                if "fidelidade_config" not in dados:
+                    dados["fidelidade_config"] = {
+                        "validade_pontos_dias": 90,
+                        "validade_cupom_dias": 30,
+                        "multiplicador_pontos": 1
+                    }
                 if "fila" not in dados:
                     dados["fila"] = {
                         "nome": "Fila de Serviços",
@@ -203,29 +238,6 @@ def carregar_dados_github():
                     }
                 if "botoes_precos" not in dados.get("links_fila", {}):
                     dados["links_fila"]["botoes_precos"] = []
-                # Novas estruturas
-                if "clientes" not in dados:
-                    dados["clientes"] = {}
-                if "servicos" not in dados:
-                    dados["servicos"] = {}
-                if "solicitacoes" not in dados:
-                    dados["solicitacoes"] = {}
-                if "fidelidade" not in dados:
-                    dados["fidelidade"] = {
-                        "pontos_por_real": 1,
-                        "validade_pontos_dias": 90,
-                        "validade_cupom_dias": 30,
-                        "recompensas": [
-                            {"id": "rec1", "nome": "1 Dia de Quests Diárias Grátis", "pontos": 60, "tipo": "quests"},
-                            {"id": "rec2", "nome": "Desafio Rápido / Portinha / Hologramas de Huanglong", "pontos": 100, "tipo": "servico_extra", "opcoes": ["Desafio Rápido", "Portinha", "Hologramas de Huanglong"]},
-                            {"id": "rec3", "nome": "Cupom de R$5", "pontos": 100, "tipo": "cupom", "valor": 5},
-                            {"id": "rec4", "nome": "Análise de Conta / Companion Quest", "pontos": 200, "tipo": "servico_extra", "opcoes": ["Análise de Conta", "Companion Quest"]},
-                            {"id": "rec5", "nome": "Cupom de R$10", "pontos": 200, "tipo": "cupom", "valor": 10},
-                            {"id": "rec6", "nome": "Build Completa", "pontos": 400, "tipo": "servico_extra", "opcoes": ["Build Completa"]},
-                            {"id": "rec7", "nome": "Cupom de R$20", "pontos": 400, "tipo": "cupom", "valor": 20}
-                        ],
-                        "cupons": {}
-                    }
                 print("✅ Dados carregados do GitHub.")
                 return True
         else:
@@ -285,6 +297,248 @@ def escape_html(texto):
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+def gerar_codigo_cupom():
+    """Gera um código aleatório para cupom no formato ZANKON-XXXXXX"""
+    import string
+    random_part = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+    return f"ZANKON-{random_part}"
+
+def obter_cliente(discord_id):
+    """Retorna os dados do cliente ou None se não existir"""
+    return dados.get("clientes", {}).get(str(discord_id))
+
+def criar_cliente(discord_id, game_nick, uid):
+    """Cria um novo cliente"""
+    dados.setdefault("clientes", {})
+    dados["clientes"][str(discord_id)] = {
+        "uid": uid,
+        "game_nick": game_nick,
+        "pontos_atuais": 0,
+        "pontos_acumulados": 0,
+        "pontos_utilizados": 0,
+        "ultima_compra": None,
+        "ultimo_resgate": None,
+        "data_cadastro": agora_br().isoformat()
+    }
+    return dados["clientes"][str(discord_id)]
+
+def atualizar_pontos_cliente(discord_id, pontos):
+    """Adiciona ou remove pontos do cliente"""
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return False
+    cliente["pontos_atuais"] = max(0, cliente["pontos_atuais"] + pontos)
+    if pontos > 0:
+        cliente["pontos_acumulados"] += pontos
+        cliente["ultima_compra"] = agora_br().isoformat()
+    return True
+
+def adicionar_servico(nome, categoria, descricao, valor_reais, pontos_gerados, status="ativo", imagem_url=""):
+    """Adiciona um novo serviço"""
+    servico_id = str(int(time.time() * 1000))
+    dados["servicos"][servico_id] = {
+        "nome": nome,
+        "categoria": categoria,
+        "descricao": descricao,
+        "valor_reais": float(valor_reais),
+        "pontos_gerados": int(pontos_gerados),
+        "status": status,
+        "imagem_url": imagem_url,
+        "data_criacao": agora_br().isoformat()
+    }
+    return servico_id
+
+def obter_servicos_ativos():
+    """Retorna apenas os serviços com status ativo"""
+    return {k: v for k, v in dados.get("servicos", {}).items() if v.get("status") == "ativo"}
+
+def criar_solicitacao(cliente_discord_id, servico_id, jogo, observacoes="", cupom_codigo=None):
+    """Cria uma nova solicitação de serviço"""
+    solicitacao_id = str(int(time.time() * 1000))
+    dados["solicitacoes"][solicitacao_id] = {
+        "cliente_discord_id": str(cliente_discord_id),
+        "servico_id": servico_id,
+        "jogo": jogo,
+        "observacoes": observacoes,
+        "cupom_aplicado": cupom_codigo,
+        "status": "Aguardando Aprovação",
+        "data_solicitacao": agora_br().isoformat(),
+        "data_aprovacao": None,
+        "data_conclusao": None,
+        "admin_aprovacao": None,
+        "admin_conclusao": None,
+        "motivo_recusa": None,
+        "pontos_creditados": 0
+    }
+    return solicitacao_id
+
+def aprovar_solicitacao(solicitacao_id, admin_id):
+    """Aprova uma solicitação e adiciona à fila"""
+    solicitacao = dados.get("solicitacoes", {}).get(solicitacao_id)
+    if not solicitacao or solicitacao.get("status") != "Aguardando Aprovação":
+        return False
+    
+    solicitacao["status"] = "Em Andamento"
+    solicitacao["data_aprovacao"] = agora_br().isoformat()
+    solicitacao["admin_aprovacao"] = str(admin_id)
+    
+    # Adicionar à fila existente
+    cliente = obter_cliente(solicitacao["cliente_discord_id"])
+    servico = dados["servicos"].get(solicitacao["servico_id"])
+    
+    if cliente and servico:
+        nome_usuario = cliente.get("game_nick", f"User_{solicitacao['cliente_discord_id']}")
+        nome_servico = servico.get("nome", "Serviço")
+        jogo = solicitacao.get("jogo", "")
+        
+        fila = obter_dados_fila()
+        if fila["configuracoes"]["aberta"]:
+            entrada = {
+                "id": str(int(datetime.now().timestamp() * 1000)),
+                "nome_usuario": nome_usuario,
+                "servico": nome_servico,
+                "jogo": jogo,
+                "usuario_id": solicitacao["cliente_discord_id"],
+                "timestamp": agora_br().isoformat(),
+                "status": "aguardando",
+                "posicao": len(fila["entradas"]) + 1,
+                "solicitacao_id": solicitacao_id
+            }
+            fila["entradas"].append(entrada)
+            atualizar_posicoes(fila["entradas"])
+            salvar_dados_github(f"Solicitação aprovada: {nome_usuario} - {nome_servico}")
+            return True
+    
+    return False
+
+def recusar_solicitacao(solicitacao_id, motivo, admin_id):
+    """Recusa uma solicitação"""
+    solicitacao = dados.get("solicitacoes", {}).get(solicitacao_id)
+    if not solicitacao or solicitacao.get("status") != "Aguardando Aprovação":
+        return False
+    
+    solicitacao["status"] = "Recusado"
+    solicitacao["motivo_recusa"] = motivo
+    solicitacao["data_aprovacao"] = agora_br().isoformat()
+    solicitacao["admin_aprovacao"] = str(admin_id)
+    return True
+
+def concluir_solicitacao_fila(solicitacao_id, admin_id):
+    """Conclui um serviço e credita os pontos"""
+    solicitacao = dados.get("solicitacoes", {}).get(solicitacao_id)
+    if not solicitacao or solicitacao.get("status") != "Em Andamento":
+        return False
+    
+    servico = dados["servicos"].get(solicitacao["servico_id"])
+    if not servico:
+        return False
+    
+    pontos = servico.get("pontos_gerados", 0)
+    cliente_discord_id = solicitacao["cliente_discord_id"]
+    
+    if pontos > 0:
+        cliente = obter_cliente(cliente_discord_id)
+        if cliente:
+            cliente["pontos_atuais"] += pontos
+            cliente["pontos_acumulados"] += pontos
+            cliente["ultima_compra"] = agora_br().isoformat()
+    
+    solicitacao["status"] = "Concluído"
+    solicitacao["data_conclusao"] = agora_br().isoformat()
+    solicitacao["admin_conclusao"] = str(admin_id)
+    solicitacao["pontos_creditados"] = pontos
+    
+    # Remover da fila
+    fila = obter_dados_fila()
+    for i, entrada in enumerate(fila["entradas"]):
+        if entrada.get("solicitacao_id") == solicitacao_id:
+            removido = fila["entradas"].pop(i)
+            removido["status"] = "concluido"
+            removido["concluido_em"] = agora_br().isoformat()
+            fila["historico"].append(removido)
+            atualizar_posicoes(fila["entradas"])
+            break
+    
+    salvar_dados_github(f"Solicitação concluída: {solicitacao_id}")
+    return True
+
+def resgatar_recompensa(discord_id, recompensa_tipo):
+    """Resgata uma recompensa usando pontos"""
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return False, "Cliente não encontrado"
+    
+    recompensa = None
+    for r in dados.get("fidelidade", {}).get("recompensas", []):
+        if r.get("tipo") == recompensa_tipo:
+            recompensa = r
+            break
+    
+    if not recompensa:
+        return False, "Recompensa não encontrada"
+    
+    pontos_necessarios = recompensa.get("pontos", 0)
+    if cliente["pontos_atuais"] < pontos_necessarios:
+        return False, f"Pontos insuficientes. Você tem {cliente['pontos_atuais']} pontos, precisa de {pontos_necessarios}"
+    
+    # Descontar pontos
+    cliente["pontos_atuais"] -= pontos_necessarios
+    cliente["pontos_utilizados"] += pontos_necessarios
+    cliente["ultimo_resgate"] = agora_br().isoformat()
+    
+    # Gerar cupom
+    codigo = gerar_codigo_cupom()
+    validade = (agora_br() + timedelta(days=30)).isoformat()
+    
+    dados["fidelidade"].setdefault("cupons_gerados", {})[codigo] = {
+        "discord_id": str(discord_id),
+        "tipo_recompensa": recompensa_tipo,
+        "descricao": recompensa.get("descricao", ""),
+        "validade": validade,
+        "data_resgate": agora_br().isoformat(),
+        "status": "ativo",
+        "utilizado_em": None
+    }
+    
+    salvar_dados_github(f"Cupom resgatado: {codigo} para {discord_id}")
+    return True, codigo
+
+def aplicar_cupom(codigo, discord_id):
+    """Aplica um cupom na solicitação"""
+    cupons = dados.get("fidelidade", {}).get("cupons_gerados", {})
+    cupom = cupons.get(codigo)
+    
+    if not cupom:
+        return False, "Cupom não encontrado"
+    
+    if cupom.get("discord_id") != str(discord_id):
+        return False, "Este cupom não pertence a você"
+    
+    if cupom.get("status") != "ativo":
+        return False, "Cupom já foi utilizado ou está expirado"
+    
+    validade = cupom.get("validade")
+    if validade:
+        try:
+            validade_date = datetime.fromisoformat(validade)
+            if validade_date < agora_br():
+                cupom["status"] = "expirado"
+                return False, "Cupom expirado"
+        except:
+            pass
+    
+    return True, "Cupom válido"
+
+def usar_cupom(codigo):
+    """Marca um cupom como utilizado"""
+    cupons = dados.get("fidelidade", {}).get("cupons_gerados", {})
+    cupom = cupons.get(codigo)
+    if cupom:
+        cupom["status"] = "utilizado"
+        cupom["utilizado_em"] = agora_br().isoformat()
+        return True
+    return False
 
 # ========================
 # FUNÇÕES ANTI-SPAM E IGNORADOS
@@ -446,8 +700,7 @@ def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: 
         "usuario_id": usuario_id or nome_usuario,
         "timestamp": agora_br().isoformat(),
         "status": "aguardando",
-        "posicao": len(fila["entradas"]) + 1,
-        "solicitacao_id": None
+        "posicao": len(fila["entradas"]) + 1
     }
     
     fila["entradas"].append(entrada)
@@ -455,31 +708,6 @@ def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: 
     salvar_fila()
     adicionar_log(f"fila_adicionar: {nome_usuario} - {servico} - {jogo}")
     return True, entrada
-
-def adicionar_fila_por_solicitacao(solicitacao_id: str):
-    sol = dados.get("solicitacoes", {}).get(solicitacao_id)
-    if not sol:
-        return False, "Solicitação não encontrada"
-    cliente = dados.get("clientes", {}).get(sol["cliente_id"])
-    if not cliente:
-        return False, "Cliente não encontrado"
-    servico = dados.get("servicos", {}).get(sol["servico_id"])
-    if not servico:
-        return False, "Serviço não encontrado"
-    
-    nome_usuario = cliente.get("nick", cliente.get("nome", "Cliente"))
-    servico_nome = servico.get("nome", "Serviço")
-    jogo = sol.get("jogo", "")
-    usuario_id = sol["cliente_id"]
-    
-    sucesso, resultado = adicionar_fila(nome_usuario, servico_nome, jogo, usuario_id)
-    if sucesso:
-        entrada = resultado
-        sol["fila_id"] = entrada["id"]
-        sol["status"] = "em_andamento"
-        dados["solicitacoes"][solicitacao_id] = sol
-        salvar_dados_github(f"Solicitação {solicitacao_id} em andamento")
-    return sucesso, resultado
 
 def remover_fila(entrada_id: str):
     fila = obter_dados_fila()
@@ -496,6 +724,11 @@ def remover_fila(entrada_id: str):
             adicionar_log(f"fila_remover: {removido['nome_usuario']}")
             return True, removido
     return False, None
+
+def atualizar_posicoes(entradas):
+    for i, entrada in enumerate(entradas):
+        entrada["posicao"] = i + 1
+        entrada["status"] = "aguardando"
 
 def mover_cima(entrada_id: str):
     fila = obter_dados_fila()
@@ -519,43 +752,17 @@ def mover_baixo(entrada_id: str):
             return True, entrada
     return False, None
 
-def concluir_servico(entrada_id: str, admin_nome: str = None):
+def concluir_servico(entrada_id: str):
     fila = obter_dados_fila()
     for i, entrada in enumerate(fila["entradas"]):
         if entrada["id"] == entrada_id:
             removido = fila["entradas"].pop(i)
             removido["status"] = "concluido"
             removido["concluido_em"] = agora_br().isoformat()
-            removido["admin"] = admin_nome or "Admin"
             fila["historico"].append(removido)
             atualizar_posicoes(fila["entradas"])
             salvar_fila()
-            adicionar_log(f"fila_concluir: {removido['nome_usuario']} por {admin_nome or 'Admin'}")
-            
-            if "solicitacao_id" in removido and removido["solicitacao_id"]:
-                sol_id = removido["solicitacao_id"]
-                sol = dados.get("solicitacoes", {}).get(sol_id)
-                if sol:
-                    sol["status"] = "concluido"
-                    sol["concluido_em"] = removido["concluido_em"]
-                    sol["admin"] = admin_nome or "Admin"
-                    dados["solicitacoes"][sol_id] = sol
-                    
-                    cliente_id = sol["cliente_id"]
-                    servico_id = sol["servico_id"]
-                    servico = dados.get("servicos", {}).get(servico_id)
-                    if servico:
-                        pontos = servico.get("pontos", 0)
-                        valor = servico.get("valor", 0)
-                        adicionar_historico_cliente(
-                            cliente_id,
-                            tipo="servico",
-                            descricao=f"{servico.get('nome', 'Serviço')} - {sol.get('jogo', '')}",
-                            valor=valor,
-                            pontos_ganhos=pontos,
-                            admin=admin_nome or "Admin"
-                        )
-            salvar_dados_github(f"Conclusão serviço {removido['nome_usuario']}")
+            adicionar_log(f"fila_concluir: {removido['nome_usuario']}")
             return True, removido
     return False, None
 
@@ -624,308 +831,6 @@ def atualizar_botao_preco(index: int, nome: str, url: str):
         salvar_dados_github(f"Botão de preço atualizado: {nome}")
         return True
     return False
-
-# ========================
-# FUNÇÕES PARA CLIENTES
-# ========================
-
-def obter_cliente(discord_id: str):
-    return dados.get("clientes", {}).get(str(discord_id))
-
-def criar_cliente(discord_id: str, nome: str, uid: str, nick: str):
-    clientes = dados.setdefault("clientes", {})
-    if str(discord_id) in clientes:
-        return False, "Cliente já existe"
-    for cid, cli in clientes.items():
-        if cli.get("uid") == uid:
-            return False, "UID já está cadastrado para outro usuário"
-    clientes[str(discord_id)] = {
-        "discord_id": str(discord_id),
-        "nome": nome,
-        "uid": uid,
-        "nick": nick,
-        "saldo_pontos": 0,
-        "total_acumulado": 0,
-        "total_utilizado": 0,
-        "ultima_compra": None,
-        "ultimo_resgate": None,
-        "historico": [],
-        "data_cadastro": agora_br().isoformat()
-    }
-    salvar_dados_github(f"Novo cliente: {nome}")
-    return True, clientes[str(discord_id)]
-
-def atualizar_cliente(discord_id: str, **kwargs):
-    clientes = dados.setdefault("clientes", {})
-    cliente = clientes.get(str(discord_id))
-    if not cliente:
-        return False
-    for key, value in kwargs.items():
-        if key in cliente:
-            cliente[key] = value
-    salvar_dados_github(f"Cliente atualizado: {cliente.get('nome')}")
-    return True
-
-def adicionar_pontos_cliente(discord_id: str, pontos: int, descricao: str = ""):
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return False
-    cliente["saldo_pontos"] = cliente.get("saldo_pontos", 0) + pontos
-    cliente["total_acumulado"] = cliente.get("total_acumulado", 0) + pontos
-    cliente["ultima_compra"] = agora_br().isoformat()
-    cliente.setdefault("historico_pontos", []).append({
-        "tipo": "ganho",
-        "pontos": pontos,
-        "descricao": descricao,
-        "data": agora_br().isoformat()
-    })
-    salvar_dados_github(f"Pontos adicionados a {cliente.get('nome')}: +{pontos}")
-    return True
-
-def remover_pontos_cliente(discord_id: str, pontos: int, descricao: str = ""):
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return False
-    if cliente.get("saldo_pontos", 0) < pontos:
-        return False
-    cliente["saldo_pontos"] = cliente.get("saldo_pontos", 0) - pontos
-    cliente["total_utilizado"] = cliente.get("total_utilizado", 0) + pontos
-    cliente["ultimo_resgate"] = agora_br().isoformat()
-    cliente.setdefault("historico_pontos", []).append({
-        "tipo": "resgate",
-        "pontos": -pontos,
-        "descricao": descricao,
-        "data": agora_br().isoformat()
-    })
-    salvar_dados_github(f"Pontos removidos de {cliente.get('nome')}: -{pontos}")
-    return True
-
-def adicionar_historico_cliente(discord_id: str, tipo: str, descricao: str, valor: float = 0, pontos_ganhos: int = 0, admin: str = None):
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return False
-    cliente.setdefault("historico", []).append({
-        "tipo": tipo,
-        "descricao": descricao,
-        "valor": valor,
-        "pontos_ganhos": pontos_ganhos,
-        "admin": admin or "Sistema",
-        "data": agora_br().isoformat()
-    })
-    if pontos_ganhos > 0:
-        adicionar_pontos_cliente(discord_id, pontos_ganhos, descricao)
-    salvar_dados_github(f"Histórico adicionado para {cliente.get('nome')}")
-    return True
-
-# ========================
-# FUNÇÕES PARA SERVIÇOS
-# ========================
-
-def obter_servicos(apenas_ativos=True):
-    servicos = dados.get("servicos", {})
-    if apenas_ativos:
-        return {k: v for k, v in servicos.items() if v.get("ativo", True)}
-    return servicos
-
-def adicionar_servico(nome, categoria, descricao, valor, pontos, imagem="", ativo=True):
-    servicos = dados.setdefault("servicos", {})
-    import uuid
-    id_servico = str(uuid.uuid4())[:8]
-    servicos[id_servico] = {
-        "id": id_servico,
-        "nome": nome,
-        "categoria": categoria,
-        "descricao": descricao,
-        "valor": float(valor),
-        "pontos": int(pontos),
-        "imagem": imagem,
-        "ativo": ativo,
-        "data_criacao": agora_br().isoformat()
-    }
-    salvar_dados_github(f"Serviço adicionado: {nome}")
-    return id_servico
-
-def editar_servico(id_servico, **kwargs):
-    servicos = dados.get("servicos", {})
-    if id_servico not in servicos:
-        return False
-    for key, value in kwargs.items():
-        if key in servicos[id_servico]:
-            servicos[id_servico][key] = value
-    salvar_dados_github(f"Serviço editado: {servicos[id_servico].get('nome')}")
-    return True
-
-def excluir_servico(id_servico):
-    servicos = dados.get("servicos", {})
-    if id_servico in servicos:
-        del servicos[id_servico]
-        salvar_dados_github(f"Serviço excluído: {id_servico}")
-        return True
-    return False
-
-# ========================
-# FUNÇÕES PARA SOLICITAÇÕES
-# ========================
-
-def criar_solicitacao(cliente_id, servico_id, jogo, observacoes, cupom=None):
-    solicitacoes = dados.setdefault("solicitacoes", {})
-    import uuid
-    id_sol = str(uuid.uuid4())[:8]
-    servico = dados.get("servicos", {}).get(servico_id)
-    if not servico:
-        return False, "Serviço não encontrado"
-    cliente = obter_cliente(cliente_id)
-    if not cliente:
-        return False, "Cliente não encontrado"
-    
-    desconto = 0
-    if cupom:
-        valido, msg, cupom_data = validar_cupom(cliente_id, cupom)
-        if not valido:
-            return False, msg
-        if cupom_data.get("tipo") == "cupom":
-            desconto = cupom_data.get("valor", 0)
-        else:
-            return False, "Cupom inválido para esta solicitação"
-    
-    solicitacao = {
-        "id": id_sol,
-        "cliente_id": cliente_id,
-        "servico_id": servico_id,
-        "jogo": jogo,
-        "observacoes": observacoes,
-        "cupom": cupom,
-        "desconto": desconto,
-        "status": "aguardando",
-        "data_criacao": agora_br().isoformat(),
-        "data_aprovacao": None,
-        "data_conclusao": None,
-        "admin": None,
-        "fila_id": None,
-        "motivo_recusa": None
-    }
-    solicitacoes[id_sol] = solicitacao
-    salvar_dados_github(f"Solicitação criada: {id_sol}")
-    return True, solicitacao
-
-def aprovar_solicitacao(id_sol, admin_nome):
-    solicitacoes = dados.get("solicitacoes", {})
-    sol = solicitacoes.get(id_sol)
-    if not sol:
-        return False, "Solicitação não encontrada"
-    if sol["status"] != "aguardando":
-        return False, "Solicitação já foi processada"
-    sol["status"] = "aprovado"
-    sol["data_aprovacao"] = agora_br().isoformat()
-    sol["admin"] = admin_nome
-    solicitacoes[id_sol] = sol
-    salvar_dados_github(f"Solicitação {id_sol} aprovada")
-    sucesso, resultado = adicionar_fila_por_solicitacao(id_sol)
-    if sucesso:
-        return True, "Solicitação aprovada e adicionada à fila"
-    else:
-        sol["status"] = "aguardando"
-        solicitacoes[id_sol] = sol
-        salvar_dados_github(f"Falha ao adicionar à fila para {id_sol}")
-        return False, f"Erro ao adicionar à fila: {resultado}"
-
-def recusar_solicitacao(id_sol, admin_nome, motivo):
-    solicitacoes = dados.get("solicitacoes", {})
-    sol = solicitacoes.get(id_sol)
-    if not sol:
-        return False, "Solicitação não encontrada"
-    if sol["status"] != "aguardando":
-        return False, "Solicitação já foi processada"
-    sol["status"] = "recusado"
-    sol["motivo_recusa"] = motivo
-    sol["admin"] = admin_nome
-    solicitacoes[id_sol] = sol
-    salvar_dados_github(f"Solicitação {id_sol} recusada")
-    return True, "Solicitação recusada"
-
-# ========================
-# FUNÇÕES PARA FIDELIDADE E CUPONS
-# ========================
-
-def obter_recompensas():
-    return dados.get("fidelidade", {}).get("recompensas", [])
-
-def gerar_codigo_cupom():
-    parte = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    return f"ZANKON-{parte}"
-
-def resgatar_cupom(cliente_id, recompensa_id):
-    cliente = obter_cliente(cliente_id)
-    if not cliente:
-        return False, "Cliente não encontrado"
-    recompensas = obter_recompensas()
-    recompensa = None
-    for r in recompensas:
-        if r.get("id") == recompensa_id:
-            recompensa = r
-            break
-    if not recompensa:
-        return False, "Recompensa não encontrada"
-    
-    pontos_necessarios = recompensa.get("pontos", 0)
-    if cliente.get("saldo_pontos", 0) < pontos_necessarios:
-        return False, "Saldo insuficiente"
-    
-    codigo = gerar_codigo_cupom()
-    cupom = {
-        "codigo": codigo,
-        "cliente_id": cliente_id,
-        "recompensa_id": recompensa_id,
-        "tipo": recompensa.get("tipo"),
-        "valor": recompensa.get("valor", 0),
-        "opcoes": recompensa.get("opcoes", []),
-        "data_resgate": agora_br().isoformat(),
-        "validade": (agora_br() + timedelta(days=dados.get("fidelidade", {}).get("validade_cupom_dias", 30))).isoformat(),
-        "utilizado": False,
-        "data_utilizacao": None
-    }
-    dados["fidelidade"].setdefault("cupons", {})[codigo] = cupom
-    
-    sucesso = remover_pontos_cliente(cliente_id, pontos_necessarios, f"Resgate: {recompensa.get('nome')}")
-    if not sucesso:
-        return False, "Erro ao remover pontos"
-    
-    adicionar_historico_cliente(
-        cliente_id,
-        tipo="resgate",
-        descricao=f"Resgate de {recompensa.get('nome')} - Código {codigo}",
-        valor=0,
-        pontos_ganhos=0,
-        admin="Sistema"
-    )
-    salvar_dados_github(f"Cupom resgatado: {codigo}")
-    return True, cupom
-
-def validar_cupom(cliente_id, codigo):
-    cupons = dados.get("fidelidade", {}).get("cupons", {})
-    cupom = cupons.get(codigo)
-    if not cupom:
-        return False, "Cupom não encontrado", None
-    if cupom.get("utilizado"):
-        return False, "Cupom já foi utilizado", None
-    if cupom.get("cliente_id") != cliente_id:
-        return False, "Cupom não pertence a este cliente", None
-    validade = cupom.get("validade")
-    if validade:
-        dt_validade = datetime.fromisoformat(validade)
-        if agora_br() > dt_validade:
-            return False, "Cupom expirado", None
-    return True, "Cupom válido", cupom
-
-def utilizar_cupom(cliente_id, codigo):
-    valido, msg, cupom = validar_cupom(cliente_id, codigo)
-    if not valido:
-        return False, msg
-    cupom["utilizado"] = True
-    cupom["data_utilizacao"] = agora_br().isoformat()
-    dados["fidelidade"]["cupons"][codigo] = cupom
-    salvar_dados_github(f"Cupom utilizado: {codigo}")
-    return True, "Cupom utilizado com sucesso"
 
 # ========================
 # SISTEMA DE AÇÕES DO SITE
@@ -1324,6 +1229,8 @@ def home():
             .features li {{ margin: 8px 0; padding-left: 10px; list-style: none; }}
             .features li:before {{ content: "✅"; margin-right: 10px; color: #5865F2; }}
             code {{ background: #1a1a1a; padding: 2px 6px; border-radius: 4px; color: #4ade80; }}
+            .btn-cliente {{ background: #f59e0b; }}
+            .btn-cliente:hover {{ background: #d97706; }}
         </style>
     </head>
     <body>
@@ -1342,11 +1249,13 @@ def home():
                     <li>Anti-Spam Automático</li>
                     <li>Comandos da Mudae NÃO ganham XP</li>
                     <li>Comandos /perfil e /rank podem ser configurados para canais específicos</li>
-                    <li>Área do Cliente com Fidelidade</li>
-                    <li>Sistema de Solicitações e Pontos</li>
+                    <li>Sistema de Fidelidade e Pontos</li>
                 </ul>
             </div>
-            {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn">🚀 Painel</a><a href="/fila" class="btn">📋 Fila</a><a href="/cliente" class="btn">👤 Minha Área</a><a href="/logout" class="btn">🚪 Sair</a>'}
+            <div>
+                <a href="/regras-fidelidade" class="btn" style="background:#7c3aed;">📜 Regras</a>
+                {"<a href='/login' class='btn'>🔐 Login com Discord</a>" if 'usuario' not in session else f'<p>Olá, {session["usuario"]["nome_usuario"]}!</p><a href="/dashboard" class="btn">🚀 Painel Admin</a><a href="/cliente" class="btn btn-cliente">👤 Área do Cliente</a><a href="/fila" class="btn">📋 Fila</a><a href="/logout" class="btn">🚪 Sair</a>'}
+            </div>
             <p style="margin-top: 20px; color: #888;">Use <code>/perfil</code> e <code>/rank</code> no Discord (apenas nos canais configurados)</p>
         </div>
     </body>
@@ -1384,8 +1293,7 @@ def callback():
         if r.status_code != 200:
             return f"Erro ao obter token: {r.text[:100]}", 400
         
-        token_data = r.json()
-        access_token = token_data['access_token']
+        access_token = r.json()['access_token']
         
         user_r = requests.get('https://discord.com/api/users/@me', headers={'Authorization': f'Bearer {access_token}'})
         if user_r.status_code != 200:
@@ -1396,18 +1304,9 @@ def callback():
         guilds_r = requests.get('https://discord.com/api/users/@me/guilds', headers={'Authorization': f'Bearer {access_token}'})
         guilds = guilds_r.json() if guilds_r.status_code == 200 else []
         
-        is_member = False
-        for guild in guilds:
-            if str(guild['id']) == GUILD_ID:
-                is_member = True
-                break
-        
-        if not is_member:
-            return "<h2>⚠️ Acesso Restrito</h2><p>Você não é membro do servidor.</p><a href='/'>Voltar</a>", 403
-        
         is_admin = False
         for guild in guilds:
-            if str(guild['id']) == GUILD_ID and (guild.get('permissions', 0) & 0x8):
+            if str(guild['id']) == GUILD_ID and (guild['permissions'] & 0x8):
                 is_admin = True
                 break
         
@@ -1415,8 +1314,7 @@ def callback():
             'id': user_data['id'],
             'nome_usuario': user_data['username'],
             'avatar': user_data.get('avatar'),
-            'eh_admin': is_admin,
-            'access_token': access_token
+            'eh_admin': is_admin
         }
         
         if is_admin:
@@ -1432,422 +1330,64 @@ def logout():
     session.clear()
     return redirect(url_for('home'))
 
-# ========================
-# ÁREA DO CLIENTE
-# ========================
-
-@app.route("/cliente")
-def cliente_area():
-    if 'usuario' not in session:
-        return redirect(url_for('login'))
-    
-    usuario = session['usuario']
-    discord_id = usuario['id']
-    cliente = obter_cliente(discord_id)
-    
-    if not cliente:
-        return redirect(url_for('cliente_cadastro'))
-    
-    servicos_ativos = obter_servicos(apenas_ativos=True)
-    solicitacoes = dados.get("solicitacoes", {})
-    solicitacoes_cliente = [s for s in solicitacoes.values() if s.get("cliente_id") == discord_id]
-    historico = cliente.get("historico", [])
-    cupons = dados.get("fidelidade", {}).get("cupons", {})
-    cupons_cliente = [c for c in cupons.values() if c.get("cliente_id") == discord_id]
-    recompensas = obter_recompensas()
-    
-    return render_cliente_page(usuario, cliente, servicos_ativos, solicitacoes_cliente, historico, cupons_cliente, recompensas)
-
-@app.route("/cliente/cadastro", methods=["GET", "POST"])
-def cliente_cadastro():
-    if 'usuario' not in session:
-        return redirect(url_for('login'))
-    
-    usuario = session['usuario']
-    discord_id = usuario['id']
-    
-    if obter_cliente(discord_id):
-        return redirect(url_for('cliente_area'))
-    
-    if request.method == "POST":
-        uid = request.form.get("uid", "").strip()
-        nick = request.form.get("nick", "").strip()
-        if not uid or not nick:
-            return "UID e Nick são obrigatórios", 400
-        sucesso, resultado = criar_cliente(discord_id, usuario['nome_usuario'], uid, nick)
-        if sucesso:
-            return redirect(url_for('cliente_area'))
-        else:
-            return f"Erro: {resultado}", 400
-    
-    return f'''
+@app.route("/regras-fidelidade")
+def regras_fidelidade():
+    return '''
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Cadastro de Cliente</title>
+        <title>Regras - Sistema de Fidelidade</title>
         <style>
-            body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); margin: 0; padding: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #e0e0e0; }}
-            .container {{ background: #121212; border-radius: 20px; padding: 40px; max-width: 500px; width: 90%; border: 1px solid #333; }}
-            h1 {{ color: #5865F2; }}
-            .form-group {{ margin-bottom: 20px; }}
-            label {{ display: block; margin-bottom: 5px; color: #aaa; }}
-            .form-control {{ width: 100%; padding: 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #fff; }}
-            .btn {{ background: #5865F2; color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }}
-            .btn:hover {{ background: #4752C4; }}
+            * { margin:0; padding:0; box-sizing:border-box; }
+            body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; padding:40px 20px; color:#e0e0e0; }
+            .container { max-width:800px; margin:0 auto; background:#121212; border-radius:20px; padding:40px; border:1px solid #333; }
+            h1 { color: #f59e0b; text-align:center; margin-bottom:10px; font-size:2.5rem; }
+            h2 { color: #5865F2; margin-top:30px; margin-bottom:15px; }
+            .subtitle { text-align:center; color:#888; margin-bottom:30px; }
+            .rule { background:#1a1a1a; padding:20px; border-radius:10px; margin-bottom:20px; border-left:4px solid #f59e0b; }
+            .rule h3 { color:#f59e0b; margin-bottom:10px; }
+            .rule p { color:#ccc; line-height:1.6; }
+            .btn { display:inline-block; background:#5865F2; color:white; padding:12px 30px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:20px; transition:all 0.3s; }
+            .btn:hover { background:#4752C4; transform:translateY(-2px); }
+            .footer { text-align:center; margin-top:30px; border-top:1px solid #333; padding-top:20px; color:#666; }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>📝 Cadastro de Cliente</h1>
-            <p>Preencha os dados abaixo para finalizar seu cadastro.</p>
-            <form method="POST">
-                <div class="form-group">
-                    <label>UID do jogo</label>
-                    <input type="text" name="uid" class="form-control" placeholder="Ex: 123456789" required>
-                </div>
-                <div class="form-group">
-                    <label>Nick do jogo</label>
-                    <input type="text" name="nick" class="form-control" placeholder="Seu nick" required>
-                </div>
-                <button type="submit" class="btn">Cadastrar</button>
-                <a href="/" style="color: #5865F2; margin-left: 15px;">Voltar</a>
-            </form>
-        </div>
-    </body>
-    </html>
-    '''
-
-def render_cliente_page(usuario, cliente, servicos_ativos, solicitacoes, historico, cupons_cliente, recompensas):
-    discord_id = usuario['id']
-    nome = usuario['nome_usuario']
-    avatar = usuario.get('avatar')
-    avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar}.png" if avatar else "https://cdn.discordapp.com/embed/avatars/0.png"
-    
-    saldo = cliente.get('saldo_pontos', 0)
-    total_acumulado = cliente.get('total_acumulado', 0)
-    total_utilizado = cliente.get('total_utilizado', 0)
-    ultima_compra = cliente.get('ultima_compra', 'Nunca')
-    ultimo_resgate = cliente.get('ultimo_resgate', 'Nunca')
-    
-    # Próximo prêmio
-    proximo_premio = None
-    for r in sorted(recompensas, key=lambda x: x.get('pontos', 0)):
-        if r.get('pontos', 0) > saldo:
-            proximo_premio = r
-            break
-    barra_progresso = 0
-    if proximo_premio:
-        pontos_prox = proximo_premio.get('pontos', 0)
-        barra_progresso = int((saldo / pontos_prox) * 100) if pontos_prox > 0 else 0
-        if barra_progresso > 100:
-            barra_progresso = 100
-
-    # Bloco próximo prêmio
-    if proximo_premio:
-        premio_html = f'''
-        <div class="card">
-            <h3>🎯 Próximo Prêmio</h3>
-            <p><strong>{escape_html(proximo_premio.get('nome'))}</strong> - {proximo_premio.get('pontos')} pontos</p>
-            <div class="progress"><div class="progress-bar" style="width:{barra_progresso}%;"></div></div>
-            <span style="color:#888;">{barra_progresso}%</span>
-        </div>
-        '''
-    else:
-        premio_html = '<div class="card"><h3>🎉 Você já resgatou todos os prêmios disponíveis!</h3></div>'
-
-    # Opções de serviço
-    servicos_opcoes = ''.join(
-        f'<option value="{id}">{escape_html(s["nome"])} - R${s["valor"]:.2f} ({s["pontos"]} pts)</option>'
-        for id, s in servicos_ativos.items()
-    )
-
-    # Solicitações
-    sol_html = ''
-    for s in solicitacoes[-10:]:
-        servico_nome = dados.get("servicos", {}).get(s.get("servico_id"), {}).get("nome", "Serviço")
-        status = s.get("status", "desconhecido")
-        sol_html += f'''
-        <div style="border-bottom:1px solid #333; padding:10px 0;">
-            <strong>{escape_html(servico_nome)}</strong>
-            <span class="badge badge-{status}">{status.replace('_', ' ').upper()}</span>
-            <br><small>Jogo: {escape_html(s.get("jogo", "N/A"))}</small>
-            <br><small>Data: {s.get("data_criacao")}</small>
-            {f'<br><small>Motivo recusa: {escape_html(s.get("motivo_recusa", ""))}</small>' if s.get("status") == "recusado" else ''}
-        </div>
-        '''
-    if not sol_html:
-        sol_html = '<p>Nenhuma solicitação ainda.</p>'
-
-    # Histórico
-    hist_html = ''
-    for h in historico[-10:]:
-        hist_html += f'''
-        <div style="border-bottom:1px solid #333; padding:8px 0;">
-            <span style="color:#888;">{h.get("data")}</span> - {escape_html(h.get("descricao"))}
-            {f'<span style="color:#10b981;">+{h.get("pontos_ganhos")} pts</span>' if h.get("pontos_ganhos", 0) > 0 else ''}
-            {f'<span style="color:#f59e0b;">R${h.get("valor", 0):.2f}</span>' if h.get("valor", 0) > 0 else ''}
-            <span style="color:#666;">({escape_html(h.get("admin", "Sistema"))})</span>
-        </div>
-        '''
-    if not hist_html:
-        hist_html = '<p>Nenhum histórico.</p>'
-
-    # Cupons
-    cupons_html = ''
-    for c in cupons_cliente:
-        cupons_html += f'''
-        <div style="border-bottom:1px solid #333; padding:10px 0;">
-            <strong>{escape_html(c.get("codigo"))}</strong>
-            <span class="badge {'badge-success' if not c.get('utilizado') else 'badge-danger'}">{'✅ Válido' if not c.get('utilizado') else '❌ Utilizado'}</span>
-            <br><small>Resgate: {c.get("data_resgate")}</small>
-            <br><small>Validade: {c.get("validade")}</small>
-            {f'<br><small>Valor: R${c.get("valor", 0):.2f}</small>' if c.get("tipo") == "cupom" else ''}
-        </div>
-        '''
-    if not cupons_html:
-        cupons_html = '<p>Nenhum cupom.</p>'
-
-    # Recompensas da loja
-    recompensas_html = ''
-    for r in recompensas:
-        disabled = 'disabled' if saldo < r.get('pontos', 0) else ''
-        recompensas_html += f'''
-        <div style="background:#1a1a1a; padding:15px; border-radius:8px; border:1px solid #333; text-align:center;">
-            <h4>{escape_html(r.get("nome"))}</h4>
-            <p style="color:#f59e0b;">{r.get("pontos")} pts</p>
-            <button onclick="resgatar('{r.get("id")}')" class="btn btn-warning btn-sm" {disabled}>
-                Resgatar
-            </button>
-        </div>
-        '''
-
-    return f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Minha Área</title>
-        <style>
-            * {{ margin:0; padding:0; box-sizing:border-box; }}
-            body {{ font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; padding:20px; }}
-            .container {{ max-width:1200px; margin:0 auto; }}
-            header {{ display:flex; justify-content:space-between; align-items:center; padding:20px 0; border-bottom:1px solid #333; }}
-            .user-info {{ display:flex; align-items:center; gap:15px; }}
-            .avatar {{ width:50px; height:50px; border-radius:50%; border:2px solid #5865F2; }}
-            .btn {{ padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:bold; transition:0.2s; }}
-            .btn-primary {{ background:#5865F2; color:white; }}
-            .btn-primary:hover {{ background:#4752C4; }}
-            .btn-success {{ background:#10b981; color:white; }}
-            .btn-success:hover {{ background:#059669; }}
-            .btn-danger {{ background:#ef4444; color:white; }}
-            .btn-danger:hover {{ background:#dc2626; }}
-            .btn-warning {{ background:#f59e0b; color:black; }}
-            .btn-warning:hover {{ background:#d97706; }}
-            .btn-sm {{ padding:5px 12px; font-size:0.8rem; }}
-            .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }}
-            .card {{ background:#121212; padding:20px; border-radius:12px; border:1px solid #333; }}
-            .card h3 {{ color:#5865F2; margin-bottom:15px; }}
-            .stats {{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:15px 0; }}
-            .stat-item {{ background:#1a1a1a; padding:15px; border-radius:8px; text-align:center; }}
-            .stat-item .num {{ font-size:1.8rem; font-weight:bold; color:#f59e0b; }}
-            .stat-item .label {{ font-size:0.8rem; color:#888; }}
-            .progress {{ background:#333; border-radius:10px; height:20px; margin:10px 0; overflow:hidden; }}
-            .progress-bar {{ height:100%; background:linear-gradient(90deg,#5865F2,#8b5cf6); border-radius:10px; }}
-            .tab-nav {{ display:flex; gap:5px; border-bottom:2px solid #333; margin-top:20px; flex-wrap:wrap; }}
-            .tab-btn {{ padding:10px 20px; background:transparent; border:none; color:#aaa; cursor:pointer; font-weight:bold; border-bottom:2px solid transparent; transition:0.2s; }}
-            .tab-btn.active {{ color:#5865F2; border-bottom-color:#5865F2; }}
-            .tab {{ display:none; margin-top:20px; }}
-            .tab.active {{ display:block; }}
-            table {{ width:100%; border-collapse:collapse; margin-top:10px; }}
-            th, td {{ padding:12px; text-align:left; border-bottom:1px solid #333; }}
-            th {{ background:#1a1a1a; }}
-            .badge {{ display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.7rem; font-weight:bold; }}
-            .badge-aguardando {{ background:#f59e0b; color:black; }}
-            .badge-aprovado {{ background:#10b981; color:white; }}
-            .badge-recusado {{ background:#ef4444; color:white; }}
-            .badge-concluido {{ background:#5865F2; color:white; }}
-            .badge-em_andamento {{ background:#3b82f6; color:white; }}
-            .badge-success {{ background:#10b981; color:white; }}
-            .badge-danger {{ background:#ef4444; color:white; }}
-            .flex {{ display:flex; gap:10px; flex-wrap:wrap; }}
-            .form-group {{ margin-bottom:15px; }}
-            .form-control {{ width:100%; padding:10px; background:#1a1a1a; border:1px solid #333; border-radius:8px; color:#fff; }}
-            label {{ display:block; margin-bottom:5px; color:#aaa; }}
-            .alert {{ padding:15px; border-radius:8px; margin:10px 0; display:none; }}
-            .alert-success {{ background:#1a472a; color:#4ade80; border:1px solid #2ecc71; }}
-            .alert-error {{ background:#7f1d1d; color:#f87171; border:1px solid #ef4444; }}
-            @media (max-width:768px) {{ .grid {{ grid-template-columns:1fr; }} .stats {{ grid-template-columns:1fr 1fr; }} }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <header>
-                <div class="user-info">
-                    <img src="{avatar_url}" class="avatar">
-                    <div><strong>{escape_html(nome)}</strong> <span style="color:#888;">(UID: {escape_html(cliente.get('uid', 'N/A'))})</span></div>
-                </div>
-                <div>
-                    <a href="/" class="btn btn-primary">🏠 Início</a>
-                    <a href="/logout" class="btn btn-danger">🚪 Sair</a>
-                </div>
-            </header>
-
-            <div class="stats">
-                <div class="stat-item"><div class="num">{saldo}</div><div class="label">Pontos</div></div>
-                <div class="stat-item"><div class="num">{total_acumulado}</div><div class="label">Total Acumulado</div></div>
-                <div class="stat-item"><div class="num">{total_utilizado}</div><div class="label">Total Utilizado</div></div>
-                <div class="stat-item"><div class="num">{len(solicitacoes)}</div><div class="label">Solicitações</div></div>
+            <h1>📜 Regras de Uso</h1>
+            <div class="subtitle">Sistema de Fidelidade ZankonYTB</div>
+            
+            <div class="rule">
+                <h3>1. Pontos Pessoais e Vinculados ao UID</h3>
+                <p>Seus pontos são pessoais, intransferíveis e atrelados diretamente ao seu cadastro e ao seu UID do jogo. Não é permitido transferir pontos para amigos ou juntar o saldo de compras de contas diferentes para resgatar prêmios.</p>
             </div>
-
-            {premio_html}
-
-            <div class="tab-nav">
-                <button class="tab-btn active" onclick="showTab('solicitar')">📝 Solicitar Serviço</button>
-                <button class="tab-btn" onclick="showTab('solicitacoes')">📋 Solicitações</button>
-                <button class="tab-btn" onclick="showTab('historico')">📜 Histórico</button>
-                <button class="tab-btn" onclick="showTab('cupons')">🎟️ Cupons</button>
-                <button class="tab-btn" onclick="showTab('loja')">🛒 Loja</button>
+            
+            <div class="rule">
+                <h3>2. Cupons de Uso Único</h3>
+                <p>Ao trocar seus pontos, o sistema gera um código exclusivo para você. Esse token é de uso único. Uma vez inserido e validado no seu pedido, ele é consumido automaticamente e não poderá ser reutilizado.</p>
             </div>
-
-            <!-- Aba Solicitar Serviço -->
-            <div id="solicitar" class="tab active">
-                <div class="card">
-                    <h3>📝 Solicitar Serviço</h3>
-                    <form id="form-solicitar">
-                        <div class="form-group">
-                            <label>Serviço</label>
-                            <select id="servico-select" class="form-control" required>
-                                <option value="">Selecione</option>
-                                {servicos_opcoes}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Jogo</label>
-                            <input type="text" id="jogo-input" class="form-control" placeholder="Ex: Genshin Impact">
-                        </div>
-                        <div class="form-group">
-                            <label>Observações</label>
-                            <textarea id="obs-input" class="form-control" rows="3" placeholder="Detalhes adicionais"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Cupom (opcional)</label>
-                            <input type="text" id="cupom-input" class="form-control" placeholder="ZANKON-XXXXXX">
-                        </div>
-                        <button type="submit" class="btn btn-success">📤 Enviar Solicitação</button>
-                    </form>
-                    <div id="solicitar-status" class="alert" style="display:none; margin-top:15px;"></div>
-                </div>
+            
+            <div class="rule">
+                <h3>3. Um Benefício por Pedido</h3>
+                <p>Os descontos e resgates não são cumulativos. É permitido utilizar apenas um benefício por pedido. Não é possível utilizar vários cupons juntos.</p>
             </div>
-
-            <!-- Aba Solicitações -->
-            <div id="solicitacoes" class="tab">
-                <div class="card">
-                    <h3>📋 Minhas Solicitações</h3>
-                    <div id="lista-solicitacoes">
-                        {sol_html}
-                    </div>
-                </div>
+            
+            <div class="rule">
+                <h3>4. Validade</h3>
+                <p>Saldo de pontos expira após 90 dias sem novos serviços concluídos. Cupons possuem validade de 30 dias após o resgate.</p>
             </div>
-
-            <!-- Aba Histórico -->
-            <div id="historico" class="tab">
-                <div class="card">
-                    <h3>📜 Histórico</h3>
-                    <div id="lista-historico">
-                        {hist_html}
-                    </div>
-                </div>
+            
+            <div style="text-align:center;">
+                <a href="/" class="btn">🏠 Voltar ao Início</a>
+                <a href="/cliente" class="btn" style="background:#f59e0b; margin-left:10px;">👤 Área do Cliente</a>
             </div>
-
-            <!-- Aba Cupons -->
-            <div id="cupons" class="tab">
-                <div class="card">
-                    <h3>🎟️ Meus Cupons</h3>
-                    <div id="lista-cupons">
-                        {cupons_html}
-                    </div>
-                </div>
-            </div>
-
-            <!-- Aba Loja de Fidelidade -->
-            <div id="loja" class="tab">
-                <div class="card">
-                    <h3>🛒 Loja de Fidelidade</h3>
-                    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));">
-                        {recompensas_html}
-                    </div>
-                    <div id="resgate-status" class="alert" style="display:none; margin-top:15px;"></div>
-                </div>
+            
+            <div class="footer">
+                <p>© 2024 ZankonYTB - Todos os direitos reservados</p>
             </div>
         </div>
-
-        <script>
-            function showTab(tabId) {{
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
-                event.target.classList.add('active');
-            }}
-
-            document.getElementById('form-solicitar').addEventListener('submit', async function(e) {{
-                e.preventDefault();
-                const servico_id = document.getElementById('servico-select').value;
-                const jogo = document.getElementById('jogo-input').value;
-                const observacoes = document.getElementById('obs-input').value;
-                const cupom = document.getElementById('cupom-input').value.trim();
-                if (!servico_id) {{
-                    showStatus('solicitar-status', 'Selecione um serviço.', false);
-                    return;
-                }}
-                try {{
-                    const resp = await fetch('/api/cliente/solicitar', {{
-                        method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{servico_id, jogo, observacoes, cupom}})
-                    }});
-                    const data = await resp.json();
-                    showStatus('solicitar-status', data.mensagem, data.sucesso);
-                    if (data.sucesso) {{
-                        document.getElementById('jogo-input').value = '';
-                        document.getElementById('obs-input').value = '';
-                        document.getElementById('cupom-input').value = '';
-                        location.reload();
-                    }}
-                }} catch(e) {{
-                    showStatus('solicitar-status', 'Erro: ' + e.message, false);
-                }}
-            }});
-
-            async function resgatar(recompensaId) {{
-                if (!confirm('Deseja resgatar esta recompensa?')) return;
-                try {{
-                    const resp = await fetch('/api/cliente/resgatar', {{
-                        method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{recompensa_id: recompensaId}})
-                    }});
-                    const data = await resp.json();
-                    showStatus('resgate-status', data.mensagem, data.sucesso);
-                    if (data.sucesso) {{
-                        setTimeout(() => location.reload(), 2000);
-                    }}
-                }} catch(e) {{
-                    showStatus('resgate-status', 'Erro: ' + e.message, false);
-                }}
-            }}
-
-            function showStatus(id, msg, sucesso) {{
-                const el = document.getElementById(id);
-                if (!el) return;
-                el.textContent = msg;
-                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
-                el.style.display = 'block';
-                setTimeout(() => el.style.display = 'none', 4000);
-            }}
-        </script>
     </body>
     </html>
     '''
@@ -1967,36 +1507,42 @@ def api_fila_adicionar():
 
 @app.route("/api/fila/remover", methods=["POST"])
 def api_fila_remover():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     sucesso, _ = remover_fila(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/mover-cima", methods=["POST"])
 def api_fila_mover_cima():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     sucesso, _ = mover_cima(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/mover-baixo", methods=["POST"])
 def api_fila_mover_baixo():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     sucesso, _ = mover_baixo(request.json.get("entrada_id"))
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/concluir", methods=["POST"])
 def api_fila_concluir():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
-    admin_nome = session['usuario']['nome_usuario']
-    sucesso, _ = concluir_servico(request.json.get("entrada_id"), admin_nome)
+    entrada_id = request.json.get("entrada_id")
+    sucesso, removido = concluir_servico(entrada_id)
+    
+    # Se a entrada da fila tem uma solicitação_id, concluir a solicitação também
+    if sucesso and removido and removido.get("solicitacao_id"):
+        solicitacao_id = removido["solicitacao_id"]
+        concluir_solicitacao_fila(solicitacao_id, session['usuario']['id'])
+    
     return jsonify({"sucesso": sucesso})
 
 @app.route("/api/fila/limpar", methods=["POST"])
 def api_fila_limpar():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     limpar_fila()
     return jsonify({"sucesso": True})
@@ -2007,7 +1553,7 @@ def api_fila_configuracoes():
         fila = obter_dados_fila()
         links = obter_links_fila()
         return jsonify({"sucesso": True, "configuracoes": fila["configuracoes"], "nome": fila["nome"], "links": links})
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     if "aberta" in req:
@@ -2031,7 +1577,7 @@ def api_fila_botoes():
 
 @app.route("/api/fila/botoes/adicionar", methods=["POST"])
 def api_fila_botoes_adicionar():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     nome = req.get("nome", "").strip()
@@ -2043,7 +1589,7 @@ def api_fila_botoes_adicionar():
 
 @app.route("/api/fila/botoes/remover", methods=["POST"])
 def api_fila_botoes_remover():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     index = request.json.get("index")
     if index is None:
@@ -2053,7 +1599,7 @@ def api_fila_botoes_remover():
 
 @app.route("/api/fila/botoes/atualizar", methods=["POST"])
 def api_fila_botoes_atualizar():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     index = req.get("index")
@@ -2098,7 +1644,7 @@ def api_servidor_membros():
 
 @app.route("/api/anti_spam", methods=["GET", "POST"])
 def api_anti_spam():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     
     if request.method == "GET":
@@ -2128,7 +1674,7 @@ def api_anti_spam():
 
 @app.route("/api/config/boasvindas", methods=["GET", "POST"])
 def api_config_boasvindas():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     
     if request.method == "GET":
@@ -2146,7 +1692,7 @@ def api_config_boasvindas():
 
 @app.route("/api/config/xp", methods=["GET", "POST"])
 def api_config_xp():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     
     if request.method == "GET":
@@ -2163,7 +1709,7 @@ def api_config_xp():
 
 @app.route("/api/config/comandos", methods=["GET", "POST"])
 def api_config_comandos():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     
     if request.method == "GET":
@@ -2180,7 +1726,7 @@ def api_config_comandos():
 
 @app.route("/api/cargos/nivel", methods=["GET", "POST", "DELETE"])
 def api_cargos_nivel():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     
     if request.method == "GET":
@@ -2199,7 +1745,7 @@ def api_cargos_nivel():
 
 @app.route("/api/config/links", methods=["GET", "POST"])
 def api_config_links():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     
     if request.method == "GET":
@@ -2215,7 +1761,7 @@ def api_config_links():
 
 @app.route("/api/comando/embed", methods=["POST"])
 def api_comando_embed():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     sucesso = executar_acao_bot("criar_embed", **req)
@@ -2223,7 +1769,7 @@ def api_comando_embed():
 
 @app.route("/api/comando/advertir", methods=["POST"])
 def api_comando_advertir():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     sucesso = executar_acao_bot("advertir_membro", membro_id=req.get('membro_id'), motivo=req.get('motivo'), admin=session['usuario']['nome_usuario'])
@@ -2231,7 +1777,7 @@ def api_comando_advertir():
 
 @app.route("/api/comando/limpar_advertencias", methods=["POST"])
 def api_comando_limpar_advertencias():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     membro_id = str(request.json.get('membro_id'))
     if membro_id in dados.get("advertencias", {}):
@@ -2242,7 +1788,7 @@ def api_comando_limpar_advertencias():
 
 @app.route("/api/reacao_cargo/criar", methods=["POST"])
 def api_reacao_cargo_criar():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     sucesso = executar_acao_bot("criar_reacao_cargo", **req)
@@ -2250,227 +1796,1106 @@ def api_reacao_cargo_criar():
 
 @app.route("/api/botoes_cargo/criar", methods=["POST"])
 def api_botoes_cargo_criar():
-    if 'usuario' not in session:
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
         return jsonify({"sucesso": False}), 401
     req = request.json
     sucesso = executar_acao_bot("criar_botoes_cargo", **req)
     return jsonify({"sucesso": sucesso, "mensagem": "✅ Botões criados!" if sucesso else "❌ Falha"})
 
 # ========================
-# APIs DO CLIENTE
+# NOVAS APIs - SISTEMA DE FIDELIDADE
 # ========================
 
-@app.route("/api/cliente/perfil", methods=["GET"])
-def api_cliente_perfil():
+@app.route("/api/cliente/verificar", methods=["GET"])
+def api_cliente_verificar():
     if 'usuario' not in session:
         return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
+    
     discord_id = session['usuario']['id']
     cliente = obter_cliente(discord_id)
-    if not cliente:
-        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"}), 404
-    return jsonify({"sucesso": True, "cliente": cliente})
+    
+    if cliente:
+        return jsonify({
+            "sucesso": True,
+            "cadastrado": True,
+            "cliente": cliente
+        })
+    else:
+        return jsonify({
+            "sucesso": True,
+            "cadastrado": False,
+            "cliente": None
+        })
 
-@app.route("/api/cliente/solicitar", methods=["POST"])
-def api_cliente_solicitar():
+@app.route("/api/cliente/cadastrar", methods=["POST"])
+def api_cliente_cadastrar():
     if 'usuario' not in session:
         return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
-    discord_id = session['usuario']['id']
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return jsonify({"sucesso": False, "mensagem": "Cliente não cadastrado"}), 400
     
     req = request.json
-    servico_id = req.get("servico_id")
-    jogo = req.get("jogo", "")
-    observacoes = req.get("observacoes", "")
-    cupom = req.get("cupom", "").strip()
+    discord_id = session['usuario']['id']
+    uid = req.get("uid", "").strip()
+    game_nick = req.get("game_nick", "").strip()
     
-    if not servico_id:
-        return jsonify({"sucesso": False, "mensagem": "Serviço não informado"})
+    if not uid or not game_nick:
+        return jsonify({"sucesso": False, "mensagem": "UID e Nick são obrigatórios"})
     
-    servico = dados.get("servicos", {}).get(servico_id)
-    if not servico or not servico.get("ativo", True):
-        return jsonify({"sucesso": False, "mensagem": "Serviço não disponível"})
+    # Verificar se já existe um cliente com este Discord ID
+    if obter_cliente(discord_id):
+        return jsonify({"sucesso": False, "mensagem": "Você já está cadastrado"})
     
-    sucesso, resultado = criar_solicitacao(discord_id, servico_id, jogo, observacoes, cupom)
-    if sucesso:
-        return jsonify({"sucesso": True, "mensagem": "Solicitação enviada com sucesso!", "solicitacao": resultado})
-    else:
-        return jsonify({"sucesso": False, "mensagem": resultado})
+    # Verificar se o UID já está cadastrado para outro Discord
+    for d_id, cliente in dados.get("clientes", {}).items():
+        if cliente.get("uid") == uid and d_id != str(discord_id):
+            return jsonify({"sucesso": False, "mensagem": "Este UID já está cadastrado para outra conta"})
+    
+    criar_cliente(discord_id, game_nick, uid)
+    salvar_dados_github(f"Novo cliente cadastrado: {game_nick} ({uid})")
+    
+    return jsonify({
+        "sucesso": True,
+        "mensagem": "Cadastro realizado com sucesso!",
+        "cliente": obter_cliente(discord_id)
+    })
 
-@app.route("/api/cliente/resgatar", methods=["POST"])
-def api_cliente_resgatar():
+@app.route("/api/cliente/pontos", methods=["GET"])
+def api_cliente_pontos():
     if 'usuario' not in session:
         return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
+    
     discord_id = session['usuario']['id']
     cliente = obter_cliente(discord_id)
+    
     if not cliente:
-        return jsonify({"sucesso": False, "mensagem": "Cliente não cadastrado"}), 400
+        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
     
-    req = request.json
-    recompensa_id = req.get("recompensa_id")
-    if not recompensa_id:
-        return jsonify({"sucesso": False, "mensagem": "Recompensa não informada"})
+    return jsonify({
+        "sucesso": True,
+        "pontos_atuais": cliente.get("pontos_atuais", 0),
+        "pontos_acumulados": cliente.get("pontos_acumulados", 0),
+        "pontos_utilizados": cliente.get("pontos_utilizados", 0),
+        "ultima_compra": cliente.get("ultima_compra"),
+        "ultimo_resgate": cliente.get("ultimo_resgate")
+    })
+
+@app.route("/api/cliente/solicitacoes", methods=["GET"])
+def api_cliente_solicitacoes():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
     
-    sucesso, resultado = resgatar_cupom(discord_id, recompensa_id)
-    if sucesso:
-        return jsonify({"sucesso": True, "mensagem": "Resgate realizado com sucesso!", "cupom": resultado})
-    else:
-        return jsonify({"sucesso": False, "mensagem": resultado})
+    discord_id = session['usuario']['id']
+    solicitacoes = []
+    
+    for s_id, s in dados.get("solicitacoes", {}).items():
+        if s.get("cliente_discord_id") == str(discord_id):
+            servico = dados.get("servicos", {}).get(s.get("servico_id"), {})
+            s_data = s.copy()
+            s_data["servico_nome"] = servico.get("nome", "Serviço não encontrado")
+            s_data["id"] = s_id
+            solicitacoes.append(s_data)
+    
+    # Ordenar por data (mais recentes primeiro)
+    solicitacoes.sort(key=lambda x: x.get("data_solicitacao", ""), reverse=True)
+    
+    return jsonify({
+        "sucesso": True,
+        "solicitacoes": solicitacoes
+    })
 
 @app.route("/api/cliente/cupons", methods=["GET"])
 def api_cliente_cupons():
     if 'usuario' not in session:
         return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
+    
     discord_id = session['usuario']['id']
-    cupons = dados.get("fidelidade", {}).get("cupons", {})
-    meus_cupons = [c for c in cupons.values() if c.get("cliente_id") == discord_id]
-    return jsonify({"sucesso": True, "cupons": meus_cupons})
+    cupons = []
+    
+    for codigo, cupom in dados.get("fidelidade", {}).get("cupons_gerados", {}).items():
+        if cupom.get("discord_id") == str(discord_id):
+            cupom_data = cupom.copy()
+            cupom_data["codigo"] = codigo
+            cupons.append(cupom_data)
+    
+    # Verificar validade
+    agora = agora_br()
+    for cupom in cupons:
+        if cupom.get("status") == "ativo":
+            validade = cupom.get("validade")
+            if validade:
+                try:
+                    validade_date = datetime.fromisoformat(validade)
+                    if validade_date < agora:
+                        cupom["status"] = "expirado"
+                except:
+                    pass
+    
+    return jsonify({
+        "sucesso": True,
+        "cupons": cupons
+    })
 
-@app.route("/api/cliente/historico", methods=["GET"])
-def api_cliente_historico():
+@app.route("/api/cliente/recompensas", methods=["GET"])
+def api_cliente_recompensas():
+    recompensas = dados.get("fidelidade", {}).get("recompensas", [])
+    return jsonify({
+        "sucesso": True,
+        "recompensas": recompensas
+    })
+
+@app.route("/api/cliente/resgatar", methods=["POST"])
+def api_cliente_resgatar():
     if 'usuario' not in session:
         return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
+    
+    req = request.json
     discord_id = session['usuario']['id']
-    cliente = obter_cliente(discord_id)
-    if not cliente:
-        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"}), 404
-    return jsonify({"sucesso": True, "historico": cliente.get("historico", [])})
+    tipo = req.get("tipo")
+    
+    if not tipo:
+        return jsonify({"sucesso": False, "mensagem": "Tipo de recompensa não informado"})
+    
+    sucesso, resultado = resgatar_recompensa(discord_id, tipo)
+    
+    if sucesso:
+        salvar_dados_github(f"Cupom resgatado: {resultado} para {discord_id}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Recompensa resgatada com sucesso!",
+            "codigo": resultado
+        })
+    else:
+        return jsonify({
+            "sucesso": False,
+            "mensagem": resultado
+        })
+
+@app.route("/api/cliente/solicitar", methods=["POST"])
+def api_cliente_solicitar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autenticado"}), 401
+    
+    req = request.json
+    discord_id = session['usuario']['id']
+    servico_id = req.get("servico_id")
+    jogo = req.get("jogo", "")
+    observacoes = req.get("observacoes", "")
+    cupom_codigo = req.get("cupom", "").strip()
+    
+    if not servico_id:
+        return jsonify({"sucesso": False, "mensagem": "Serviço não selecionado"})
+    
+    servico = dados.get("servicos", {}).get(servico_id)
+    if not servico or servico.get("status") != "ativo":
+        return jsonify({"sucesso": False, "mensagem": "Serviço não disponível"})
+    
+    # Validar cupom se informado
+    if cupom_codigo:
+        valido, mensagem = aplicar_cupom(cupom_codigo, discord_id)
+        if not valido:
+            return jsonify({"sucesso": False, "mensagem": mensagem})
+    
+    solicitacao_id = criar_solicitacao(discord_id, servico_id, jogo, observacoes, cupom_codigo if cupom_codigo else None)
+    
+    # Se cupom foi aplicado, marcar como utilizado
+    if cupom_codigo:
+        usar_cupom(cupom_codigo)
+    
+    salvar_dados_github(f"Nova solicitação: {solicitacao_id} para {discord_id}")
+    
+    return jsonify({
+        "sucesso": True,
+        "mensagem": "Solicitação enviada com sucesso! Aguarde a aprovação.",
+        "solicitacao_id": solicitacao_id
+    })
+
+@app.route("/api/cliente/servicos", methods=["GET"])
+def api_cliente_servicos():
+    servicos = obter_servicos_ativos()
+    return jsonify({
+        "sucesso": True,
+        "servicos": servicos
+    })
+
+@app.route("/api/cliente/jogos", methods=["GET"])
+def api_cliente_jogos():
+    # Lista de jogos disponíveis (pode ser expandida)
+    jogos = [
+        "Genshin Impact",
+        "Honkai: Star Rail",
+        "Wuthering Waves",
+        "Zenless Zone Zero",
+        "Arknights",
+        "Blue Archive",
+        "Fate/Grand Order",
+        "Other"
+    ]
+    return jsonify({
+        "sucesso": True,
+        "jogos": jogos
+    })
 
 # ========================
-# APIs ADMIN (NOVAS)
+# APIs ADMIN - FIDELIDADE
 # ========================
 
 @app.route("/api/admin/servicos", methods=["GET", "POST", "PUT", "DELETE"])
 def api_admin_servicos():
     if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
-        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 403
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
-        servicos = obter_servicos(apenas_ativos=False)
-        return jsonify({"sucesso": True, "servicos": servicos})
+        return jsonify({
+            "sucesso": True,
+            "servicos": dados.get("servicos", {})
+        })
     
     elif request.method == "POST":
         req = request.json
-        nome = req.get("nome")
-        categoria = req.get("categoria", "")
-        descricao = req.get("descricao", "")
-        valor = req.get("valor", 0)
-        pontos = req.get("pontos", 0)
-        imagem = req.get("imagem", "")
-        ativo = req.get("ativo", True)
-        if not nome:
-            return jsonify({"sucesso": False, "mensagem": "Nome é obrigatório"})
-        id_servico = adicionar_servico(nome, categoria, descricao, valor, pontos, imagem, ativo)
-        return jsonify({"sucesso": True, "mensagem": "Serviço adicionado", "id": id_servico})
+        nome = req.get("nome", "").strip()
+        categoria = req.get("categoria", "").strip()
+        descricao = req.get("descricao", "").strip()
+        valor_reais = float(req.get("valor_reais", 0))
+        pontos_gerados = int(req.get("pontos_gerados", 0))
+        status = req.get("status", "ativo")
+        imagem_url = req.get("imagem_url", "")
+        
+        if not nome or not categoria:
+            return jsonify({"sucesso": False, "mensagem": "Nome e categoria são obrigatórios"})
+        
+        servico_id = adicionar_servico(nome, categoria, descricao, valor_reais, pontos_gerados, status, imagem_url)
+        salvar_dados_github(f"Serviço criado: {nome}")
+        
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Serviço criado com sucesso!",
+            "servico_id": servico_id
+        })
     
     elif request.method == "PUT":
         req = request.json
-        id_servico = req.get("id")
-        if not id_servico:
-            return jsonify({"sucesso": False, "mensagem": "ID do serviço necessário"})
-        campos = ["nome", "categoria", "descricao", "valor", "pontos", "imagem", "ativo"]
-        dados_update = {k: req.get(k) for k in campos if k in req}
-        sucesso = editar_servico(id_servico, **dados_update)
-        if sucesso:
-            return jsonify({"sucesso": True, "mensagem": "Serviço atualizado"})
-        else:
+        servico_id = req.get("servico_id")
+        if not servico_id or servico_id not in dados.get("servicos", {}):
             return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
+        
+        servico = dados["servicos"][servico_id]
+        servico["nome"] = req.get("nome", servico["nome"])
+        servico["categoria"] = req.get("categoria", servico["categoria"])
+        servico["descricao"] = req.get("descricao", servico["descricao"])
+        servico["valor_reais"] = float(req.get("valor_reais", servico["valor_reais"]))
+        servico["pontos_gerados"] = int(req.get("pontos_gerados", servico["pontos_gerados"]))
+        servico["status"] = req.get("status", servico["status"])
+        servico["imagem_url"] = req.get("imagem_url", servico.get("imagem_url", ""))
+        
+        salvar_dados_github(f"Serviço atualizado: {servico['nome']}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Serviço atualizado com sucesso!"
+        })
     
     elif request.method == "DELETE":
-        id_servico = request.args.get("id")
-        if not id_servico:
-            return jsonify({"sucesso": False, "mensagem": "ID do serviço necessário"})
-        sucesso = excluir_servico(id_servico)
-        return jsonify({"sucesso": sucesso, "mensagem": "Serviço removido" if sucesso else "Erro"})
+        servico_id = request.args.get("servico_id")
+        if not servico_id or servico_id not in dados.get("servicos", {}):
+            return jsonify({"sucesso": False, "mensagem": "Serviço não encontrado"})
+        
+        nome = dados["servicos"][servico_id].get("nome", "Serviço")
+        del dados["servicos"][servico_id]
+        salvar_dados_github(f"Serviço removido: {nome}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Serviço removido com sucesso!"
+        })
 
-@app.route("/api/admin/clientes", methods=["GET", "PUT"])
-def api_admin_clientes():
-    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
-        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 403
-    
-    if request.method == "GET":
-        clientes = dados.get("clientes", {})
-        lista = []
-        for cid, cli in clientes.items():
-            lista.append({
-                "id": cid,
-                "nome": cli.get("nome"),
-                "uid": cli.get("uid"),
-                "nick": cli.get("nick"),
-                "saldo": cli.get("saldo_pontos", 0),
-                "total_acumulado": cli.get("total_acumulado", 0)
-            })
-        return jsonify({"sucesso": True, "clientes": lista})
-    
-    elif request.method == "PUT":
-        req = request.json
-        discord_id = req.get("discord_id")
-        if not discord_id:
-            return jsonify({"sucesso": False, "mensagem": "ID do cliente necessário"})
-        campos = ["uid", "nick", "saldo_pontos", "total_acumulado"]
-        dados_update = {k: req.get(k) for k in campos if k in req}
-        sucesso = atualizar_cliente(discord_id, **dados_update)
-        return jsonify({"sucesso": sucesso, "mensagem": "Cliente atualizado" if sucesso else "Erro"})
-
-@app.route("/api/admin/solicitacoes", methods=["GET", "POST"])
+@app.route("/api/admin/solicitacoes", methods=["GET"])
 def api_admin_solicitacoes():
     if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
-        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 403
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
-    if request.method == "GET":
-        status_filter = request.args.get("status")
-        solicitacoes = dados.get("solicitacoes", {})
-        if status_filter:
-            solicitacoes = {k: v for k, v in solicitacoes.items() if v.get("status") == status_filter}
-        return jsonify({"sucesso": True, "solicitacoes": solicitacoes})
+    status_filter = request.args.get("status")
+    solicitacoes = []
     
-    elif request.method == "POST":
-        req = request.json
-        acao = req.get("acao")
-        id_sol = req.get("id")
-        admin_nome = session['usuario']['nome_usuario']
-        if acao == "aprovar":
-            sucesso, msg = aprovar_solicitacao(id_sol, admin_nome)
-            return jsonify({"sucesso": sucesso, "mensagem": msg})
-        elif acao == "recusar":
-            motivo = req.get("motivo", "Sem motivo informado")
-            sucesso, msg = recusar_solicitacao(id_sol, admin_nome, motivo)
-            return jsonify({"sucesso": sucesso, "mensagem": msg})
-        else:
-            return jsonify({"sucesso": False, "mensagem": "Ação inválida"})
+    for s_id, s in dados.get("solicitacoes", {}).items():
+        if status_filter and s.get("status") != status_filter:
+            continue
+        servico = dados.get("servicos", {}).get(s.get("servico_id"), {})
+        cliente = obter_cliente(s.get("cliente_discord_id"))
+        s_data = s.copy()
+        s_data["id"] = s_id
+        s_data["servico_nome"] = servico.get("nome", "Serviço não encontrado")
+        s_data["cliente_nome"] = cliente.get("game_nick", "Cliente não encontrado") if cliente else "Cliente não encontrado"
+        solicitacoes.append(s_data)
+    
+    # Ordenar por data (mais antigas primeiro)
+    solicitacoes.sort(key=lambda x: x.get("data_solicitacao", ""))
+    
+    return jsonify({
+        "sucesso": True,
+        "solicitacoes": solicitacoes
+    })
 
-@app.route("/api/admin/fidelidade", methods=["GET", "POST"])
-def api_admin_fidelidade():
+@app.route("/api/admin/solicitacao/aprovar", methods=["POST"])
+def api_admin_solicitacao_aprovar():
     if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
-        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 403
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    req = request.json
+    solicitacao_id = req.get("solicitacao_id")
+    
+    if not solicitacao_id or solicitacao_id not in dados.get("solicitacoes", {}):
+        return jsonify({"sucesso": False, "mensagem": "Solicitação não encontrada"})
+    
+    sucesso = aprovar_solicitacao(solicitacao_id, session['usuario']['id'])
+    
+    if sucesso:
+        salvar_dados_github(f"Solicitação aprovada: {solicitacao_id}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Solicitação aprovada e adicionada à fila!"
+        })
+    else:
+        return jsonify({
+            "sucesso": False,
+            "mensagem": "Erro ao aprovar solicitação"
+        })
+
+@app.route("/api/admin/solicitacao/recusar", methods=["POST"])
+def api_admin_solicitacao_recusar():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    req = request.json
+    solicitacao_id = req.get("solicitacao_id")
+    motivo = req.get("motivo", "Não especificado")
+    
+    if not solicitacao_id or solicitacao_id not in dados.get("solicitacoes", {}):
+        return jsonify({"sucesso": False, "mensagem": "Solicitação não encontrada"})
+    
+    sucesso = recusar_solicitacao(solicitacao_id, motivo, session['usuario']['id'])
+    
+    if sucesso:
+        salvar_dados_github(f"Solicitação recusada: {solicitacao_id}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Solicitação recusada com sucesso!"
+        })
+    else:
+        return jsonify({
+            "sucesso": False,
+            "mensagem": "Erro ao recusar solicitação"
+        })
+
+@app.route("/api/admin/clientes", methods=["GET"])
+def api_admin_clientes():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    clientes = []
+    for discord_id, cliente in dados.get("clientes", {}).items():
+        cliente_data = cliente.copy()
+        cliente_data["discord_id"] = discord_id
+        clientes.append(cliente_data)
+    
+    return jsonify({
+        "sucesso": True,
+        "clientes": clientes
+    })
+
+@app.route("/api/admin/cliente/editar", methods=["POST"])
+def api_admin_cliente_editar():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    req = request.json
+    discord_id = req.get("discord_id")
+    if not discord_id:
+        return jsonify({"sucesso": False, "mensagem": "ID do cliente não informado"})
+    
+    cliente = obter_cliente(discord_id)
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Cliente não encontrado"})
+    
+    if "uid" in req:
+        cliente["uid"] = req["uid"]
+    if "game_nick" in req:
+        cliente["game_nick"] = req["game_nick"]
+    if "pontos_atuais" in req:
+        cliente["pontos_atuais"] = max(0, int(req["pontos_atuais"]))
+    if "pontos_acumulados" in req:
+        cliente["pontos_acumulados"] = max(0, int(req["pontos_acumulados"]))
+    if "pontos_utilizados" in req:
+        cliente["pontos_utilizados"] = max(0, int(req["pontos_utilizados"]))
+    
+    salvar_dados_github(f"Cliente editado: {discord_id}")
+    return jsonify({
+        "sucesso": True,
+        "mensagem": "Cliente atualizado com sucesso!",
+        "cliente": cliente
+    })
+
+@app.route("/api/admin/fidelidade/config", methods=["GET", "POST"])
+def api_admin_fidelidade_config():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
     
     if request.method == "GET":
-        fidelidade = dados.get("fidelidade", {})
-        return jsonify({"sucesso": True, "fidelidade": fidelidade})
+        return jsonify({
+            "sucesso": True,
+            "config": dados.get("fidelidade_config", {})
+        })
+    
+    req = request.json
+    config = dados.setdefault("fidelidade_config", {})
+    
+    if "multiplicador_pontos" in req:
+        config["multiplicador_pontos"] = max(1, int(req["multiplicador_pontos"]))
+    if "validade_pontos_dias" in req:
+        config["validade_pontos_dias"] = max(1, int(req["validade_pontos_dias"]))
+    if "validade_cupom_dias" in req:
+        config["validade_cupom_dias"] = max(1, int(req["validade_cupom_dias"]))
+    
+    salvar_dados_github("Configurações de fidelidade atualizadas")
+    return jsonify({
+        "sucesso": True,
+        "mensagem": "Configurações atualizadas com sucesso!",
+        "config": config
+    })
+
+@app.route("/api/admin/fidelidade/recompensas", methods=["GET", "POST", "DELETE"])
+def api_admin_fidelidade_recompensas():
+    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado"}), 401
+    
+    if request.method == "GET":
+        return jsonify({
+            "sucesso": True,
+            "recompensas": dados.get("fidelidade", {}).get("recompensas", [])
+        })
     
     elif request.method == "POST":
         req = request.json
-        fidelidade = dados.setdefault("fidelidade", {})
-        if "pontos_por_real" in req:
-            fidelidade["pontos_por_real"] = float(req["pontos_por_real"])
-        if "validade_pontos_dias" in req:
-            fidelidade["validade_pontos_dias"] = int(req["validade_pontos_dias"])
-        if "validade_cupom_dias" in req:
-            fidelidade["validade_cupom_dias"] = int(req["validade_cupom_dias"])
-        if "recompensas" in req:
-            fidelidade["recompensas"] = req["recompensas"]
-        salvar_dados_github("Configurações de fidelidade atualizadas")
-        return jsonify({"sucesso": True, "mensagem": "Configurações salvas"})
+        pontos = int(req.get("pontos", 0))
+        descricao = req.get("descricao", "").strip()
+        tipo = req.get("tipo", "").strip()
+        
+        if not descricao or not tipo:
+            return jsonify({"sucesso": False, "mensagem": "Descrição e tipo são obrigatórios"})
+        
+        recompensas = dados["fidelidade"].setdefault("recompensas", [])
+        recompensas.append({
+            "pontos": pontos,
+            "descricao": descricao,
+            "tipo": tipo
+        })
+        
+        salvar_dados_github(f"Recompensa adicionada: {descricao}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Recompensa adicionada com sucesso!",
+            "recompensas": recompensas
+        })
+    
+    elif request.method == "DELETE":
+        index = request.args.get("index")
+        if index is None:
+            return jsonify({"sucesso": False, "mensagem": "Índice não informado"})
+        
+        index = int(index)
+        recompensas = dados.get("fidelidade", {}).get("recompensas", [])
+        if index < 0 or index >= len(recompensas):
+            return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
+        
+        removida = recompensas.pop(index)
+        salvar_dados_github(f"Recompensa removida: {removida.get('descricao')}")
+        return jsonify({
+            "sucesso": True,
+            "mensagem": "Recompensa removida com sucesso!",
+            "recompensas": recompensas
+        })
 
 # ========================
-# DASHBOARD PRINCIPAL (mantido igual, pois não tem erro de sintaxe)
+# ROTAS DO CLIENTE
+# ========================
+
+@app.route("/cliente")
+def cliente_area():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    usuario = session['usuario']
+    discord_id = usuario['id']
+    cliente = obter_cliente(discord_id)
+    
+    # Se não estiver cadastrado, mostrar página de cadastro
+    if not cliente:
+        return f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Cadastro - Área do Cliente</title>
+            <style>
+                * {{ margin:0; padding:0; box-sizing:border-box; }}
+                body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; padding:40px 20px; color:#e0e0e0; display:flex; align-items:center; justify-content:center; }}
+                .container {{ max-width:500px; width:100%; background:#121212; border-radius:20px; padding:40px; border:1px solid #333; }}
+                h1 {{ color:#f59e0b; text-align:center; margin-bottom:10px; }}
+                .subtitle {{ text-align:center; color:#888; margin-bottom:30px; }}
+                .form-group {{ margin-bottom:20px; }}
+                label {{ display:block; margin-bottom:8px; font-weight:600; color:#5865F2; }}
+                .form-control {{ width:100%; padding:12px; background:#1a1a1a; border:1px solid #333; border-radius:8px; color:#fff; font-size:16px; }}
+                .form-control:focus {{ outline:none; border-color:#5865F2; }}
+                .btn {{ display:block; width:100%; padding:14px; background:#f59e0b; color:#121212; border:none; border-radius:8px; font-weight:bold; font-size:16px; cursor:pointer; transition:all 0.3s; }}
+                .btn:hover {{ background:#d97706; transform:translateY(-2px); }}
+                .btn-secondary {{ background:#333; color:#fff; margin-top:10px; }}
+                .btn-secondary:hover {{ background:#444; }}
+                .alert {{ padding:12px; border-radius:8px; margin-bottom:20px; display:none; }}
+                .alert-success {{ background:#1a472a; color:#4ade80; border:1px solid #2ecc71; }}
+                .alert-error {{ background:#7f1d1d; color:#f87171; border:1px solid #ef4444; }}
+                .info-box {{ background:#1a1a2e; border-left:4px solid #f59e0b; padding:15px; border-radius:5px; margin-bottom:20px; }}
+                .info-box p {{ color:#ccc; line-height:1.6; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>👤 Cadastro</h1>
+                <div class="subtitle">Complete seu cadastro para acessar a área do cliente</div>
+                
+                <div class="info-box">
+                    <p>⚠️ <strong>Importante:</strong> Seu UID será vinculado permanentemente à sua conta do Discord. Não será possível alterar posteriormente.</p>
+                </div>
+                
+                <div id="cadastro-alert" class="alert"></div>
+                
+                <div class="form-group">
+                    <label>Seu UID do Jogo</label>
+                    <input type="text" id="cadastro-uid" class="form-control" placeholder="Digite seu UID">
+                </div>
+                
+                <div class="form-group">
+                    <label>Seu Nick no Jogo</label>
+                    <input type="text" id="cadastro-nick" class="form-control" placeholder="Digite seu nick">
+                </div>
+                
+                <button onclick="realizarCadastro()" class="btn">✅ Cadastrar</button>
+                <a href="/" class="btn btn-secondary">🏠 Voltar ao Início</a>
+            </div>
+            
+            <script>
+                async function realizarCadastro() {{
+                    const uid = document.getElementById('cadastro-uid').value.trim();
+                    const game_nick = document.getElementById('cadastro-nick').value.trim();
+                    const alertEl = document.getElementById('cadastro-alert');
+                    
+                    if (!uid || !game_nick) {{
+                        alertEl.className = 'alert alert-error';
+                        alertEl.textContent = '⚠️ Preencha todos os campos';
+                        alertEl.style.display = 'block';
+                        return;
+                    }}
+                    
+                    try {{
+                        const resp = await fetch('/api/cliente/cadastrar', {{
+                            method: 'POST',
+                            headers: {{'Content-Type': 'application/json'}},
+                            body: JSON.stringify({{uid, game_nick}})
+                        }});
+                        const result = await resp.json();
+                        
+                        if (result.sucesso) {{
+                            alertEl.className = 'alert alert-success';
+                            alertEl.textContent = '✅ ' + result.mensagem;
+                            alertEl.style.display = 'block';
+                            setTimeout(() => window.location.reload(), 1500);
+                        }} else {{
+                            alertEl.className = 'alert alert-error';
+                            alertEl.textContent = '❌ ' + result.mensagem;
+                            alertEl.style.display = 'block';
+                        }}
+                    }} catch(e) {{
+                        alertEl.className = 'alert alert-error';
+                        alertEl.textContent = '❌ Erro: ' + e.message;
+                        alertEl.style.display = 'block';
+                    }}
+                }}
+            </script>
+        </body>
+        </html>
+        '''
+    
+    # Cliente já cadastrado - mostrar área do cliente
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Área do Cliente</title>
+        <style>
+            * {{ margin:0; padding:0; box-sizing:border-box; }}
+            body {{ font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #0a0a0a, #1a1a1a); min-height:100vh; padding:20px; color:#e0e0e0; }}
+            .container {{ max-width:1200px; margin:0 auto; }}
+            header {{ background:#121212; padding:15px 20px; border-radius:15px; display:flex; justify-content:space-between; align-items:center; border:1px solid #333; margin-bottom:20px; }}
+            .user-info {{ display:flex; align-items:center; gap:15px; }}
+            .avatar {{ width:40px; height:40px; border-radius:50%; border:2px solid #f59e0b; }}
+            h1 {{ color:#f59e0b; font-size:1.5rem; }}
+            .btn {{ padding:8px 16px; border:none; border-radius:8px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; transition:all 0.2s; }}
+            .btn-primary {{ background:#5865F2; color:white; }}
+            .btn-primary:hover {{ background:#4752C4; }}
+            .btn-warning {{ background:#f59e0b; color:#121212; }}
+            .btn-warning:hover {{ background:#d97706; }}
+            .btn-danger {{ background:#ef4444; color:white; }}
+            .btn-danger:hover {{ background:#dc2626; }}
+            .btn-success {{ background:#10b981; color:white; }}
+            .btn-success:hover {{ background:#059669; }}
+            .btn-sm {{ padding:4px 12px; font-size:0.85rem; }}
+            .grid-2 {{ display:grid; grid-template-columns:repeat(2,1fr); gap:20px; }}
+            .grid-3 {{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }}
+            @media (max-width:768px) {{ .grid-2, .grid-3 {{ grid-template-columns:1fr; }} }}
+            .card {{ background:#121212; border-radius:15px; padding:20px; border:1px solid #333; }}
+            .card h2 {{ color:#5865F2; margin-bottom:15px; font-size:1.2rem; }}
+            .card h3 {{ color:#f59e0b; margin-bottom:10px; font-size:1rem; }}
+            .stat-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }}
+            .stat-item {{ background:#1a1a1a; padding:15px; border-radius:10px; text-align:center; }}
+            .stat-value {{ font-size:1.8rem; font-weight:bold; color:#f59e0b; }}
+            .stat-label {{ color:#888; font-size:0.8rem; }}
+            .progress-bar {{ width:100%; height:20px; background:#1a1a1a; border-radius:10px; overflow:hidden; margin-top:10px; }}
+            .progress-fill {{ height:100%; background:linear-gradient(90deg,#f59e0b,#d97706); border-radius:10px; transition:width 0.5s; }}
+            .tab-nav {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; border-bottom:2px solid #333; padding-bottom:10px; }}
+            .tab-btn {{ padding:10px 20px; background:#1a1a1a; border:none; border-radius:8px 8px 0 0; cursor:pointer; font-weight:600; color:#888; transition:all 0.3s; }}
+            .tab-btn:hover {{ background:#2a2a2a; color:#fff; }}
+            .tab-btn.active {{ background:#f59e0b; color:#121212; }}
+            .tab {{ display:none; animation:fadeIn 0.3s; }}
+            .tab.active {{ display:block; }}
+            @keyframes fadeIn {{ from{{opacity:0;}} to{{opacity:1;}} }}
+            .table-container {{ overflow-x:auto; }}
+            table {{ width:100%; border-collapse:collapse; }}
+            th, td {{ padding:12px; text-align:left; border-bottom:1px solid #333; }}
+            th {{ background:#1a1a1a; color:#f59e0b; }}
+            .badge {{ display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.75rem; font-weight:600; }}
+            .badge-pending {{ background:#7c3aed; color:#fff; }}
+            .badge-approved {{ background:#10b981; color:#fff; }}
+            .badge-completed {{ background:#5865F2; color:#fff; }}
+            .badge-refused {{ background:#ef4444; color:#fff; }}
+            .badge-active {{ background:#10b981; color:#fff; }}
+            .badge-used {{ background:#6b7280; color:#fff; }}
+            .badge-expired {{ background:#ef4444; color:#fff; }}
+            .modal {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; z-index:1000; }}
+            .modal-content {{ background:#121212; padding:30px; border-radius:15px; max-width:500px; width:90%; border:1px solid #333; max-height:80vh; overflow-y:auto; }}
+            .modal-content h2 {{ color:#f59e0b; margin-bottom:20px; }}
+            .modal-content .form-group {{ margin-bottom:15px; }}
+            .modal-content label {{ display:block; margin-bottom:5px; font-weight:600; color:#5865F2; }}
+            .modal-content .form-control {{ width:100%; padding:10px; background:#1a1a1a; border:1px solid #333; border-radius:8px; color:#fff; }}
+            .modal-content .form-control:focus {{ outline:none; border-color:#5865F2; }}
+            .modal-actions {{ display:flex; gap:10px; margin-top:20px; }}
+            .cupom-card {{ background:#1a1a1a; padding:15px; border-radius:10px; border-left:4px solid #f59e0b; margin-bottom:10px; }}
+            .cupom-card .codigo {{ font-family:monospace; font-size:1.2rem; color:#f59e0b; font-weight:bold; }}
+            .servico-card {{ background:#1a1a1a; padding:15px; border-radius:10px; border-left:4px solid #5865F2; margin-bottom:10px; }}
+            .servico-card .preco {{ color:#4ade80; font-weight:bold; }}
+            .servico-card .pontos {{ color:#f59e0b; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <div class="user-info">
+                    <img src="https://cdn.discordapp.com/avatars/{usuario['id']}/{usuario.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                    <div>
+                        <strong>{usuario['nome_usuario']}</strong>
+                        <span style="color:#888;font-size:0.8rem;display:block;">UID: {cliente.get('uid', 'N/A')} | Nick: {cliente.get('game_nick', 'N/A')}</span>
+                    </div>
+                </div>
+                <div>
+                    <a href="/" class="btn btn-primary btn-sm">🏠 Início</a>
+                    <a href="/logout" class="btn btn-danger btn-sm">🚪 Sair</a>
+                </div>
+            </header>
+            
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="showTab('painel')">📊 Painel</button>
+                <button class="tab-btn" onclick="showTab('servicos')">🎮 Serviços</button>
+                <button class="tab-btn" onclick="showTab('solicitacoes')">📋 Solicitações</button>
+                <button class="tab-btn" onclick="showTab('cupons')">🎫 Meus Cupons</button>
+                <button class="tab-btn" onclick="showTab('loja')">🏪 Loja</button>
+            </div>
+            
+            <!-- Aba Painel -->
+            <div id="painel" class="tab active">
+                <div class="grid-2">
+                    <div class="card">
+                        <h2>📊 Seus Pontos</h2>
+                        <div class="stat-grid">
+                            <div class="stat-item"><div class="stat-value" id="pontos-atuais">0</div><div class="stat-label">Pontos Atuais</div></div>
+                            <div class="stat-item"><div class="stat-value" id="pontos-acumulados">0</div><div class="stat-label">Total Acumulado</div></div>
+                            <div class="stat-item"><div class="stat-value" id="pontos-utilizados">0</div><div class="stat-label">Total Utilizado</div></div>
+                        </div>
+                        <div style="margin-top:15px;">
+                            <div style="display:flex;justify-content:space-between;color:#888;font-size:0.85rem;">
+                                <span>Progresso para próximo prêmio</span>
+                                <span id="progresso-texto">0 / 60</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progresso-bar" style="width:0%;"></div>
+                            </div>
+                        </div>
+                        <div style="margin-top:10px;font-size:0.8rem;color:#666;">
+                            Última compra: <span id="ultima-compra">N/A</span> | Último resgate: <span id="ultimo-resgate">N/A</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>👤 Seu Perfil</h2>
+                        <p><strong>Discord:</strong> {usuario['nome_usuario']}</p>
+                        <p><strong>UID:</strong> {cliente.get('uid', 'N/A')}</p>
+                        <p><strong>Nick:</strong> {cliente.get('game_nick', 'N/A')}</p>
+                        <p><strong>Cadastro:</strong> {cliente.get('data_cadastro', 'N/A')}</p>
+                        <button onclick="abrirSolicitarServico()" class="btn btn-warning" style="margin-top:15px;width:100%;">📝 Solicitar Serviço</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Serviços -->
+            <div id="servicos" class="tab">
+                <div class="card">
+                    <h2>🎮 Serviços Disponíveis</h2>
+                    <div id="lista-servicos"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Solicitações -->
+            <div id="solicitacoes" class="tab">
+                <div class="card">
+                    <h2>📋 Suas Solicitações</h2>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr><th>Serviço</th><th>Jogo</th><th>Status</th><th>Data</th><th>Pontos</th></tr>
+                            </thead>
+                            <tbody id="tabela-solicitacoes"></tbody>
+                        </table>
+                    </div>
+                    <button onclick="carregarSolicitacoes()" class="btn btn-primary btn-sm" style="margin-top:10px;">🔄 Atualizar</button>
+                </div>
+            </div>
+            
+            <!-- Aba Cupons -->
+            <div id="cupons" class="tab">
+                <div class="card">
+                    <h2>🎫 Meus Cupons</h2>
+                    <div id="lista-cupons"></div>
+                    <button onclick="carregarCupons()" class="btn btn-primary btn-sm" style="margin-top:10px;">🔄 Atualizar</button>
+                </div>
+            </div>
+            
+            <!-- Aba Loja -->
+            <div id="loja" class="tab">
+                <div class="card">
+                    <h2>🏪 Loja de Fidelidade</h2>
+                    <div id="lista-recompensas"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Modal de Solicitação -->
+        <div id="modal-solicitar" class="modal">
+            <div class="modal-content">
+                <h2>📝 Solicitar Serviço</h2>
+                <div id="solicitar-alert" style="padding:10px;border-radius:8px;display:none;"></div>
+                <div class="form-group">
+                    <label>Serviço</label>
+                    <select id="solicitar-servico" class="form-control"></select>
+                </div>
+                <div class="form-group">
+                    <label>Jogo</label>
+                    <select id="solicitar-jogo" class="form-control"></select>
+                </div>
+                <div class="form-group">
+                    <label>Observações</label>
+                    <textarea id="solicitar-obs" class="form-control" rows="3" placeholder="Detalhes adicionais..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Cupom (opcional)</label>
+                    <input type="text" id="solicitar-cupom" class="form-control" placeholder="ZANKON-XXXXXX">
+                </div>
+                <div class="modal-actions">
+                    <button onclick="enviarSolicitacao()" class="btn btn-warning" style="flex:1;">📤 Enviar</button>
+                    <button onclick="fecharModal('modal-solicitar')" class="btn btn-secondary" style="flex:1;background:#333;color:#fff;">Cancelar</button>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            let cargos = [];
+            let dadosCliente = {{}};
+            
+            async function carregarDadosCliente() {{
+                try {{
+                    const [pontosRes, servicosRes, jogosRes, recompensasRes] = await Promise.all([
+                        fetch('/api/cliente/pontos'),
+                        fetch('/api/cliente/servicos'),
+                        fetch('/api/cliente/jogos'),
+                        fetch('/api/cliente/recompensas')
+                    ]);
+                    
+                    const pontos = await pontosRes.json();
+                    const servicos = await servicosRes.json();
+                    const jogos = await jogosRes.json();
+                    const recompensas = await recompensasRes.json();
+                    
+                    if (pontos.sucesso) {{
+                        document.getElementById('pontos-atuais').textContent = pontos.pontos_atuais;
+                        document.getElementById('pontos-acumulados').textContent = pontos.pontos_acumulados;
+                        document.getElementById('pontos-utilizados').textContent = pontos.pontos_utilizados;
+                        document.getElementById('ultima-compra').textContent = pontos.ultima_compra ? new Date(pontos.ultima_compra).toLocaleDateString() : 'N/A';
+                        document.getElementById('ultimo-resgate').textContent = pontos.ultimo_resgate ? new Date(pontos.ultimo_resgate).toLocaleDateString() : 'N/A';
+                        
+                        // Calcular progresso para próximo prêmio
+                        const pontosAtuais = pontos.pontos_atuais || 0;
+                        let proximoPremio = 60;
+                        if (pontosAtuais >= 400) proximoPremio = 400;
+                        else if (pontosAtuais >= 200) proximoPremio = 200;
+                        else if (pontosAtuais >= 100) proximoPremio = 100;
+                        else if (pontosAtuais >= 60) proximoPremio = 60;
+                        
+                        // Achar o próximo prêmio baseado nos pontos atuais
+                        const recompensasList = recompensas.sucesso ? recompensas.recompensas : [];
+                        let proximo = null;
+                        for (const r of recompensasList.sort((a,b) => a.pontos - b.pontos)) {{
+                            if (r.pontos > pontosAtuais) {{
+                                proximo = r;
+                                break;
+                            }}
+                        }}
+                        if (proximo) {{
+                            const progresso = Math.min(100, (pontosAtuais / proximo.pontos) * 100);
+                            document.getElementById('progresso-texto').textContent = `${{pontosAtuais}} / ${{proximo.pontos}}`;
+                            document.getElementById('progresso-bar').style.width = progresso + '%';
+                        }} else {{
+                            document.getElementById('progresso-texto').textContent = `${{pontosAtuais}} / Máximo`;
+                            document.getElementById('progresso-bar').style.width = '100%';
+                        }}
+                    }}
+                    
+                    if (servicos.sucesso) {{
+                        const container = document.getElementById('lista-servicos');
+                        const servicosList = Object.values(servicos.servicos);
+                        if (servicosList.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhum serviço disponível no momento.</p>';
+                        }} else {{
+                            container.innerHTML = servicosList.map(s => `
+                                <div class="servico-card">
+                                    <h3>${{escapeHtml(s.nome)}}</h3>
+                                    <p style="color:#ccc;">${{escapeHtml(s.descricao)}}</p>
+                                    <p><span class="preco">R$ ${{s.valor_reais.toFixed(2)}}</span> | <span class="pontos">+${{s.pontos_gerados}} pontos</span></p>
+                                    <button onclick="abrirSolicitarComServico('${{Object.keys(servicos.servicos).find(k => servicos.servicos[k].nome === s.nome)}}')" class="btn btn-warning btn-sm">📝 Solicitar</button>
+                                </div>
+                            `).join('');
+                        }}
+                    }}
+                    
+                    if (jogos.sucesso) {{
+                        const select = document.getElementById('solicitar-jogo');
+                        select.innerHTML = jogos.jogos.map(j => `<option value="${{escapeHtml(j)}}">${{escapeHtml(j)}}</option>`).join('');
+                    }}
+                    
+                    if (recompensas.sucesso) {{
+                        const container = document.getElementById('lista-recompensas');
+                        const recompensasList = recompensas.recompensas;
+                        if (recompensasList.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhuma recompensa disponível.</p>';
+                        }} else {{
+                            container.innerHTML = recompensasList.map(r => `
+                                <div class="servico-card" style="border-left-color:#f59e0b;">
+                                    <h3>🎯 ${{escapeHtml(r.descricao)}}</h3>
+                                    <p><span class="pontos">${{r.pontos}} pontos</span></p>
+                                    <button onclick="resgatarRecompensa('${{r.tipo}}')" class="btn btn-success btn-sm">🔄 Resgatar</button>
+                                </div>
+                            `).join('');
+                        }}
+                    }}
+                    
+                    carregarSolicitacoes();
+                    carregarCupons();
+                    carregarServicosSelect();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function carregarServicosSelect() {{
+                try {{
+                    const resp = await fetch('/api/cliente/servicos');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const select = document.getElementById('solicitar-servico');
+                        const servicos = Object.values(data.servicos);
+                        select.innerHTML = servicos.map(s => `<option value="${{Object.keys(data.servicos).find(k => data.servicos[k].nome === s.nome)}}">${{escapeHtml(s.nome)}} (R$ ${{s.valor_reais.toFixed(2)}})</option>`).join('');
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function carregarSolicitacoes() {{
+                try {{
+                    const resp = await fetch('/api/cliente/solicitacoes');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const tbody = document.getElementById('tabela-solicitacoes');
+                        if (data.solicitacoes.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="5" style="color:#888;">Nenhuma solicitação encontrada.</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = data.solicitacoes.map(s => `
+                                <tr>
+                                    <td>${{escapeHtml(s.servico_nome)}}</td>
+                                    <td>${{escapeHtml(s.jogo || 'N/A')}}</td>
+                                    <td><span class="badge badge-${{s.status === 'Aguardando Aprovação' ? 'pending' : s.status === 'Em Andamento' ? 'approved' : s.status === 'Concluído' ? 'completed' : 'refused'}}">${{s.status}}</span></td>
+                                    <td>${{new Date(s.data_solicitacao).toLocaleDateString()}}</td>
+                                    <td>${{s.pontos_creditados || 0}}</td>
+                                </tr>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function carregarCupons() {{
+                try {{
+                    const resp = await fetch('/api/cliente/cupons');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const container = document.getElementById('lista-cupons');
+                        if (data.cupons.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhum cupom encontrado.</p>';
+                        }} else {{
+                            container.innerHTML = data.cupons.map(c => `
+                                <div class="cupom-card">
+                                    <div class="codigo">${{c.codigo}}</div>
+                                    <div style="color:#ccc;">${{escapeHtml(c.descricao)}}</div>
+                                    <div style="font-size:0.8rem;color:#888;">
+                                        Válido até: ${{c.validade ? new Date(c.validade).toLocaleDateString() : 'N/A'}}
+                                        <span class="badge badge-${{c.status}}">${{c.status}}</span>
+                                    </div>
+                                </div>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function abrirSolicitarServico() {{
+                document.getElementById('modal-solicitar').style.display = 'flex';
+                document.getElementById('solicitar-alert').style.display = 'none';
+                document.getElementById('solicitar-obs').value = '';
+                document.getElementById('solicitar-cupom').value = '';
+                carregarServicosSelect();
+            }}
+            
+            function abrirSolicitarComServico(servicoId) {{
+                document.getElementById('modal-solicitar').style.display = 'flex';
+                document.getElementById('solicitar-servico').value = servicoId;
+                document.getElementById('solicitar-alert').style.display = 'none';
+                document.getElementById('solicitar-obs').value = '';
+                document.getElementById('solicitar-cupom').value = '';
+            }}
+            
+            async function enviarSolicitacao() {{
+                const servicoId = document.getElementById('solicitar-servico').value;
+                const jogo = document.getElementById('solicitar-jogo').value;
+                const observacoes = document.getElementById('solicitar-obs').value.trim();
+                const cupom = document.getElementById('solicitar-cupom').value.trim();
+                const alertEl = document.getElementById('solicitar-alert');
+                
+                if (!servicoId) {{
+                    alertEl.className = 'alert alert-error';
+                    alertEl.textContent = '❌ Selecione um serviço';
+                    alertEl.style.display = 'block';
+                    return;
+                }}
+                
+                try {{
+                    const resp = await fetch('/api/cliente/solicitar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{servico_id: servicoId, jogo, observacoes, cupom}})
+                    }});
+                    const result = await resp.json();
+                    
+                    if (result.sucesso) {{
+                        alertEl.className = 'alert alert-success';
+                        alertEl.textContent = '✅ ' + result.mensagem;
+                        alertEl.style.display = 'block';
+                        setTimeout(() => {{
+                            fecharModal('modal-solicitar');
+                            carregarSolicitacoes();
+                        }}, 1500);
+                    }} else {{
+                        alertEl.className = 'alert alert-error';
+                        alertEl.textContent = '❌ ' + result.mensagem;
+                        alertEl.style.display = 'block';
+                    }}
+                }} catch(e) {{
+                    alertEl.className = 'alert alert-error';
+                    alertEl.textContent = '❌ Erro: ' + e.message;
+                    alertEl.style.display = 'block';
+                }}
+            }}
+            
+            async function resgatarRecompensa(tipo) {{
+                if (!confirm('Confirmar resgate desta recompensa?')) return;
+                
+                try {{
+                    const resp = await fetch('/api/cliente/resgatar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{tipo}})
+                    }});
+                    const result = await resp.json();
+                    
+                    if (result.sucesso) {{
+                        alert('✅ Recompensa resgatada! Código: ' + result.codigo);
+                        carregarDadosCliente();
+                    }} else {{
+                        alert('❌ ' + result.mensagem);
+                    }}
+                }} catch(e) {{
+                    alert('❌ Erro: ' + e.message);
+                }}
+            }}
+            
+            function fecharModal(id) {{
+                document.getElementById(id).style.display = 'none';
+            }}
+            
+            function showTab(tabId) {{
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
+                if (tabId === 'solicitacoes') carregarSolicitacoes();
+                if (tabId === 'cupons') carregarCupons();
+            }}
+            
+            function escapeHtml(texto) {{ if (!texto) return ''; return texto.replace(/[&<>]/g, function(m) {{ if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }}); }}
+            
+            // Fechar modal ao clicar fora
+            window.onclick = function(event) {{
+                if (event.target.classList.contains('modal')) {{
+                    event.target.style.display = 'none';
+                }}
+            }}
+            
+            document.addEventListener('DOMContentLoaded', carregarDadosCliente);
+        </script>
+    </body>
+    </html>
+    '''
+
+# ========================
+# DASHBOARD PRINCIPAL (ADMIN)
 # ========================
 
 @app.route("/dashboard")
 def dashboard():
-    if 'usuario' not in session or not session['usuario'].get('eh_admin', False):
+    if 'usuario' not in session:
         return redirect(url_for('login'))
+    
+    if not session['usuario'].get('eh_admin', False):
+        return redirect(url_for('cliente_area'))
     
     usuario = session['usuario']
     config = dados.get("config", {})
@@ -2481,22 +2906,13 @@ def dashboard():
     
     botoes_precos_json = json.dumps(botoes_precos)
     
-    servicos = obter_servicos(apenas_ativos=False)
-    clientes = dados.get("clientes", {})
-    solicitacoes = dados.get("solicitacoes", {})
-    fidelidade = dados.get("fidelidade", {})
-    
-    # O dashboard é grande, mas não tem erro de sintaxe. Mantenho o mesmo código existente.
-    # Para não ultrapassar o limite, mantenho o dashboard que já estava funcionando.
-    # Apenas asseguro que não há {% %} nem {{ }} dentro de f-strings.
-    # Como é extenso, vou reutilizar o código que estava correto.
     return f'''
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Painel - Bot</title>
+        <title>Painel Admin - Bot</title>
         <style>
             :root {{ --primary: #5865F2; --primary-dark: #4752C4; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; --dark: #1a1a1a; --darker: #121212; --light: #e0e0e0; --gray: #333; }}
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -2537,7 +2953,8 @@ def dashboard():
             th {{ background: var(--gray); }}
             .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }}
             .grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
-            @media (max-width: 768px) {{ .grid-2, .grid-3 {{ grid-template-columns: 1fr; }} }}
+            .grid-4 {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }}
+            @media (max-width: 768px) {{ .grid-2, .grid-3, .grid-4 {{ grid-template-columns: 1fr; }} }}
             .switch {{ position: relative; display: inline-block; width: 60px; height: 34px; }}
             .switch input {{ opacity: 0; width: 0; height: 0; }}
             .slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }}
@@ -2546,7 +2963,15 @@ def dashboard():
             input:checked + .slider:before {{ transform: translateX(26px); }}
             .info-box {{ background: #1a1a2e; border-left: 4px solid #5865F2; padding: 1rem; margin: 1rem 0; border-radius: 5px; }}
             .config-badge {{ display: inline-block; background: #2196F3; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 5px; }}
-            .config-removed {{ background: #f44336; }}
+            .badge {{ display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }}
+            .badge-pending {{ background: #7c3aed; color: #fff; }}
+            .badge-approved {{ background: #10b981; color: #fff; }}
+            .badge-completed {{ background: #5865F2; color: #fff; }}
+            .badge-refused {{ background: #ef4444; color: #fff; }}
+            .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); align-items: center; justify-content: center; z-index: 1000; }}
+            .modal-content {{ background: #121212; padding: 30px; border-radius: 15px; max-width: 500px; width: 90%; border: 1px solid #333; max-height: 80vh; overflow-y: auto; }}
+            .modal-content h2 {{ color: #f59e0b; margin-bottom: 20px; }}
+            .modal-actions {{ display: flex; gap: 10px; margin-top: 20px; }}
             .botoes-lista {{ display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }}
             .botao-item {{ background: #1a1a1a; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }}
             .botao-info {{ flex: 1; }}
@@ -2558,13 +2983,13 @@ def dashboard():
     <body>
         <header>
             <div class="header-content">
-                <h1> Painel de Controle</h1>
+                <h1> Painel Admin</h1>
                 <div class="user-info">
                     <img src="https://cdn.discordapp.com/avatars/{usuario['id']}/{usuario.get('avatar', '')}.png" class="avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
                     <span>{usuario['nome_usuario']}</span>
                     <a href="/" class="btn btn-primary">🏠 Início</a>
+                    <a href="/cliente" class="btn btn-warning">👤 Cliente</a>
                     <a href="/fila" class="btn btn-primary">📋 Fila</a>
-                    <a href="/cliente" class="btn btn-primary">👤 Cliente</a>
                     <a href="/logout" class="btn btn-danger">🚪 Sair</a>
                 </div>
             </div>
@@ -2573,20 +2998,21 @@ def dashboard():
         <div class="container">
             <div class="tab-nav">
                 <button class="tab-btn active" onclick="showTab('inicio')">🏠 Início</button>
-                <button class="tab-btn" onclick="showTab('comandos_canais')">📢 Canais de Comandos</button>
+                <button class="tab-btn" onclick="showTab('comandos_canais')">📢 Canais</button>
                 <button class="tab-btn" onclick="showTab('antispam')">🛡️ Anti-Spam</button>
                 <button class="tab-btn" onclick="showTab('boasvindas')">👋 Boas-vindas</button>
-                <button class="tab-btn" onclick="showTab('xp')">⭐ Sistema XP</button>
+                <button class="tab-btn" onclick="showTab('xp')">⭐ XP</button>
                 <button class="tab-btn" onclick="showTab('cargos')">🪪 Cargos</button>
                 <button class="tab-btn" onclick="showTab('moderacao')">🛡️ Moderação</button>
                 <button class="tab-btn" onclick="showTab('fila')">📋 Fila</button>
-                <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos Rápidos</button>
-                <button class="tab-btn" onclick="showTab('servicos')">📦 Serviços</button>
-                <button class="tab-btn" onclick="showTab('clientes')">👥 Clientes</button>
-                <button class="tab-btn" onclick="showTab('solicitacoes')">📩 Solicitações</button>
-                <button class="tab-btn" onclick="showTab('fidelidade')">🎖️ Fidelidade</button>
+                <button class="tab-btn" onclick="showTab('servicos')">🎮 Serviços</button>
+                <button class="tab-btn" onclick="showTab('clientes')">👤 Clientes</button>
+                <button class="tab-btn" onclick="showTab('solicitacoes')">📋 Solicitações</button>
+                <button class="tab-btn" onclick="showTab('fidelidade')">🏪 Fidelidade</button>
+                <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos</button>
             </div>
             
+            <!-- Aba Início -->
             <div id="inicio" class="tab active">
                 <div class="grid-2">
                     <div class="card">
@@ -2596,6 +3022,7 @@ def dashboard():
                             <div class="stat-card"><h3>{sum(len(w) for w in dados.get("advertencias", {}).values())}</h3><p>Advertências</p></div>
                             <div class="stat-card"><h3>{len(fila["entradas"])}</h3><p>Na Fila</p></div>
                             <div class="stat-card"><h3>{len(dados.get("clientes", {}))}</h3><p>Clientes</p></div>
+                            <div class="stat-card"><h3>{len(dados.get("servicos", {}))}</h3><p>Serviços</p></div>
                         </div>
                     </div>
                     <div class="card">
@@ -2604,48 +3031,1591 @@ def dashboard():
                         <p><strong>Processador:</strong> {'✅ Ativo' if processador_acoes_rodando else '❌ Inativo'}</p>
                         <p><strong>Ações na fila:</strong> {len(acoes_fila_bot)}</p>
                         <p><strong>Anti-Spam:</strong> {'✅ Ativo' if anti_spam.get('ativado', True) else '❌ Desativado'}</p>
-                        <p><strong>Comandos da Mudae:</strong>  NÃO ganham XP</p>
-                        <p><strong>Comandos Discord:</strong> /perfil e /rank (apenas nos canais configurados)</p>
+                        <p><strong>Multiplicador de Pontos:</strong> {dados.get('fidelidade_config', {}).get('multiplicador_pontos', 1)}</p>
                     </div>
                 </div>
             </div>
             
-            <!-- As outras abas são extensas, mas como já estavam funcionando, as mantenho -->
-            <!-- Para economizar espaço, não repetirei todo o HTML das outras abas, pois são as mesmas -->
-            <!-- Você pode manter o código existente para as abas, que não possuem erro -->
-            <!-- O importante era corrigir a render_cliente_page -->
+            <!-- Aba Canais -->
+            <div id="comandos_canais" class="tab">
+                <div class="card">
+                    <h2>📢 Configurar Canais dos Comandos</h2>
+                    <div class="info-box">
+                        💡 <strong>Como funciona:</strong><br>
+                        • Selecione um canal → O comando só funcionará naquele canal<br>
+                        • Selecione o <strong>mesmo canal novamente</strong> → Remove a restrição (volta a funcionar em todos os canais)
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Canal para o comando /perfil</label>
+                            <select id="canal-perfil" class="form-control">
+                                <option value="">🔓 Todos os canais</option>
+                            </select>
+                            <div id="perfil-status" style="margin-top: 8px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Canal para o comando /rank</label>
+                            <select id="canal-rank" class="form-control">
+                                <option value="">🔓 Todos os canais</option>
+                            </select>
+                            <div id="rank-status" style="margin-top: 8px;"></div>
+                        </div>
+                    </div>
+                    <button onclick="salvarConfigComandos()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="comandos-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Anti-Spam -->
+            <div id="antispam" class="tab">
+                <div class="card">
+                    <h2>🛡️ Configuração Anti-Spam</h2>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Status</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-ativado" {'checked' if anti_spam.get('ativado', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Remover XP por Spam</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-remover-xp" {'checked' if anti_spam.get('remover_xp', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Deletar Mensagens</label>
+                            <label class="switch">
+                                <input type="checkbox" id="as-deletar" {'checked' if anti_spam.get('deletar_mensagens', True) else ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Limite de Mensagens</label>
+                            <input type="number" id="as-limite" class="form-control" value="{anti_spam.get('limite_mensagens', 5)}" min="2" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Intervalo (segundos)</label>
+                            <input type="number" id="as-intervalo" class="form-control" value="{anti_spam.get('intervalo_segundos', 5)}" min="2" max="30">
+                        </div>
+                        <div class="form-group">
+                            <label>Tempo de Mute (minutos)</label>
+                            <input type="number" id="as-mute" class="form-control" value="{anti_spam.get('tempo_mute_minutos', 2)}" min="1" max="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Penalidade de XP</label>
+                            <input type="number" id="as-xp-penalidade" class="form-control" value="{anti_spam.get('xp_penalidade', 50)}" min="10" max="500">
+                        </div>
+                        <div class="form-group">
+                            <label>Cargos Ignorados (separar por vírgula)</label>
+                            <input type="text" id="as-cargos" class="form-control" value="{','.join(anti_spam.get('cargos_ignorados', ['Administrador', 'Moderador', 'Staff', 'Dono']))}">
+                        </div>
+                        <div class="form-group">
+                            <label>Comandos Ignorados (separar por vírgula)</label>
+                            <input type="text" id="as-comandos" class="form-control" value="{','.join(anti_spam.get('comandos_ignorados', ['$w','$wa','$wg','$h','$ha','$hg','$tu','$dk','$mmi','$vote','$rolls','$k','$mu']))}">
+                        </div>
+                    </div>
+                    <button onclick="salvarAntiSpam()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="as-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Boas-vindas -->
+            <div id="boasvindas" class="tab">
+                <div class="card">
+                    <h2>👋 Configurar Boas-vindas</h2>
+                    <div class="form-group">
+                        <label>Canal</label>
+                        <select id="welcome-canal" class="form-control"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Mensagem</label>
+                        <textarea id="welcome-mensagem" class="form-control" rows="3"></textarea>
+                        <small>Use {{member}} para mencionar</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Imagem de Fundo (URL)</label>
+                        <input type="url" id="welcome-imagem" class="form-control" placeholder="https://exemplo.com/imagem.jpg">
+                    </div>
+                    <button onclick="salvarBoasVindas()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="welcome-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba XP -->
+            <div id="xp" class="tab">
+                <div class="card">
+                    <h2>⭐ Sistema de XP</h2>
+                    <div class="form-group">
+                        <label>Taxa de XP (1=fácil, 10=difícil)</label>
+                        <input type="number" id="xp-taxa" class="form-control" min="1" max="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Canal de Level Up</label>
+                        <select id="xp-canal" class="form-control"></select>
+                    </div>
+                    <button onclick="salvarXP()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="xp-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>🪪 Cargos por Nível</h2>
+                    <div id="cargos-nivel-lista"></div>
+                    <div class="form-group">
+                        <label>Adicionar Cargo por Nível</label>
+                        <div style="display: flex; gap: 1rem;">
+                            <input type="number" id="novo-nivel" class="form-control" placeholder="Nível" min="1" style="width: 100px;">
+                            <select id="novo-cargo" class="form-control" style="flex:1;"></select>
+                            <button onclick="adicionarCargoNivel()" class="btn btn-primary">➕ Adicionar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Cargos -->
+            <div id="cargos" class="tab">
+                <div class="grid-2">
+                    <div class="card">
+                        <h2>🪪 Reação com Cargo</h2>
+                        <div class="form-group">
+                            <label>Canal</label>
+                            <select id="rr-canal" class="form-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Mensagem</label>
+                            <textarea id="rr-conteudo" class="form-control" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Emoji:Cargo (separar por vírgula)</label>
+                            <input type="text" id="rr-pares" class="form-control" placeholder="✅:Verificado,👍:Aprovado">
+                        </div>
+                        <button onclick="criarReacaoCargo()" class="btn btn-primary">✨ Criar</button>
+                        <div id="rr-alert" class="alert"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>🔄 Botões de Cargos</h2>
+                        <div class="form-group">
+                            <label>Canal</label>
+                            <select id="btn-canal" class="form-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Mensagem</label>
+                            <textarea id="btn-conteudo" class="form-control" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Botão:Cargo (separar por vírgula)</label>
+                            <input type="text" id="btn-pares" class="form-control" placeholder="Notícias:Notícias,Eventos:Eventos">
+                        </div>
+                        <button onclick="criarBotoesCargo()" class="btn btn-success">🔄 Criar</button>
+                        <div id="btn-alert" class="alert"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Aba Moderação -->
+            <div id="moderacao" class="tab">
+                <div class="grid-2">
+                    <div class="card">
+                        <h2>🛡️ Advertências</h2>
+                        <div class="form-group">
+                            <label>Membro</label>
+                            <select id="warn-membro" class="form-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Motivo</label>
+                            <input type="text" id="warn-motivo" class="form-control" placeholder="Motivo">
+                        </div>
+                        <button onclick="aplicarAdvertencia()" class="btn btn-warning">⚠️ Advertir</button>
+                        <button onclick="limparAdvertencias()" class="btn btn-danger">🧹 Limpar</button>
+                        <div id="warn-alert" class="alert"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>🔗 Bloqueio de Links</h2>
+                        <div class="form-group">
+                            <label>Canal</label>
+                            <select id="links-canal" class="form-control"></select>
+                        </div>
+                        <button onclick="alternarBloqueioLinks()" class="btn btn-danger">🔒 Alternar</button>
+                        <div id="links-status" style="margin-top: 1rem; padding: 0.5rem; background: #1a1a1a; border-radius: 5px;"></div>
+                        <div id="links-alert" class="alert"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📋 Lista de Advertências</h2>
+                    <div class="form-group">
+                        <label>Ver advertências de</label>
+                        <select id="ver-warns" class="form-control" onchange="carregarAdvertencias()"></select>
+                    </div>
+                    <div id="lista-warns" style="margin-top: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 5px; border: 1px solid var(--gray);"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Fila -->
+            <div id="fila" class="tab">
+                <div class="card">
+                    <h2>📋 Configurações da Fila</h2>
+                    <div class="grid-2">
+                        <div><label>Nome</label><input type="text" id="fila-nome" class="form-control" value="{escape_html(fila['nome'])}"></div>
+                        <div><label>Tamanho Máximo</label><input type="number" id="fila-max" class="form-control" value="{fila['configuracoes']['tamanho_maximo']}" min="1" max="100"></div>
+                    </div>
+                    
+                    <h3 style="margin-top: 20px;">🔗 Links</h3>
+                    <div class="form-group">
+                        <label>Link do Discord (convite)</label>
+                        <input type="url" id="link-discord" class="form-control" value="{escape_html(links.get('discord_convite', ''))}">
+                    </div>
+                    
+                    <h3 style="margin-top: 20px;">💰 Botões de Preço</h3>
+                    <div class="form-group">
+                        <label>Novo Botão - Nome</label>
+                        <input type="text" id="novo-botao-nome" class="form-control" placeholder="Ex: Tabela de Preços">
+                    </div>
+                    <div class="form-group">
+                        <label>Novo Botão - URL</label>
+                        <input type="url" id="novo-botao-url" class="form-control" placeholder="https://docs.google.com/...">
+                    </div>
+                    <button onclick="adicionarBotaoPreco()" class="btn btn-success">➕ Adicionar</button>
+                    
+                    <div id="botoes-precos-lista" class="botoes-lista" style="margin-top: 20px;"></div>
+                    
+                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                        <button onclick="salvarConfigFila()" class="btn btn-primary">💾 Salvar</button>
+                        <button onclick="alternarStatusFila()" id="toggle-fila-btn" class="btn {'btn-success' if fila['configuracoes']['aberta'] else 'btn-danger'}">{'🔓 Fechar' if fila['configuracoes']['aberta'] else '🔒 Abrir'}</button>
+                        <button onclick="limparFila()" class="btn btn-danger">🗑️ Limpar</button>
+                    </div>
+                    <div id="fila-status" style="margin-top: 1rem; padding: 0.5rem; background: #1a1a1a; border-radius: 5px;">Status: {'🟢 ABERTA' if fila['configuracoes']['aberta'] else '🔴 FECHADA'} | {len(fila['entradas'])}/{fila['configuracoes']['tamanho_maximo']}</div>
+                </div>
+                
+                <div class="card">
+                    <h2>➕ Adicionar à Fila</h2>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <input type="text" id="add-nome" class="form-control" placeholder="Nome" style="flex:1;">
+                        <input type="text" id="add-servico" class="form-control" placeholder="Serviço" style="flex:1;">
+                        <input type="text" id="add-jogo" class="form-control" placeholder="Jogo" style="flex:1;">
+                        <button onclick="adicionarFila()" class="btn btn-primary">➕ Adicionar</button>
+                    </div>
+                    <div id="add-result" class="alert" style="margin-top: 10px; display: none;"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>📋 Lista de Espera</h2>
+                    <div style="overflow-x: auto;">
+                        <table style="width:100%">
+                            <thead>
+                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>Entrada</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody id="fila-tabela"><tr><td colspan="6">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 10px;"><button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button></div>
+                </div>
+            </div>
+            
+            <!-- Aba Serviços -->
+            <div id="servicos" class="tab">
+                <div class="card">
+                    <h2>🎮 Gerenciar Serviços</h2>
+                    <div id="servicos-lista" style="margin-bottom:20px;"></div>
+                    
+                    <h3>➕ Novo Serviço</h3>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Nome</label>
+                            <input type="text" id="servico-nome" class="form-control" placeholder="Build Completa">
+                        </div>
+                        <div class="form-group">
+                            <label>Categoria</label>
+                            <input type="text" id="servico-categoria" class="form-control" placeholder="Builds">
+                        </div>
+                        <div class="form-group">
+                            <label>Descrição</label>
+                            <textarea id="servico-descricao" class="form-control" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Imagem (URL)</label>
+                            <input type="url" id="servico-imagem" class="form-control" placeholder="https://...">
+                        </div>
+                        <div class="form-group">
+                            <label>Valor (R$)</label>
+                            <input type="number" id="servico-valor" class="form-control" placeholder="20" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Pontos Gerados</label>
+                            <input type="number" id="servico-pontos" class="form-control" placeholder="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="servico-status" class="form-control">
+                                <option value="ativo">Ativo</option>
+                                <option value="inativo">Inativo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button onclick="criarServico()" class="btn btn-success">➕ Criar Serviço</button>
+                    <div id="servico-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Clientes -->
+            <div id="clientes" class="tab">
+                <div class="card">
+                    <h2>👤 Gerenciar Clientes</h2>
+                    <div id="clientes-lista"></div>
+                </div>
+                <div class="card">
+                    <h2>✏️ Editar Cliente</h2>
+                    <div class="form-group">
+                        <label>Selecione o Cliente</label>
+                        <select id="editar-cliente-select" class="form-control" onchange="carregarClienteEdicao()"></select>
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>UID</label>
+                            <input type="text" id="editar-uid" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>Nick</label>
+                            <input type="text" id="editar-nick" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>Pontos Atuais</label>
+                            <input type="number" id="editar-pontos" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>Pontos Acumulados</label>
+                            <input type="number" id="editar-acumulados" class="form-control">
+                        </div>
+                    </div>
+                    <button onclick="salvarEdicaoCliente()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="editar-cliente-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Solicitações -->
+            <div id="solicitacoes" class="tab">
+                <div class="card">
+                    <h2>📋 Gerenciar Solicitações</h2>
+                    <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                        <button onclick="carregarSolicitacoesAdmin('Aguardando Aprovação')" class="btn btn-warning btn-sm">⏳ Pendentes</button>
+                        <button onclick="carregarSolicitacoesAdmin('Em Andamento')" class="btn btn-success btn-sm">✅ Aceitas</button>
+                        <button onclick="carregarSolicitacoesAdmin('Concluído')" class="btn btn-primary btn-sm">✔️ Concluídas</button>
+                        <button onclick="carregarSolicitacoesAdmin('Recusado')" class="btn btn-danger btn-sm">❌ Recusadas</button>
+                        <button onclick="carregarSolicitacoesAdmin('')" class="btn btn-sm" style="background:#333;">📋 Todas</button>
+                    </div>
+                    <div id="solicitacoes-admin-lista"></div>
+                    <div id="solicitacoes-admin-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Fidelidade -->
+            <div id="fidelidade" class="tab">
+                <div class="card">
+                    <h2>🏪 Configurações de Fidelidade</h2>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Multiplicador de Pontos (1 real = X pontos)</label>
+                            <input type="number" id="fid-multiplicador" class="form-control" value="{dados.get('fidelidade_config', {}).get('multiplicador_pontos', 1)}" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Validade dos Pontos (dias)</label>
+                            <input type="number" id="fid-validade-pontos" class="form-control" value="{dados.get('fidelidade_config', {}).get('validade_pontos_dias', 90)}" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Validade dos Cupons (dias)</label>
+                            <input type="number" id="fid-validade-cupom" class="form-control" value="{dados.get('fidelidade_config', {}).get('validade_cupom_dias', 30)}" min="1">
+                        </div>
+                    </div>
+                    <button onclick="salvarConfigFidelidade()" class="btn btn-primary">💾 Salvar</button>
+                    <div id="fid-alert" class="alert"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>🏪 Recompensas da Loja</h2>
+                    <div id="recompensas-lista"></div>
+                    <h3>➕ Nova Recompensa</h3>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>Pontos Necessários</label>
+                            <input type="number" id="recompensa-pontos" class="form-control" placeholder="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Descrição</label>
+                            <input type="text" id="recompensa-descricao" class="form-control" placeholder="1 Dia de Quests Diárias">
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo (identificador único)</label>
+                            <input type="text" id="recompensa-tipo" class="form-control" placeholder="quests_diarias">
+                        </div>
+                    </div>
+                    <button onclick="criarRecompensa()" class="btn btn-success">➕ Adicionar</button>
+                    <div id="recompensa-alert" class="alert"></div>
+                </div>
+            </div>
+            
+            <!-- Aba Comandos Rápidos -->
+            <div id="comandos" class="tab">
+                <div class="card">
+                    <h2>📝 Criar Embed Personalizada</h2>
+                    <div class="form-group">
+                        <label>Canal</label>
+                        <select id="embed-canal" class="form-control"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Título</label>
+                        <input type="text" id="embed-titulo" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Corpo</label>
+                        <textarea id="embed-corpo" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Cor (hexadecimal)</label>
+                        <input type="text" id="embed-cor" class="form-control" value="#5865F2">
+                    </div>
+                    <div class="form-group">
+                        <label>Imagem (URL)</label>
+                        <input type="url" id="embed-imagem" class="form-control" placeholder="https://...">
+                    </div>
+                    <div class="form-group">
+                        <label>Menção</label>
+                        <select id="embed-mencao" class="form-control"><option value="">Nenhuma</option><option value="everyone">@everyone</option><option value="here">@here</option></select>
+                    </div>
+                    <button onclick="criarEmbed()" class="btn btn-primary">📝 Criar</button>
+                    <div id="embed-alert" class="alert"></div>
+                </div>
+            </div>
         </div>
+        
+        <!-- Modal de Aprovação/Recusa -->
+        <div id="modal-solicitacao" class="modal">
+            <div class="modal-content">
+                <h2 id="modal-solicitacao-titulo">Aprovar Solicitação</h2>
+                <div id="modal-solicitacao-info"></div>
+                <div class="form-group" id="modal-motivo-group" style="display:none;">
+                    <label>Motivo da Recusa</label>
+                    <textarea id="modal-motivo" class="form-control" rows="3" placeholder="Informe o motivo da recusa..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button onclick="aprovarSolicitacaoModal()" id="modal-btn-aprovar" class="btn btn-success" style="flex:1;">✅ Aprovar</button>
+                    <button onclick="recusarSolicitacaoModal()" id="modal-btn-recusar" class="btn btn-danger" style="flex:1;">❌ Recusar</button>
+                    <button onclick="fecharModal('modal-solicitacao')" class="btn btn-secondary" style="flex:1;background:#333;color:#fff;">Fechar</button>
+                </div>
+            </div>
+        </div>
+        
         <script>
-            // Funções JavaScript já existentes e funcionais
+            let canais = [];
+            let cargos = [];
+            let membros = [];
+            let configAtual = {{}};
+            let botoesPrecos = {botoes_precos_json};
+            let solicitacaoAtual = null;
+            
+            async function carregarDados() {{
+                try {{
+                    const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes, configComandosRes, filaConfigRes] = await Promise.all([
+                        fetch('/api/servidor/canais'),
+                        fetch('/api/servidor/cargos'),
+                        fetch('/api/servidor/membros'),
+                        fetch('/api/config/boasvindas'),
+                        fetch('/api/config/xp'),
+                        fetch('/api/config/links'),
+                        fetch('/api/anti_spam'),
+                        fetch('/api/config/comandos'),
+                        fetch('/api/fila/configuracoes')
+                    ]);
+                    
+                    const canaisData = await canaisRes.json();
+                    const cargosData = await cargosRes.json();
+                    const membrosData = await membrosRes.json();
+                    const configBV = await configBoasVindas.json();
+                    const configXPdata = await configXP.json();
+                    const linksData = await linksRes.json();
+                    const antiSpamData = await antiSpamRes.json();
+                    const configComandosData = await configComandosRes.json();
+                    const filaConfig = await filaConfigRes.json();
+                    
+                    if (canaisData.sucesso) canais = canaisData.canais;
+                    if (cargosData.sucesso) cargos = cargosData.cargos;
+                    if (membrosData.sucesso) membros = membrosData.membros;
+                    
+                    popularSelects();
+                    
+                    if (configBV.sucesso) {{
+                        document.getElementById('welcome-mensagem').value = configBV.mensagem || '';
+                        document.getElementById('welcome-imagem').value = configBV.imagem || '';
+                        const welcomeCanal = document.getElementById('welcome-canal');
+                        if (welcomeCanal) welcomeCanal.value = configBV.canal || '';
+                    }}
+                    
+                    if (configXPdata.sucesso) {{
+                        document.getElementById('xp-taxa').value = configXPdata.taxa || 3;
+                        const xpCanal = document.getElementById('xp-canal');
+                        if (xpCanal) xpCanal.value = configXPdata.canal || '';
+                    }}
+                    
+                    if (configComandosData.sucesso) {{
+                        configAtual = configComandosData;
+                        const canalPerfil = document.getElementById('canal-perfil');
+                        const canalRank = document.getElementById('canal-rank');
+                        if (canalPerfil) {{
+                            canalPerfil.value = configComandosData.canal_perfil || '';
+                            atualizarStatusPerfil(configComandosData.canal_perfil);
+                        }}
+                        if (canalRank) {{
+                            canalRank.value = configComandosData.canal_rank || '';
+                            atualizarStatusRank(configComandosData.canal_rank);
+                        }}
+                    }}
+                    
+                    if (linksData.sucesso && linksData.canais) {{
+                        const linksStatus = document.getElementById('links-status');
+                        if (linksStatus) {{
+                            const nomes = linksData.canais.map(c => {{
+                                const canal = canais.find(ca => ca.id == c);
+                                return canal ? '#' + canal.nome : c;
+                            }}).join(', ');
+                            linksStatus.innerHTML = nomes ? 'Canais bloqueados: ' + nomes : 'Nenhum canal bloqueado';
+                        }}
+                    }}
+                    
+                    if (antiSpamData.sucesso && antiSpamData.config) {{
+                        document.getElementById('as-ativado').checked = antiSpamData.config.ativado;
+                        document.getElementById('as-remover-xp').checked = antiSpamData.config.remover_xp;
+                        document.getElementById('as-deletar').checked = antiSpamData.config.deletar_mensagens;
+                        document.getElementById('as-limite').value = antiSpamData.config.limite_mensagens;
+                        document.getElementById('as-intervalo').value = antiSpamData.config.intervalo_segundos;
+                        document.getElementById('as-mute').value = antiSpamData.config.tempo_mute_minutos;
+                        document.getElementById('as-xp-penalidade').value = antiSpamData.config.xp_penalidade;
+                        document.getElementById('as-cargos').value = antiSpamData.config.cargos_ignorados;
+                        document.getElementById('as-comandos').value = antiSpamData.config.comandos_ignorados;
+                    }}
+                    
+                    if (filaConfig.sucesso && filaConfig.links) {{
+                        document.getElementById('link-discord').value = filaConfig.links.discord_convite || '';
+                        if (filaConfig.links.botoes_precos) {{
+                            botoesPrecos = filaConfig.links.botoes_precos;
+                        }}
+                    }}
+                    
+                    carregarCargosNivel();
+                    carregarFila();
+                    carregarBotoesPrecos();
+                    carregarServicos();
+                    carregarClientes();
+                    carregarRecompensas();
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function carregarBotoesPrecos() {{
+                const container = document.getElementById('botoes-precos-lista');
+                if (!container) return;
+                
+                if (botoesPrecos.length === 0) {{
+                    container.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">Nenhum botão de preço configurado.</div>';
+                    return;
+                }}
+                
+                let html = '';
+                botoesPrecos.forEach((botao, index) => {{
+                    html += `
+                        <div class="botao-item">
+                            <div class="botao-info">
+                                <div class="botao-nome">💰 ${{escapeHtml(botao.nome)}}</div>
+                                <div class="botao-url">${{escapeHtml(botao.url)}}</div>
+                            </div>
+                            <div class="botao-acoes">
+                                <button onclick="editarBotaoPreco(${{index}})" class="btn btn-primary btn-sm">✏️</button>
+                                <button onclick="removerBotaoPreco(${{index}})" class="btn btn-danger btn-sm">🗑️</button>
+                            </div>
+                        </div>
+                    `;
+                }});
+                container.innerHTML = html;
+            }}
+            
+            async function adicionarBotaoPreco() {{
+                const nome = document.getElementById('novo-botao-nome').value.trim();
+                const url = document.getElementById('novo-botao-url').value.trim();
+                
+                if (!nome || !url) {{
+                    showAlert('fila-status', 'Preencha nome e URL', false);
+                    return;
+                }}
+                
+                try {{
+                    const resp = await fetch('/api/fila/botoes/adicionar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{nome, url}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        document.getElementById('novo-botao-nome').value = '';
+                        document.getElementById('novo-botao-url').value = '';
+                        await carregarBotoesNovamente();
+                        showAlert('fila-status', result.mensagem, true);
+                    }} else {{
+                        showAlert('fila-status', result.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('fila-status', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function carregarBotoesNovamente() {{
+                try {{
+                    const resp = await fetch('/api/fila/botoes');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        botoesPrecos = data.botoes;
+                        carregarBotoesPrecos();
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function removerBotaoPreco(index) {{
+                if (!confirm('Remover este botão?')) return;
+                try {{
+                    const resp = await fetch('/api/fila/botoes/remover', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{index}})
+                    }});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        await carregarBotoesNovamente();
+                        showAlert('fila-status', result.mensagem, true);
+                    }} else {{
+                        showAlert('fila-status', result.mensagem, false);
+                    }}
+                }} catch(e) {{
+                    showAlert('fila-status', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            function editarBotaoPreco(index) {{
+                const botao = botoesPrecos[index];
+                const novoNome = prompt('Digite o novo nome:', botao.nome);
+                if (!novoNome) return;
+                const novaUrl = prompt('Digite a nova URL:', botao.url);
+                if (!novaUrl) return;
+                
+                fetch('/api/fila/botoes/atualizar', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{index, nome: novoNome, url: novaUrl}})
+                }}).then(async (resp) => {{
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        await carregarBotoesNovamente();
+                        showAlert('fila-status', result.mensagem, true);
+                    }} else {{
+                        showAlert('fila-status', result.mensagem, false);
+                    }}
+                }});
+            }}
+            
+            function atualizarStatusPerfil(canalId) {{
+                const div = document.getElementById('perfil-status');
+                if (!canalId) {{
+                    div.innerHTML = '<span class="config-badge" style="background:#00b894;">🔓 Funciona em TODOS</span>';
+                }} else {{
+                    const canal = canais.find(c => c.id == canalId);
+                    div.innerHTML = `<span class="config-badge">📢 /perfil em #${{canal ? canal.nome : canalId}}</span>`;
+                }}
+            }}
+            
+            function atualizarStatusRank(canalId) {{
+                const div = document.getElementById('rank-status');
+                if (!canalId) {{
+                    div.innerHTML = '<span class="config-badge" style="background:#00b894;">🔓 Funciona em TODOS</span>';
+                }} else {{
+                    const canal = canais.find(c => c.id == canalId);
+                    div.innerHTML = `<span class="config-badge">📢 /rank em #${{canal ? canal.nome : canalId}}</span>`;
+                }}
+            }}
+            
+            function popularSelects() {{
+                const selects = ['welcome-canal', 'xp-canal', 'rr-canal', 'btn-canal', 'embed-canal', 'links-canal', 'canal-perfil', 'canal-rank'];
+                selects.forEach(id => {{
+                    const select = document.getElementById(id);
+                    if (select) {{
+                        select.innerHTML = '<option value="">🔓 Todos os canais</option>';
+                        canais.forEach(c => {{
+                            const option = document.createElement('option');
+                            option.value = c.id;
+                            option.textContent = '#' + c.nome;
+                            select.appendChild(option);
+                        }});
+                    }}
+                }});
+                
+                const cargoSelect = document.getElementById('novo-cargo');
+                if (cargoSelect) {{
+                    cargoSelect.innerHTML = '<option value="">Selecione</option>';
+                    cargos.forEach(c => {{
+                        const option = document.createElement('option');
+                        option.value = c.id;
+                        option.textContent = c.nome;
+                        cargoSelect.appendChild(option);
+                    }});
+                }}
+                
+                const membroSelects = ['warn-membro', 'ver-warns'];
+                membroSelects.forEach(id => {{
+                    const select = document.getElementById(id);
+                    if (select) {{
+                        select.innerHTML = '<option value="">Selecione</option>';
+                        membros.forEach(m => {{
+                            const option = document.createElement('option');
+                            option.value = m.id;
+                            option.textContent = m.nome;
+                            select.appendChild(option);
+                        }});
+                    }}
+                }});
+            }}
+            
             function showTab(tabId) {{
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
                 document.getElementById(tabId).classList.add('active');
-                event.target.classList.add('active');
+                if (event && event.target) event.target.classList.add('active');
                 if (tabId === 'fila') carregarFila();
                 if (tabId === 'moderacao') carregarAdvertencias();
                 if (tabId === 'servicos') carregarServicos();
                 if (tabId === 'clientes') carregarClientes();
-                if (tabId === 'solicitacoes') carregarSolicitacoes();
+                if (tabId === 'solicitacoes') carregarSolicitacoesAdmin('');
                 if (tabId === 'fidelidade') carregarRecompensas();
             }}
-            // ... resto do JavaScript (mantido igual)
+            
+            async function salvarAntiSpam() {{
+                const data = {{
+                    ativado: document.getElementById('as-ativado').checked,
+                    remover_xp: document.getElementById('as-remover-xp').checked,
+                    deletar_mensagens: document.getElementById('as-deletar').checked,
+                    limite_mensagens: parseInt(document.getElementById('as-limite').value),
+                    intervalo_segundos: parseInt(document.getElementById('as-intervalo').value),
+                    tempo_mute_minutos: parseInt(document.getElementById('as-mute').value),
+                    xp_penalidade: parseInt(document.getElementById('as-xp-penalidade').value),
+                    cargos_ignorados: document.getElementById('as-cargos').value,
+                    comandos_ignorados: document.getElementById('as-comandos').value
+                }};
+                try {{
+                    const resp = await fetch('/api/anti_spam', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('as-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('as-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarBoasVindas() {{
+                const data = {{
+                    canal_id: document.getElementById('welcome-canal').value,
+                    mensagem: document.getElementById('welcome-mensagem').value,
+                    imagem_url: document.getElementById('welcome-imagem').value
+                }};
+                try {{
+                    const resp = await fetch('/api/config/boasvindas', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('welcome-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('welcome-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarXP() {{
+                const data = {{ taxa: parseInt(document.getElementById('xp-taxa').value), canal_id: document.getElementById('xp-canal').value }};
+                try {{
+                    const resp = await fetch('/api/config/xp', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('xp-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function salvarConfigComandos() {{
+                const canalPerfil = document.getElementById('canal-perfil').value;
+                const canalRank = document.getElementById('canal-rank').value;
+                
+                let perfilFinal = canalPerfil;
+                let rankFinal = canalRank;
+                
+                if (canalPerfil && configAtual.canal_perfil === canalPerfil) {{
+                    perfilFinal = '';
+                }}
+                if (canalRank && configAtual.canal_rank === canalRank) {{
+                    rankFinal = '';
+                }}
+                
+                const data = {{
+                    canal_perfil: perfilFinal,
+                    canal_rank: rankFinal
+                }};
+                try {{
+                    const resp = await fetch('/api/config/comandos', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('comandos-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        if (perfilFinal !== canalPerfil) {{
+                            document.getElementById('canal-perfil').value = '';
+                            atualizarStatusPerfil('');
+                            configAtual.canal_perfil = '';
+                        }} else {{
+                            atualizarStatusPerfil(perfilFinal);
+                            configAtual.canal_perfil = perfilFinal;
+                        }}
+                        if (rankFinal !== canalRank) {{
+                            document.getElementById('canal-rank').value = '';
+                            atualizarStatusRank('');
+                            configAtual.canal_rank = '';
+                        }} else {{
+                            atualizarStatusRank(rankFinal);
+                            configAtual.canal_rank = rankFinal;
+                        }}
+                    }}
+                }} catch(e) {{ showAlert('comandos-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function carregarCargosNivel() {{
+                try {{
+                    const resp = await fetch('/api/cargos/nivel');
+                    const data = await resp.json();
+                    const container = document.getElementById('cargos-nivel-lista');
+                    if (data.sucesso && Object.keys(data.cargos).length > 0) {{
+                        let html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
+                        for (const [nivel, cargoId] of Object.entries(data.cargos)) {{
+                            const cargo = cargos.find(c => c.id == cargoId);
+                            html += `<div style="background: #333; padding: 0.5rem 1rem; border-radius: 5px;">Nível ${{nivel}}: ${{cargo ? cargo.nome : 'Cargo não encontrado'}} <button onclick="removerCargoNivel(${{nivel}})" style="background:#dc3545;color:white;border:none;border-radius:3px;padding:0.25rem 0.5rem;cursor:pointer;">×</button></div>`;
+                        }}
+                        html += '</div>';
+                        container.innerHTML = html;
+                    }} else {{
+                        container.innerHTML = '<p>Nenhum cargo por nível configurado.</p>';
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function adicionarCargoNivel() {{
+                const nivel = document.getElementById('novo-nivel').value;
+                const cargoId = document.getElementById('novo-cargo').value;
+                if (!nivel || !cargoId) {{
+                    showAlert('xp-alert', 'Preencha nível e cargo', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/cargos/nivel', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{nivel, cargo_id: cargoId}})}});
+                    const result = await resp.json();
+                    showAlert('xp-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('novo-nivel').value = '';
+                        carregarCargosNivel();
+                    }}
+                }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function removerCargoNivel(nivel) {{
+                if (!confirm('Remover cargo do nível ' + nivel + '?')) return;
+                try {{
+                    const resp = await fetch(`/api/cargos/nivel?nivel=${{nivel}}`, {{method: 'DELETE'}});
+                    const result = await resp.json();
+                    showAlert('xp-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) carregarCargosNivel();
+                }} catch(e) {{ showAlert('xp-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function criarReacaoCargo() {{
+                const data = {{
+                    canal_id: document.getElementById('rr-canal').value,
+                    conteudo: document.getElementById('rr-conteudo').value,
+                    emoji_cargo: document.getElementById('rr-pares').value
+                }};
+                if (!data.canal_id || !data.conteudo || !data.emoji_cargo) {{
+                    showAlert('rr-alert', 'Preencha todos os campos', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/reacao_cargo/criar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('rr-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('rr-conteudo').value = '';
+                        document.getElementById('rr-pares').value = '';
+                    }}
+                }} catch(e) {{ showAlert('rr-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function criarBotoesCargo() {{
+                const data = {{
+                    canal_id: document.getElementById('btn-canal').value,
+                    conteudo: document.getElementById('btn-conteudo').value,
+                    cargos: document.getElementById('btn-pares').value
+                }};
+                if (!data.canal_id || !data.conteudo || !data.cargos) {{
+                    showAlert('btn-alert', 'Preencha todos os campos', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/botoes_cargo/criar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('btn-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('btn-conteudo').value = '';
+                        document.getElementById('btn-pares').value = '';
+                    }}
+                }} catch(e) {{ showAlert('btn-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function aplicarAdvertencia() {{
+                const membroId = document.getElementById('warn-membro').value;
+                const motivo = document.getElementById('warn-motivo').value;
+                if (!membroId || !motivo) {{
+                    alert('Selecione um membro e digite um motivo');
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/comando/advertir', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{membro_id: membroId, motivo}})}});
+                    const result = await resp.json();
+                    alert(result.mensagem);
+                    if (result.sucesso) document.getElementById('warn-motivo').value = '';
+                }} catch(e) {{ alert('Erro: ' + e.message); }}
+            }}
+            
+            async function limparAdvertencias() {{
+                const membroId = document.getElementById('warn-membro').value;
+                if (!membroId) {{ alert('Selecione um membro'); return; }}
+                if (!confirm('Tem certeza?')) return;
+                try {{
+                    const resp = await fetch('/api/comando/limpar_advertencias', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{membro_id: membroId}})}});
+                    const result = await resp.json();
+                    alert(result.mensagem);
+                }} catch(e) {{ alert('Erro: ' + e.message); }}
+            }}
+            
+            async function carregarAdvertencias() {{
+                const membroId = document.getElementById('ver-warns').value;
+                if (!membroId) {{
+                    document.getElementById('lista-warns').innerHTML = '<p>Selecione um membro</p>';
+                    return;
+                }}
+                try {{
+                    const resp = await fetch(`/api/membro/advertencias?membro_id=${{membroId}}`);
+                    const data = await resp.json();
+                    if (data.sucesso && data.advertencias.length > 0) {{
+                        let html = '<h4>Advertências:</h4><ul>';
+                        data.advertencias.forEach(w => {{
+                            html += `<li><strong>${{w.motivo}}</strong> - ${{w.ts}} (por ${{w.admin || w.por}})</li>`;
+                        }});
+                        html += '</ul>';
+                        document.getElementById('lista-warns').innerHTML = html;
+                    }} else {{
+                        document.getElementById('lista-warns').innerHTML = '<p>Nenhuma advertência encontrada.</p>';
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function alternarBloqueioLinks() {{
+                const canalId = document.getElementById('links-canal').value;
+                if (!canalId) {{ 
+                    showAlert('links-alert', 'Selecione um canal', false);
+                    return; 
+                }}
+                try {{
+                    const resp = await fetch('/api/config/links', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{canal_id: canalId}})}});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        const linksRes = await fetch('/api/config/links');
+                        const linksData = await linksRes.json();
+                        const nomes = linksData.canais.map(c => {{
+                            const canal = canais.find(ca => ca.id == c);
+                            return canal ? '#' + canal.nome : c;
+                        }}).join(', ');
+                        document.getElementById('links-status').innerHTML = nomes ? 'Canais bloqueados: ' + nomes : 'Nenhum canal bloqueado';
+                        showAlert('links-alert', result.mensagem, true);
+                    }} else {{
+                        showAlert('links-alert', 'Erro ao alternar bloqueio', false);
+                    }}
+                }} catch(e) {{ 
+                    showAlert('links-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function criarEmbed() {{
+                const data = {{
+                    canal_id: document.getElementById('embed-canal').value,
+                    titulo: document.getElementById('embed-titulo').value,
+                    corpo: document.getElementById('embed-corpo').value,
+                    cor: document.getElementById('embed-cor').value,
+                    url_imagem: document.getElementById('embed-imagem').value,
+                    mencao: document.getElementById('embed-mencao').value
+                }};
+                if (!data.canal_id || !data.titulo || !data.corpo) {{
+                    alert('Preencha canal, título e corpo');
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/comando/embed', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('embed-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('embed-titulo').value = '';
+                        document.getElementById('embed-corpo').value = '';
+                        document.getElementById('embed-imagem').value = '';
+                    }}
+                }} catch(e) {{ showAlert('embed-alert', 'Erro: ' + e.message, false); }}
+            }}
+            
+            // Funções da Fila
+            async function carregarFila() {{
+                try {{
+                    const resp = await fetch('/fila/api');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const fila = data.fila;
+                        const tbody = document.getElementById('fila-tabela');
+                        if (fila.entradas.length === 0) {{
+                            tbody.innerHTML = '<tr><td colspan="6">📭 Ninguém na fila</td></tr>';
+                        }} else {{
+                            tbody.innerHTML = fila.entradas.map(e => `
+                                <tr>
+                                    <td><strong style="color:#ffd93d;">#${{e.posicao}}</strong></td>
+                                    <td>${{escapeHtml(e.nome_usuario)}}</td>
+                                    <td style="color:#a8e6cf;">${{escapeHtml(e.servico)}}</td>
+                                    <td style="color:#ffb347;">${{escapeHtml(e.jogo || '')}}</td>
+                                    <td>${{new Date(e.timestamp).toLocaleTimeString()}}</td>
+                                    <td>
+                                        <button onclick="moverCima('${{e.id}}')" class="btn btn-primary btn-sm">⬆️</button>
+                                        <button onclick="moverBaixo('${{e.id}}')" class="btn btn-primary btn-sm">⬇️</button>
+                                        <button onclick="concluir('${{e.id}}')" class="btn btn-success btn-sm">✅</button>
+                                        <button onclick="remover('${{e.id}}')" class="btn btn-danger btn-sm">❌</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }}
+                        const filaStatus = document.getElementById('fila-status');
+                        if (filaStatus) {{
+                            filaStatus.innerHTML = `Status: ${{fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'}} | ${{fila.contagem}}/${{fila.tamanho_maximo}}`;
+                        }}
+                        const toggleBtn = document.getElementById('toggle-fila-btn');
+                        if (toggleBtn) {{
+                            toggleBtn.className = fila.aberta ? 'btn btn-danger' : 'btn btn-success';
+                            toggleBtn.textContent = fila.aberta ? '🔓 Fechar' : '🔒 Abrir';
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function adicionarFila() {{
+                const nome = document.getElementById('add-nome').value.trim();
+                const servico = document.getElementById('add-servico').value.trim();
+                const jogo = document.getElementById('add-jogo').value.trim();
+                if (!nome || !servico) {{
+                    showAlert('add-result', 'Preencha nome e serviço', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/fila/adicionar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{nome_usuario: nome, servico, jogo}})}});
+                    const data = await resp.json();
+                    showAlert('add-result', data.mensagem, data.sucesso);
+                    if (data.sucesso) {{
+                        document.getElementById('add-nome').value = '';
+                        document.getElementById('add-servico').value = '';
+                        document.getElementById('add-jogo').value = '';
+                        carregarFila();
+                    }}
+                }} catch(e) {{ showAlert('add-result', 'Erro: ' + e.message, false); }}
+            }}
+            
+            async function remover(id) {{ if (confirm('Remover?')) {{ await fetch('/api/fila/remover', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }} }}
+            async function moverCima(id) {{ await fetch('/api/fila/mover-cima', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }}
+            async function moverBaixo(id) {{ await fetch('/api/fila/mover-baixo', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}}); carregarFila(); }}
+            async function concluir(id) {{
+                if (!confirm('Concluir serviço?')) return;
+                try {{
+                    const resp = await fetch('/api/fila/concluir', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{entrada_id:id}})}});
+                    const result = await resp.json();
+                    if (result.sucesso) {{
+                        carregarFila();
+                        showAlert('fila-status', '✅ Serviço concluído!', true);
+                    }} else {{
+                        showAlert('fila-status', '❌ Erro ao concluir', false);
+                    }}
+                }} catch(e) {{
+                    showAlert('fila-status', '❌ Erro: ' + e.message, false);
+                }}
+            }}
+            async function limparFila() {{ if (confirm('LIMPAR TODA A FILA?')) {{ await fetch('/api/fila/limpar', {{method:'POST'}}); carregarFila(); }} }}
+            async function salvarConfigFila() {{ 
+                const data = {{
+                    nome: document.getElementById('fila-nome').value,
+                    tamanho_maximo: parseInt(document.getElementById('fila-max').value),
+                    discord_convite: document.getElementById('link-discord').value
+                }};
+                await fetch('/api/fila/configuracoes', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(data)}});
+                carregarFila();
+                showAlert('fila-status', 'Configurações salvas!', true);
+            }}
+            async function alternarStatusFila() {{ await fetch('/api/fila/configuracoes', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{aberta:null}})}}); carregarFila(); }}
+            function atualizarFila() {{ carregarFila(); }}
+            
+            // FUNÇÕES DE SERVIÇOS
+            async function carregarServicos() {{
+                try {{
+                    const resp = await fetch('/api/admin/servicos');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const container = document.getElementById('servicos-lista');
+                        const servicos = Object.entries(data.servicos);
+                        if (servicos.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhum serviço cadastrado.</p>';
+                        }} else {{
+                            container.innerHTML = servicos.map(([id, s]) => `
+                                <div style="background:#1a1a1a;padding:15px;border-radius:10px;margin-bottom:10px;border-left:4px solid ${{s.status === 'ativo' ? '#10b981' : '#ef4444'}};">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                                        <div>
+                                            <strong>${{escapeHtml(s.nome)}}</strong>
+                                            <span style="color:#888;font-size:0.8rem;">${{escapeHtml(s.categoria)}}</span>
+                                            <span class="badge badge-${{s.status === 'ativo' ? 'approved' : 'refused'}}">${{s.status}}</span>
+                                        </div>
+                                        <div>
+                                            <span style="color:#4ade80;">R$ ${{s.valor_reais.toFixed(2)}}</span>
+                                            <span style="color:#f59e0b;margin-left:10px;">+${{s.pontos_gerados}} pts</span>
+                                        </div>
+                                        <div>
+                                            <button onclick="editarServico('${{id}}')" class="btn btn-primary btn-sm">✏️</button>
+                                            <button onclick="excluirServico('${{id}}')" class="btn btn-danger btn-sm">🗑️</button>
+                                        </div>
+                                    </div>
+                                    <div style="color:#ccc;font-size:0.9rem;margin-top:5px;">${{escapeHtml(s.descricao)}}</div>
+                                </div>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function editarServico(id) {{
+                const servicos = dados.servicos || {{}};
+                const s = servicos[id];
+                if (!s) return;
+                document.getElementById('servico-nome').value = s.nome;
+                document.getElementById('servico-categoria').value = s.categoria;
+                document.getElementById('servico-descricao').value = s.descricao;
+                document.getElementById('servico-imagem').value = s.imagem_url || '';
+                document.getElementById('servico-valor').value = s.valor_reais;
+                document.getElementById('servico-pontos').value = s.pontos_gerados;
+                document.getElementById('servico-status').value = s.status;
+                window.servicoEditando = id;
+                document.querySelector('button[onclick="criarServico()"]').textContent = '💾 Atualizar Serviço';
+            }}
+            
+            async function criarServico() {{
+                const data = {{
+                    nome: document.getElementById('servico-nome').value.trim(),
+                    categoria: document.getElementById('servico-categoria').value.trim(),
+                    descricao: document.getElementById('servico-descricao').value.trim(),
+                    imagem_url: document.getElementById('servico-imagem').value.trim(),
+                    valor_reais: parseFloat(document.getElementById('servico-valor').value),
+                    pontos_gerados: parseInt(document.getElementById('servico-pontos').value),
+                    status: document.getElementById('servico-status').value
+                }};
+                
+                if (!data.nome || !data.categoria) {{
+                    showAlert('servico-alert', 'Nome e categoria são obrigatórios', false);
+                    return;
+                }}
+                
+                try {{
+                    let url = '/api/admin/servicos';
+                    let method = 'POST';
+                    if (window.servicoEditando) {{
+                        url = '/api/admin/servicos';
+                        method = 'PUT';
+                        data.servico_id = window.servicoEditando;
+                    }}
+                    
+                    const resp = await fetch(url, {{method: method, headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('servico-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('servico-nome').value = '';
+                        document.getElementById('servico-categoria').value = '';
+                        document.getElementById('servico-descricao').value = '';
+                        document.getElementById('servico-imagem').value = '';
+                        document.getElementById('servico-valor').value = '';
+                        document.getElementById('servico-pontos').value = '';
+                        window.servicoEditando = null;
+                        document.querySelector('button[onclick="criarServico()"]').textContent = '➕ Criar Serviço';
+                        carregarServicos();
+                    }}
+                }} catch(e) {{
+                    showAlert('servico-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function excluirServico(id) {{
+                if (!confirm('Excluir este serviço?')) return;
+                try {{
+                    const resp = await fetch(`/api/admin/servicos?servico_id=${{id}}`, {{method: 'DELETE'}});
+                    const result = await resp.json();
+                    showAlert('servico-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) carregarServicos();
+                }} catch(e) {{
+                    showAlert('servico-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            // FUNÇÕES DE CLIENTES
+            async function carregarClientes() {{
+                try {{
+                    const resp = await fetch('/api/admin/clientes');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const container = document.getElementById('clientes-lista');
+                        if (data.clientes.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhum cliente cadastrado.</p>';
+                        }} else {{
+                            container.innerHTML = `
+                                <div class="table-container">
+                                    <table>
+                                        <thead>
+                                            <tr><th>Discord</th><th>Nick</th><th>UID</th><th>Pontos</th><th>Acumulado</th><th>Última Compra</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            ${{data.clientes.map(c => `
+                                                <tr>
+                                                    <td>${{escapeHtml(c.discord_id)}}</td>
+                                                    <td>${{escapeHtml(c.game_nick)}}</td>
+                                                    <td>${{escapeHtml(c.uid)}}</td>
+                                                    <td style="color:#f59e0b;">${{c.pontos_atuais}}</td>
+                                                    <td style="color:#4ade80;">${{c.pontos_acumulados}}</td>
+                                                    <td>${{c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString() : 'N/A'}}</td>
+                                                </tr>
+                                            `).join('')}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `;
+                        }}
+                        
+                        // Popular select de edição
+                        const select = document.getElementById('editar-cliente-select');
+                        select.innerHTML = data.clientes.map(c => `<option value="${{c.discord_id}}">${{escapeHtml(c.game_nick)}} (${{c.uid}})</option>`).join('');
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function carregarClienteEdicao() {{
+                const discordId = document.getElementById('editar-cliente-select').value;
+                if (!discordId) return;
+                fetch('/api/admin/clientes')
+                    .then(r => r.json())
+                    .then(data => {{
+                        if (data.sucesso) {{
+                            const cliente = data.clientes.find(c => c.discord_id == discordId);
+                            if (cliente) {{
+                                document.getElementById('editar-uid').value = cliente.uid || '';
+                                document.getElementById('editar-nick').value = cliente.game_nick || '';
+                                document.getElementById('editar-pontos').value = cliente.pontos_atuais || 0;
+                                document.getElementById('editar-acumulados').value = cliente.pontos_acumulados || 0;
+                            }}
+                        }}
+                    }});
+            }}
+            
+            async function salvarEdicaoCliente() {{
+                const discordId = document.getElementById('editar-cliente-select').value;
+                if (!discordId) {{
+                    showAlert('editar-cliente-alert', 'Selecione um cliente', false);
+                    return;
+                }}
+                
+                const data = {{
+                    discord_id: discordId,
+                    uid: document.getElementById('editar-uid').value.trim(),
+                    game_nick: document.getElementById('editar-nick').value.trim(),
+                    pontos_atuais: parseInt(document.getElementById('editar-pontos').value) || 0,
+                    pontos_acumulados: parseInt(document.getElementById('editar-acumulados').value) || 0
+                }};
+                
+                try {{
+                    const resp = await fetch('/api/admin/cliente/editar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('editar-cliente-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) carregarClientes();
+                }} catch(e) {{
+                    showAlert('editar-cliente-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            // FUNÇÕES DE SOLICITAÇÕES
+            async function carregarSolicitacoesAdmin(status) {{
+                try {{
+                    const url = status ? `/api/admin/solicitacoes?status=${{encodeURIComponent(status)}}` : '/api/admin/solicitacoes';
+                    const resp = await fetch(url);
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const container = document.getElementById('solicitacoes-admin-lista');
+                        if (data.solicitacoes.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhuma solicitação encontrada.</p>';
+                        }} else {{
+                            container.innerHTML = `
+                                <div class="table-container">
+                                    <table>
+                                        <thead>
+                                            <tr><th>Cliente</th><th>Serviço</th><th>Jogo</th><th>Status</th><th>Data</th><th>Ações</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            ${{data.solicitacoes.map(s => `
+                                                <tr>
+                                                    <td>${{escapeHtml(s.cliente_nome)}}</td>
+                                                    <td>${{escapeHtml(s.servico_nome)}}</td>
+                                                    <td>${{escapeHtml(s.jogo || 'N/A')}}</td>
+                                                    <td><span class="badge badge-${{s.status === 'Aguardando Aprovação' ? 'pending' : s.status === 'Em Andamento' ? 'approved' : s.status === 'Concluído' ? 'completed' : 'refused'}}">${{s.status}}</span></td>
+                                                    <td>${{new Date(s.data_solicitacao).toLocaleDateString()}}</td>
+                                                    <td>
+                                                        ${{s.status === 'Aguardando Aprovação' ? `
+                                                            <button onclick="abrirModalSolicitacao('${{s.id}}', 'aprovar')" class="btn btn-success btn-sm">✅</button>
+                                                            <button onclick="abrirModalSolicitacao('${{s.id}}', 'recusar')" class="btn btn-danger btn-sm">❌</button>
+                                                        ` : s.status === 'Em Andamento' ? `
+                                                            <button onclick="concluirSolicitacaoAdmin('${{s.id}}')" class="btn btn-success btn-sm">✔️ Concluir</button>
+                                                        ` : ''}
+                                                    </td>
+                                                </tr>
+                                            `).join('')}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `;
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            function abrirModalSolicitacao(id, tipo) {{
+                solicitacaoAtual = id;
+                document.getElementById('modal-solicitacao').style.display = 'flex';
+                document.getElementById('modal-solicitacao-titulo').textContent = tipo === 'aprovar' ? '✅ Aprovar Solicitação' : '❌ Recusar Solicitação';
+                document.getElementById('modal-motivo-group').style.display = tipo === 'recusar' ? 'block' : 'none';
+                document.getElementById('modal-btn-aprovar').style.display = tipo === 'aprovar' ? 'block' : 'none';
+                document.getElementById('modal-btn-recusar').style.display = tipo === 'recusar' ? 'block' : 'none';
+                
+                // Carregar informações da solicitação
+                fetch('/api/admin/solicitacoes')
+                    .then(r => r.json())
+                    .then(data => {{
+                        if (data.sucesso) {{
+                            const s = data.solicitacoes.find(x => x.id == id);
+                            if (s) {{
+                                document.getElementById('modal-solicitacao-info').innerHTML = `
+                                    <p><strong>Cliente:</strong> ${{escapeHtml(s.cliente_nome)}}</p>
+                                    <p><strong>Serviço:</strong> ${{escapeHtml(s.servico_nome)}}</p>
+                                    <p><strong>Jogo:</strong> ${{escapeHtml(s.jogo || 'N/A')}}</p>
+                                    <p><strong>Observações:</strong> ${{escapeHtml(s.observacoes || 'N/A')}}</p>
+                                    ${{s.cupom_aplicado ? `<p><strong>Cupom:</strong> ${{escapeHtml(s.cupom_aplicado)}}</p>` : ''}}
+                                `;
+                            }}
+                        }}
+                    }});
+            }}
+            
+            function fecharModal(id) {{
+                document.getElementById(id).style.display = 'none';
+                solicitacaoAtual = null;
+            }}
+            
+            async function aprovarSolicitacaoModal() {{
+                if (!solicitacaoAtual) return;
+                try {{
+                    const resp = await fetch('/api/admin/solicitacao/aprovar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{solicitacao_id: solicitacaoAtual}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('solicitacoes-admin-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        fecharModal('modal-solicitacao');
+                        carregarSolicitacoesAdmin('');
+                        carregarFila();
+                    }}
+                }} catch(e) {{
+                    showAlert('solicitacoes-admin-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function recusarSolicitacaoModal() {{
+                if (!solicitacaoAtual) return;
+                const motivo = document.getElementById('modal-motivo').value.trim();
+                if (!motivo) {{
+                    alert('Informe o motivo da recusa');
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/admin/solicitacao/recusar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{solicitacao_id: solicitacaoAtual, motivo}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('solicitacoes-admin-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        fecharModal('modal-solicitacao');
+                        carregarSolicitacoesAdmin('');
+                    }}
+                }} catch(e) {{
+                    showAlert('solicitacoes-admin-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function concluirSolicitacaoAdmin(solicitacaoId) {{
+                if (!confirm('Concluir este serviço?')) return;
+                try {{
+                    const resp = await fetch('/api/fila/concluir', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{entrada_id: null, solicitacao_id: solicitacaoId}})
+                    }});
+                    const result = await resp.json();
+                    showAlert('solicitacoes-admin-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        carregarSolicitacoesAdmin('');
+                        carregarFila();
+                    }}
+                }} catch(e) {{
+                    showAlert('solicitacoes-admin-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            // FUNÇÕES DE FIDELIDADE
+            async function salvarConfigFidelidade() {{
+                const data = {{
+                    multiplicador_pontos: parseInt(document.getElementById('fid-multiplicador').value) || 1,
+                    validade_pontos_dias: parseInt(document.getElementById('fid-validade-pontos').value) || 90,
+                    validade_cupom_dias: parseInt(document.getElementById('fid-validade-cupom').value) || 30
+                }};
+                try {{
+                    const resp = await fetch('/api/admin/fidelidade/config', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('fid-alert', result.mensagem, result.sucesso);
+                }} catch(e) {{
+                    showAlert('fid-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function carregarRecompensas() {{
+                try {{
+                    const resp = await fetch('/api/admin/fidelidade/recompensas');
+                    const data = await resp.json();
+                    if (data.sucesso) {{
+                        const container = document.getElementById('recompensas-lista');
+                        if (data.recompensas.length === 0) {{
+                            container.innerHTML = '<p style="color:#888;">Nenhuma recompensa cadastrada.</p>';
+                        }} else {{
+                            container.innerHTML = data.recompensas.map((r, index) => `
+                                <div style="background:#1a1a1a;padding:10px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;border-left:4px solid #f59e0b;">
+                                    <div>
+                                        <strong style="color:#f59e0b;">${{r.pontos}} pts</strong>
+                                        <span style="color:#ccc;">${{escapeHtml(r.descricao)}}</span>
+                                        <span style="color:#888;font-size:0.8rem;">(${{escapeHtml(r.tipo)}})</span>
+                                    </div>
+                                    <button onclick="removerRecompensa(${{index}})" class="btn btn-danger btn-sm">🗑️</button>
+                                </div>
+                            `).join('');
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
+            
+            async function criarRecompensa() {{
+                const data = {{
+                    pontos: parseInt(document.getElementById('recompensa-pontos').value) || 0,
+                    descricao: document.getElementById('recompensa-descricao').value.trim(),
+                    tipo: document.getElementById('recompensa-tipo').value.trim()
+                }};
+                if (!data.descricao || !data.tipo) {{
+                    showAlert('recompensa-alert', 'Descrição e tipo são obrigatórios', false);
+                    return;
+                }}
+                try {{
+                    const resp = await fetch('/api/admin/fidelidade/recompensas', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data)}});
+                    const result = await resp.json();
+                    showAlert('recompensa-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) {{
+                        document.getElementById('recompensa-pontos').value = '';
+                        document.getElementById('recompensa-descricao').value = '';
+                        document.getElementById('recompensa-tipo').value = '';
+                        carregarRecompensas();
+                    }}
+                }} catch(e) {{
+                    showAlert('recompensa-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            async function removerRecompensa(index) {{
+                if (!confirm('Remover esta recompensa?')) return;
+                try {{
+                    const resp = await fetch(`/api/admin/fidelidade/recompensas?index=${{index}}`, {{method: 'DELETE'}});
+                    const result = await resp.json();
+                    showAlert('recompensa-alert', result.mensagem, result.sucesso);
+                    if (result.sucesso) carregarRecompensas();
+                }} catch(e) {{
+                    showAlert('recompensa-alert', 'Erro: ' + e.message, false);
+                }}
+            }}
+            
+            // FUNÇÕES UTILITÁRIAS
+            function showAlert(id, msg, sucesso) {{
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.textContent = msg;
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 5000);
+            }}
+            
+            function escapeHtml(texto) {{ if (!texto) return ''; return texto.replace(/[&<>]/g, function(m) {{ if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }}); }}
+            
+            // Fechar modal ao clicar fora
+            window.onclick = function(event) {{
+                if (event.target.classList.contains('modal')) {{
+                    event.target.style.display = 'none';
+                }}
+            }}
+            
+            document.addEventListener('DOMContentLoaded', carregarDados);
         </script>
     </body>
     </html>
     '''
+
+@app.route("/api/membro/advertencias")
+def api_membro_advertencias():
+    membro_id = request.args.get('membro_id')
+    if not membro_id:
+        return jsonify({"sucesso": False, "advertencias": []})
+    warns = dados.get("advertencias", {}).get(str(membro_id), [])
+    return jsonify({"sucesso": True, "advertencias": warns})
 
 # ========================
 # FUNÇÃO PARA VERIFICAR CANAL PERMITIDO
 # ========================
 
 async def verificar_canal_permitido(interaction: discord.Interaction, comando: str) -> bool:
+    """Verifica se o comando pode ser usado no canal atual"""
     config = dados.get("config", {})
     canal_permitido = config.get(f"canal_{comando}", None)
+    
     if not canal_permitido:
         return True
+    
     if str(interaction.channel_id) == str(canal_permitido):
         return True
+    
     return False
 
 # ========================
@@ -2685,6 +4655,7 @@ async def slash_perfil(interaction: discord.Interaction, membro: discord.Member 
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
     font_b = ImageFont.truetype(os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf"),32)
+    
     font_s = ImageFont.truetype(os.path.join(BASE_DIR, "DejaVuSans.ttf"),22)
     
     try:
@@ -2865,6 +4836,8 @@ async def on_ready():
     print(f"🚫 Comandos da Mudae: NÃO ganham XP e NÃO contam como spam")
     print(f"📢 Canal do /perfil: {config.get('canal_perfil') or 'TODOS OS CANAIS'}")
     print(f"📢 Canal do /rank: {config.get('canal_rank') or 'TODOS OS CANAIS'}")
+    print(f"👤 Clientes cadastrados: {len(dados.get('clientes', {}))}")
+    print(f"🎮 Serviços disponíveis: {len(obter_servicos_ativos())}")
     botoes_qtd = len(links.get("botoes_precos", []))
     if links.get('discord_convite') or botoes_qtd > 0:
         print(f"🔗 Links da fila configurados: {botoes_qtd} botão(ões) de preço")
