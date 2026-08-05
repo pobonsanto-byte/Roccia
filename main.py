@@ -4386,7 +4386,7 @@ def dashboard():
                                                         ` : ''}
                                                     </td>
                                                 </tr>
-                                            `.join('')}}
+                                            `).join('')}}
                                         </tbody>
                                     </table>
                                 </div>
