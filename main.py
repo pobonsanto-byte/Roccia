@@ -1260,7 +1260,7 @@ def pagina_fidelidade():
                 <div class="card">
                     <h2>Solicitar Novo Serviço</h2>
                     <label>Nome do Serviço Desejado:</label>
-                    <input type="text" id="ped-servico" placeholder="Ex: Farm de Bóss, Quests, Exploração">
+                    <input type="text" id="ped-servico" placeholder="Ex: Farm de eco, Quests, Exploração">
 
                     <label>Jogo:</label>
                     <input type="text" id="ped-jogo" placeholder="Ex: Wuthering Waves, Mongil">
@@ -1424,7 +1424,7 @@ def pagina_fidelidade():
                 const discord = document.getElementById('ped-discord').value.trim();
                 const cupom = document.getElementById('ped-cupom').value.trim();
 
-                if (!servico || isNaN(valor) || valor <= 0 || !discord) {
+                if (!servico || isNaN(valor) || valor <= -1 || !discord) {
                     alert('Preencha o serviço, jogo (opcional), valor válido e seu Nick.');
                     return;
                 }
