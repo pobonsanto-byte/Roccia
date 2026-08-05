@@ -17,7 +17,6 @@ from discord.ext import commands
 from discord import ui, Interaction, ButtonStyle
 from PIL import Image, ImageDraw, ImageFont
 import uuid
-import secrets
 
 # ========================
 # CONFIGURAÇÃO DO AMBIENTE
@@ -151,13 +150,11 @@ def obter_ou_criar_perfil_fidelidade(uid: str):
     agora = time.time()
     
     # 🕒 REGRA 1: Expiração de Pontos por Inatividade (90 Dias)
-    # 90 dias em segundos = 90 * 24 * 60 * 60 = 7.776.000
     if perfil["pontos"] > 0 and (agora - perfil.get("ultimo_pedido_ts", agora)) > (90 * 86400):
         perfil["pontos"] = 0
         perfil["pontos_expirados"] = True
     
     # 🕒 REGRA 2: Validade dos Cupons Resgatados (30 Dias)
-    # 30 dias em segundos = 30 * 24 * 60 * 60 = 2.592.000
     for cupom in perfil.get("cupons", []):
         if not cupom.get("usado", False) and not cupom.get("expirado", False):
             if (agora - cupom.get("criado_em_ts", agora)) > (30 * 86400):
@@ -1941,7 +1938,7 @@ def api_botoes_cargo_criar():
     return jsonify({"sucesso": sucesso, "mensagem": "✅ Botões criados!" if sucesso else "❌ Falha"})
 
 # ========================
-# DASHBOARD PRINCIPAL
+# DASHBOARD PRINCIPAL (CORRIGIDO)
 # ========================
 
 @app.route("/dashboard")
@@ -2328,10 +2325,10 @@ def dashboard():
                         <div><label>Tamanho Máximo</label><input type="number" id="fila-max" class="form-control" value="{fila['configuracoes']['tamanho_maximo']}" min="1" max="100"></div>
                     </div>
                     
-            <div class="card" style="margin-top: 20px; background: #1e1e1e; padding: 15px; border-radius: 8px;">
-                <h3>⏳ Pedidos de Serviços Pendentes (Fidelidade)</h3>
-                <div id="pedidos-pendentes-container"><p>Carregando pedidos...</p></div>
-            </div>
+                    <div class="card" style="margin-top: 20px; background: #1e1e1e; padding: 15px; border-radius: 8px;">
+                        <h3>⏳ Pedidos de Serviços Pendentes (Fidelidade)</h3>
+                        <div id="pedidos-pendentes-container"><p>Carregando pedidos...</p></div>
+                    </div>
                     
                     <h3 style="margin-top: 20px;">🔗 Links do Discord (convite)</h3>
                     <div class="form-group">
@@ -2385,7 +2382,7 @@ def dashboard():
                                 <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>Entrada</th><th>Ações</th></tr>
                             </thead>
                             <tbody id="fila-tabela"><tr><td colspan="6">Carregando...</td></tr></tbody>
-                          </table>
+                        </table>
                     </div>
                     <div style="margin-top: 10px;"><button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button></div>
                 </div>
@@ -3010,7 +3007,7 @@ def dashboard():
                                         <button onclick="concluir('${{e.id}}')" class="btn btn-success btn-sm">✅</button>
                                         <button onclick="remover('${{e.id}}')" class="btn btn-danger btn-sm">❌</button>
                                     </td>
-                                </table>
+                                </tr>
                             `).join('');
                         }}
                         const filaStatus = document.getElementById('fila-status');
@@ -3076,13 +3073,13 @@ def dashboard():
             
             function escapeHtml(texto) {{ if (!texto) return ''; return texto.replace(/[&<>]/g, function(m) {{ if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }}); }}
 
-            async function carregarPedidosPendentes() {
-                try {
+            async function carregarPedidosPendentes() {{
+                try {{
                     const resp = await fetch('/api/fidelidade/admin/pendentes');
                     const data = await resp.json();
                     const container = document.getElementById('pedidos-pendentes-container');
                     
-                    if (data.sucesso && data.pedidos.length > 0) {
+                    if (data.sucesso && data.pedidos.length > 0) {{
                         let html = '<table style="width:100%; color:white; border-collapse: collapse;">' +
                                    '<tr><th style="padding:8px; border-bottom:1px solid #444;">UID</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Discord</th>' +
@@ -3090,52 +3087,52 @@ def dashboard():
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Valor</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Cupom</th>' +
                                    '<th style="padding:8px; border-bottom:1px solid #444;">Ações</th></tr>';
-                        data.pedidos.forEach(p => {
+                        data.pedidos.forEach(p => {{
                             html += `<tr>
-                                <td style="padding:8px; border-bottom:1px solid #333;">${p.uid}</td>
-                                <td style="padding:8px; border-bottom:1px solid #333;">${escapeHtml(p.discord)}</td>
-                                <td style="padding:8px; border-bottom:1px solid #333;">${escapeHtml(p.servico)}</td>
-                                <td style="padding:8px; border-bottom:1px solid #333; color:#1dd1a1;">R$ ${p.valor.toFixed(2)}</td>
-                                <td style="padding:8px; border-bottom:1px solid #333; color:#feca57;">${p.cupom_usado || 'Nenhum'}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${{p.uid}}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${{escapeHtml(p.discord)}}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333;">${{escapeHtml(p.servico)}}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333; color:#1dd1a1;">R$ ${{p.valor.toFixed(2)}}</td>
+                                <td style="padding:8px; border-bottom:1px solid #333; color:#feca57;">${{p.cupom_usado || 'Nenhum'}}</td>
                                 <td style="padding:8px; border-bottom:1px solid #333;">
-                                    <button onclick="aprovarPedido('${p.id}')" style="background:#2ed573; color:black; border:none; border-radius:3px; padding:5px 10px; cursor:pointer; font-weight:bold;">Aprovar</button>
-                                    <button onclick="recusarPedido('${p.id}')" style="background:#ff4757; color:white; border:none; border-radius:3px; padding:5px 10px; cursor:pointer;">Recusar</button>
+                                    <button onclick="aprovarPedido('${{p.id}}')" style="background:#2ed573; color:black; border:none; border-radius:3px; padding:5px 10px; cursor:pointer; font-weight:bold;">Aprovar</button>
+                                    <button onclick="recusarPedido('${{p.id}}')" style="background:#ff4757; color:white; border:none; border-radius:3px; padding:5px 10px; cursor:pointer;">Recusar</button>
                                 </td>
                             </tr>`;
-                        });
+                        }});
                         html += '</table>';
                         container.innerHTML = html;
-                    } else {
+                    }} else {{
                         container.innerHTML = '<p>Nenhum pedido pendente de aprovação.</p>';
-                    }
-                } catch(e) { console.error(e); }
-            }
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }}
 
-            async function aprovarPedido(id) {
+            async function aprovarPedido(id) {{
                 if(!confirm('Aprovar pedido e enviar para a Fila?')) return;
-                await fetch('/api/fidelidade/admin/aprovar', {
+                await fetch('/api/fidelidade/admin/aprovar', {{
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({pedido_id: id})
-                });
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{pedido_id: id}})
+                }});
                 carregarPedidosPendentes();
                 if (typeof carregarFila === 'function') carregarFila();
-            }
+            }}
 
-            async function recusarPedido(id) {
+            async function recusarPedido(id) {{
                 if(!confirm('Recusar pedido?')) return;
-                await fetch('/api/fidelidade/admin/recusar', {
+                await fetch('/api/fidelidade/admin/recusar', {{
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({pedido_id: id})
-                });
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{pedido_id: id}})
+                }});
                 carregarPedidosPendentes();
-            }
+            }}
             
-            document.addEventListener('DOMContentLoaded', function() {
+            document.addEventListener('DOMContentLoaded', function() {{
                 carregarDados();
                 carregarPedidosPendentes();
-            });
+            }});
         </script>
     </body>
     </html>
