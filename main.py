@@ -1247,18 +1247,18 @@ def pagina_fidelidade():
 
                 <!-- Resgate de Recompensas (dinâmico) -->
                 <div class="card">
-                    <h2>🏆 Trocar Pontos por Vantagens</h2>
+                    <h2>Trocar Pontos por Vantagens</h2>
                     <div id="recompensas-container" class="reward-grid">
                         <!-- Carregado via JS -->
                     </div>
 
-                    <h3>🎟️ Seus Cupons Resgatados Ativos</h3>
+                    <h3>Seus Cupons Resgatados Ativos</h3>
                     <div id="lista-cupons"><p>Nenhum cupom ativo no momento.</p></div>
                 </div>
 
                 <!-- Formulario de Solicitação de Serviço (com Jogo) -->
                 <div class="card">
-                    <h2>📝 Solicitar Novo Serviço</h2>
+                    <h2>Solicitar Novo Serviço</h2>
                     <label>Nome do Serviço Desejado:</label>
                     <input type="text" id="ped-servico" placeholder="Ex: Farm de Bóss, Quests, Exploração">
 
@@ -1279,7 +1279,7 @@ def pagina_fidelidade():
 
                 <!-- Histórico de Serviços Concluídos -->
                 <div class="card">
-                    <h2>📜 Seu Histórico de Pedidos</h2>
+                    <h2>Seu Histórico de Pedidos</h2>
                     <table>
                         <thead>
                             <tr>
@@ -1425,7 +1425,7 @@ def pagina_fidelidade():
                 const cupom = document.getElementById('ped-cupom').value.trim();
 
                 if (!servico || isNaN(valor) || valor <= 0 || !discord) {
-                    alert('Preencha o serviço, jogo (opcional), valor válido e seu Discord.');
+                    alert('Preencha o serviço, jogo (opcional), valor válido e seu Nick.');
                     return;
                 }
 
@@ -2686,7 +2686,7 @@ def dashboard():
             <!-- NOVA ABA: RECOMPENSAS FIDELIDADE -->
             <div id="recompensas" class="tab">
                 <div class="card">
-                    <h2>🎁 Gerenciar Recompensas de Fidelidade</h2>
+                    <h2>🎁 Gerenciar Recompensas de Pontos</h2>
                     <div class="info-box">
                         💡 <strong>Recompensas:</strong> Os clientes podem trocar seus pontos por esses benefícios. 
                         Cada recompensa deve ter um nome, custo em pontos, tipo (serviço ou cupom) e, se for cupom, um valor de desconto.
