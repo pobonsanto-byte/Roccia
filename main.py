@@ -1073,7 +1073,7 @@ def logout():
 # ROTAS PÚBLICAS: PORTAL DO CLIENTE (/fidelidade)
 # ==========================================
 
-@app.route("/Pedido")
+@app.route("/pedido")
 def pagina_fidelidade():
     """Página Pública para os membros consultarem pontos, solicitarem serviços e resgatarem prêmios"""
     return '''
@@ -1106,7 +1106,7 @@ def pagina_fidelidade():
     </head>
     <body>
         <div class="container">
-            <h1>Service & Pontos ZankonYTB</h1>
+            <h1>Services & Pontos ZankonYTB</h1>
             
             <div id="msg-alert" class="alert"></div>
 
@@ -1123,7 +1123,7 @@ def pagina_fidelidade():
             <!-- Painel de Status do Cliente (Oculto até consultar) -->
             <div id="painel-cliente" style="display: none;">
                 <div class="card">
-                    <h2>👑 Seu Saldo de Fidelidade</h2>
+                    <h2>Seu Saldo de Pontos</h2>
                     <p>UID: <strong id="disp-uid" style="color:#00d2d3;">-</strong></p>
                     <div class="points-badge"><span id="disp-pontos">0</span> Pontos</div>
                     <p style="font-size:0.85rem; color:#aaa; margin-top:10px;">* R$ 1,00 gasto em serviços = 1 Ponto acumulado.</p>
