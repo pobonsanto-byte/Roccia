@@ -1168,6 +1168,7 @@ def pagina_fidelidade():
     # Verifica se o cliente está logado
     cliente = session.get('cliente')
     uid_logado = cliente.get('uid') if cliente else None
+    is_logado = bool(cliente)
 
     return render_template_string("""
     <!DOCTYPE html>
@@ -1215,7 +1216,7 @@ def pagina_fidelidade():
 
             <div id="msg-alert" class="alert"></div>
 
-            {% if not session.get('cliente') %}
+            {% if not is_logado %}
             <!-- TELA DE LOGIN / CADASTRO -->
             <div class="card login-box">
                 <h2>🔐 Acesso Cliente</h2>
@@ -1235,7 +1236,7 @@ def pagina_fidelidade():
             <!-- PAINEL DO CLIENTE LOGADO -->
             <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <h2>Bem-vindo, <span id="disp-uid" style="color:#00d2d3;">{{ session['cliente']['uid'] }}</span></h2>
+                    <h2>Bem-vindo, <span id="disp-uid" style="color:#00d2d3;">{{ uid_logado }}</span></h2>
                     <button onclick="logoutCliente()" class="btn-sair" style="width:auto; padding:8px 16px;">🚪 Sair</button>
                 </div>
             </div>
@@ -1298,11 +1299,11 @@ def pagina_fidelidade():
         <script>
             let currentUID = '';
             let recompensas = [];
-            let isLoggedIn = {{ 'true' if session.get('cliente') else 'false' }};
+            let isLoggedIn = {{ 'true' if is_logado else 'false' }};
 
             // Se já estiver logado, carregar os dados
             if (isLoggedIn) {
-                currentUID = '{{ session["cliente"]["uid"] }}';
+                currentUID = '{{ uid_logado }}';
                 consultarPerfil();
             }
 
@@ -1534,7 +1535,7 @@ def pagina_fidelidade():
         </script>
     </body>
     </html>
-    """, pix_html=pix_html, session=session)
+    """, pix_html=pix_html, is_logado=is_logado, uid_logado=uid_logado)
 
 
 # ==========================================
