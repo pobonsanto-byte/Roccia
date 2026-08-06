@@ -82,7 +82,7 @@ dados = {
         "canal_logs": None,
         "canal_perfil": None,
         "canal_rank": None,
-        "pix_link": ""  # NOVO: link para PIX exibido no /pedido
+        "pix_link": ""
     },
     "logs": [],
     "fila": {
@@ -168,8 +168,7 @@ dados = {
     ]
 }
 
-# Dicionário para armazenar mensagens recentes dos usuários
-mensagens_recentes = {}  # {user_id: [timestamps]}
+mensagens_recentes = {}
 
 # ==========================================
 # CONFIGURAÇÃO DO SISTEMA DE FIDELIDADE (dinâmico)
@@ -534,7 +533,7 @@ def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: 
         "servico": servico,
         "jogo": jogo,
         "usuario_id": usuario_id or nome_usuario,
-        "uid": uid or usuario_id or "",  # UID do jogo, se fornecido
+        "uid": uid or usuario_id or "",
         "timestamp": agora_br().isoformat(),
         "status": "aguardando",
         "posicao": len(fila["entradas"]) + 1
@@ -2344,16 +2343,16 @@ def dashboard():
         
         <div class="container">
             <div class="tab-nav">
-                <button class="tab-btn active" onclick="showTab('inicio')">🏠 Início</button>
-                <button class="tab-btn" onclick="showTab('comandos_canais')">📢 Canais</button>
-                <button class="tab-btn" onclick="showTab('antispam')">🛡️ Anti-Spam</button>
-                <button class="tab-btn" onclick="showTab('boasvindas')">👋 Boas-vindas</button>
-                <button class="tab-btn" onclick="showTab('xp')">⭐ XP</button>
-                <button class="tab-btn" onclick="showTab('cargos')">🪪 Cargos</button>
-                <button class="tab-btn" onclick="showTab('moderacao')">🛡️ Moderação</button>
-                <button class="tab-btn" onclick="showTab('fila')">📋 Fila</button>
-                <button class="tab-btn" onclick="showTab('comandos')">⚡ Comandos</button>
-                <button class="tab-btn" onclick="showTab('recompensas')">🎁 Recompensas</button>
+                <button class="tab-btn active" onclick="showTab(event, 'inicio')">🏠 Início</button>
+                <button class="tab-btn" onclick="showTab(event, 'comandos_canais')">📢 Canais</button>
+                <button class="tab-btn" onclick="showTab(event, 'antispam')">🛡️ Anti-Spam</button>
+                <button class="tab-btn" onclick="showTab(event, 'boasvindas')">👋 Boas-vindas</button>
+                <button class="tab-btn" onclick="showTab(event, 'xp')">⭐ XP</button>
+                <button class="tab-btn" onclick="showTab(event, 'cargos')">🪪 Cargos</button>
+                <button class="tab-btn" onclick="showTab(event, 'moderacao')">🛡️ Moderação</button>
+                <button class="tab-btn" onclick="showTab(event, 'fila')">📋 Fila</button>
+                <button class="tab-btn" onclick="showTab(event, 'comandos')">⚡ Comandos</button>
+                <button class="tab-btn" onclick="showTab(event, 'recompensas')">🎁 Recompensas</button>
             </div>
             
             <!-- Aba Início -->
@@ -2951,14 +2950,24 @@ def dashboard():
                     renderizarHistorico(historicoCompleto);
                     return;
                 }}
-                const filtrados = historicoCompleto.filter(e => {
+                const filtrados = historicoCompleto.filter(e => {{
                     const uid = (e.uid || e.usuario_id || '').toString().toLowerCase();
                     return uid.includes(filtro);
-                });
+                }});
                 renderizarHistorico(filtrados);
             }}
 
             // ========== FUNÇÕES EXISTENTES ==========
+            function showTab(event, tabId) {{
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                event.currentTarget.classList.add('active');
+                if (tabId === 'fila') carregarFila();
+                if (tabId === 'moderacao') carregarAdvertencias();
+                if (tabId === 'recompensas') carregarRecompensas();
+            }}
+
             async function carregarDados() {{
                 try {{
                     const [canaisRes, cargosRes, membrosRes, configBoasVindas, configXP, linksRes, antiSpamRes, configComandosRes, filaConfigRes] = await Promise.all([
@@ -3233,16 +3242,6 @@ def dashboard():
                         }});
                     }}
                 }});
-            }}
-            
-            function showTab(tabId) {{
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
-                event.target.classList.add('active');
-                if (tabId === 'fila') carregarFila();
-                if (tabId === 'moderacao') carregarAdvertencias();
-                if (tabId === 'recompensas') carregarRecompensas();
             }}
             
             async function salvarAntiSpam() {{
