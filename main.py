@@ -81,7 +81,8 @@ dados = {
         "canal_levelup": None,
         "canal_logs": None,
         "canal_perfil": None,
-        "canal_rank": None
+        "canal_rank": None,
+        "pix_link": ""  # NOVO: link para PIX exibido no /pedido
     },
     "logs": [],
     "fila": {
@@ -205,7 +206,7 @@ def obter_ou_criar_perfil_fidelidade(uid: str):
     perfil = dados["fidelidade"][uid_str]
     agora = time.time()
 
-    # 🕒 REGRA 1: Expiração de Pontos por Inatividade (90 Dias)
+    # 🕒 REGRA 1: Expiração de Pontos por Inatividade (60 Dias)
     if perfil["pontos"] > 0 and (agora - perfil.get("ultimo_pedido_ts", agora)) > (60 * 86400):
         perfil["pontos"] = 0
         perfil["pontos_expirados"] = True
@@ -281,7 +282,8 @@ def carregar_dados_github():
                         "canal_levelup": None,
                         "canal_logs": None,
                         "canal_perfil": None,
-                        "canal_rank": None
+                        "canal_rank": None,
+                        "pix_link": ""
                     }
                 if "botoes_precos" not in dados.get("links_fila", {}):
                     dados["links_fila"]["botoes_precos"] = []
@@ -513,7 +515,7 @@ def salvar_fila():
     return salvar_dados_github("Atualização da fila")
 
 
-def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: str = None):
+def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: str = None, uid: str = None):
     fila = obter_dados_fila()
 
     if not fila["configuracoes"]["aberta"]:
@@ -532,6 +534,7 @@ def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: 
         "servico": servico,
         "jogo": jogo,
         "usuario_id": usuario_id or nome_usuario,
+        "uid": uid or usuario_id or "",  # UID do jogo, se fornecido
         "timestamp": agora_br().isoformat(),
         "status": "aguardando",
         "posicao": len(fila["entradas"]) + 1
@@ -1192,7 +1195,11 @@ def logout():
 @app.route("/pedido")
 def pagina_fidelidade():
     """Página Pública para os membros consultarem pontos, solicitarem serviços e resgatarem prêmios"""
-    return '''
+    config = dados.get("config", {})
+    pix_link = config.get("pix_link", "")
+    pix_html = f'<a href="{pix_link}" target="_blank" class="btn-pix">💳 Pagar via PIX</a>' if pix_link else ''
+
+    return f'''
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
@@ -1200,24 +1207,27 @@ def pagina_fidelidade():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Fidelidade & Pedidos - ZankonYTB</title>
         <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
-            .container { max-width: 900px; margin: 0 auto; }
-            .card { background: #1e1e1e; border-radius: 10px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-            h1, h2, h3 { color: #00d2d3; margin-top: 0; }
-            .points-badge { font-size: 2.2rem; font-weight: bold; color: #ff9ff3; background: #2d2d2d; padding: 10px 20px; border-radius: 8px; display: inline-block; }
-            input, select, button { width: 100%; padding: 12px; margin-top: 8px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #444; background: #2a2a2a; color: white; box-sizing: border-box; }
-            button { background: #10ac84; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }
-            button:hover { background: #1dd1a1; }
-            .reward-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px; }
-            .reward-card { background: #282828; padding: 15px; border-radius: 8px; border: 1px solid #444; text-align: center; }
-            .reward-card h4 { margin: 0 0 10px 0; color: #feca57; }
-            .alert { padding: 12px; border-radius: 5px; display: none; margin-bottom: 15px; font-weight: bold; }
-            .alert-success { background: #2ed573; color: #000; }
-            .alert-error { background: #ff4757; color: #fff; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { padding: 10px; border-bottom: 1px solid #333; text-align: left; }
-            th { background: #252525; color: #00d2d3; }
-            .rules { background: #1a252f; border-left: 4px solid #3498db; padding: 15px; font-size: 0.9rem; line-height: 1.5; }
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; }}
+            .container {{ max-width: 900px; margin: 0 auto; }}
+            .card {{ background: #1e1e1e; border-radius: 10px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
+            h1, h2, h3 {{ color: #00d2d3; margin-top: 0; }}
+            .points-badge {{ font-size: 2.2rem; font-weight: bold; color: #ff9ff3; background: #2d2d2d; padding: 10px 20px; border-radius: 8px; display: inline-block; }}
+            input, select, button {{ width: 100%; padding: 12px; margin-top: 8px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #444; background: #2a2a2a; color: white; box-sizing: border-box; }}
+            button {{ background: #10ac84; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }}
+            button:hover {{ background: #1dd1a1; }}
+            .reward-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px; }}
+            .reward-card {{ background: #282828; padding: 15px; border-radius: 8px; border: 1px solid #444; text-align: center; }}
+            .reward-card h4 {{ margin: 0 0 10px 0; color: #feca57; }}
+            .alert {{ padding: 12px; border-radius: 5px; display: none; margin-bottom: 15px; font-weight: bold; }}
+            .alert-success {{ background: #2ed573; color: #000; }}
+            .alert-error {{ background: #ff4757; color: #fff; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+            th, td {{ padding: 10px; border-bottom: 1px solid #333; text-align: left; }}
+            th {{ background: #252525; color: #00d2d3; }}
+            .rules {{ background: #1a252f; border-left: 4px solid #3498db; padding: 15px; font-size: 0.9rem; line-height: 1.5; }}
+            .btn-pix {{ display: inline-block; background: #00b894; color: #000; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 10px 0; }}
+            .btn-pix:hover {{ background: #00d2d3; }}
+            .validade {{ color: #feca57; font-size: 0.9rem; margin-top: 5px; }}
         </style>
     </head>
     <body>
@@ -1243,7 +1253,10 @@ def pagina_fidelidade():
                     <p>UID: <strong id="disp-uid" style="color:#00d2d3;">-</strong></p>
                     <div class="points-badge"><span id="disp-pontos">0</span> Pontos</div>
                     <p style="font-size:0.85rem; color:#aaa; margin-top:10px;">* R$ 1,00 gasto em serviços = 1 Ponto acumulado.</p>
+                    <div id="validade-pontos" class="validade"></div>
                 </div>
+
+                {pix_html}
 
                 <!-- Resgate de Recompensas (dinâmico) -->
                 <div class="card">
@@ -1361,6 +1374,16 @@ def pagina_fidelidade():
                         document.getElementById('disp-uid').textContent = data.uid;
                         document.getElementById('disp-pontos').textContent = data.perfil.pontos;
 
+                        // Exibir validade dos pontos
+                        const validadeDiv = document.getElementById('validade-pontos');
+                        if (data.perfil.pontos > 0 && data.validade_pontos) {
+                            validadeDiv.innerHTML = `📅 Pontos válidos até: <strong>${data.validade_pontos}</strong> (60 dias de inatividade)`;
+                        } else if (data.perfil.pontos === 0) {
+                            validadeDiv.innerHTML = '⚠️ Você não possui pontos ativos.';
+                        } else {
+                            validadeDiv.innerHTML = '';
+                        }
+
                         // Renderiza Cupons
                         const cuponsDiv = document.getElementById('lista-cupons');
                         if (data.perfil.cupons && data.perfil.cupons.length > 0) {
@@ -1472,7 +1495,14 @@ def api_fidelidade_consultar():
         return jsonify({"sucesso": False, "mensagem": "UID não informado"})
 
     perfil = obter_ou_criar_perfil_fidelidade(uid)
-    return jsonify({"sucesso": True, "uid": uid, "perfil": perfil})
+    # Calcular validade dos pontos
+    validade_pontos = None
+    if perfil.get("pontos", 0) > 0:
+        ultimo_pedido = perfil.get("ultimo_pedido_ts", time.time())
+        data_validade = datetime.fromtimestamp(ultimo_pedido + 60 * 86400).strftime("%d/%m/%Y")
+        validade_pontos = data_validade
+
+    return jsonify({"sucesso": True, "uid": uid, "perfil": perfil, "validade_pontos": validade_pontos})
 
 
 @app.route("/api/fidelidade/resgatar", methods=["POST"])
@@ -1838,9 +1868,10 @@ def api_fila_adicionar():
     nome = dados_req.get("nome_usuario", "").strip()
     servico = dados_req.get("servico", "").strip()
     jogo = dados_req.get("jogo", "").strip()
+    uid = dados_req.get("uid", "").strip()
     if not nome or not servico:
         return jsonify({"sucesso": False, "mensagem": "Nome e serviço são obrigatórios"})
-    sucesso, resultado = adicionar_fila(nome, servico, jogo)
+    sucesso, resultado = adicionar_fila(nome, servico, jogo, usuario_id=nome, uid=uid)
     return jsonify({"sucesso": sucesso, "mensagem": f"{nome} adicionado!" if sucesso else resultado})
 
 
@@ -1920,7 +1951,14 @@ def api_fila_configuracoes():
     if request.method == "GET":
         fila = obter_dados_fila()
         links = obter_links_fila()
-        return jsonify({"sucesso": True, "configuracoes": fila["configuracoes"], "nome": fila["nome"], "links": links})
+        config = dados.get("config", {})
+        return jsonify({
+            "sucesso": True,
+            "configuracoes": fila["configuracoes"],
+            "nome": fila["nome"],
+            "links": links,
+            "pix_link": config.get("pix_link", "")
+        })
     if 'usuario' not in session:
         return jsonify({"sucesso": False}), 401
     req = request.json
@@ -1932,6 +1970,9 @@ def api_fila_configuracoes():
         definir_nome_fila(req["nome"])
     if "discord_convite" in req:
         salvar_links_fila(req.get("discord_convite", ""))
+    if "pix_link" in req:
+        dados.setdefault("config", {})["pix_link"] = req["pix_link"]
+        salvar_dados_github("PIX link atualizado")
     return jsonify({"sucesso": True})
 
 
@@ -2193,7 +2234,7 @@ def api_botoes_cargo_criar():
 
 
 # ========================
-# DASHBOARD PRINCIPAL (COM GESTÃO DE RECOMPENSAS)
+# DASHBOARD PRINCIPAL (COM GESTÃO DE RECOMPENSAS E HISTÓRICO DA FILA)
 # ========================
 
 @app.route("/dashboard")
@@ -2208,6 +2249,8 @@ def dashboard():
     links = obter_links_fila()
     botoes_precos = links.get("botoes_precos", [])
     recompensas = obter_recompensas()
+    historico = fila.get("historico", [])
+    pix_link = config.get("pix_link", "")
 
     botoes_precos_json = json.dumps(botoes_precos)
     recompensas_json = json.dumps(recompensas)
@@ -2280,6 +2323,9 @@ def dashboard():
             .recompensa-nome {{ font-weight: bold; color: #feca57; }}
             .recompensa-detalhes {{ font-size: 12px; color: #aaa; }}
             .recompensa-acoes {{ display: flex; gap: 8px; }}
+            .historico-fila {{ margin-top: 20px; }}
+            .historico-fila .busca-uid {{ margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }}
+            .historico-fila .busca-uid input {{ flex: 1; padding: 8px; border-radius: 5px; border: 1px solid var(--gray); background: var(--darker); color: white; }}
         </style>
     </head>
     <body>
@@ -2578,13 +2624,18 @@ def dashboard():
                 </div>
             </div>
             
-            <!-- Aba Fila (COM MÚLTIPLOS BOTÕES) -->
+            <!-- Aba Fila (COM MÚLTIPLOS BOTÕES, PIX E HISTÓRICO) -->
             <div id="fila" class="tab">
                 <div class="card">
                     <h2>📋 Configurações da Fila</h2>
                     <div class="grid-2">
                         <div><label>Nome da Fila</label><input type="text" id="fila-nome" class="form-control" value="{escape_html(fila['nome'])}"></div>
                         <div><label>Tamanho Máximo</label><input type="number" id="fila-max" class="form-control" value="{fila['configuracoes']['tamanho_maximo']}" min="1" max="100"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Link do PIX (exibido em /pedido)</label>
+                        <input type="url" id="pix-link" class="form-control" value="{escape_html(pix_link)}" placeholder="https://... ou chave pix">
                     </div>
                     
                     <div class="card" style="margin-top: 20px; background: #1e1e1e; padding: 15px; border-radius: 8px;">
@@ -2631,6 +2682,7 @@ def dashboard():
                         <input type="text" id="add-nome" class="form-control" placeholder="Nome do jogador" style="flex:1;">
                         <input type="text" id="add-servico" class="form-control" placeholder="Serviço" style="flex:1;">
                         <input type="text" id="add-jogo" class="form-control" placeholder="Jogo" style="flex:1;">
+                        <input type="text" id="add-uid" class="form-control" placeholder="UID (opcional)" style="flex:1;">
                         <button onclick="adicionarFila()" class="btn btn-primary">➕ Adicionar</button>
                     </div>
                     <div id="add-result" class="alert" style="margin-top: 10px; display: none;"></div>
@@ -2641,12 +2693,30 @@ def dashboard():
                     <div style="overflow-x: auto;">
                         <table style="width:100%">
                             <thead>
-                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>Entrada</th><th>Ações</th></tr>
+                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>UID</th><th>Data</th><th>Ações</th></tr>
                             </thead>
-                            <tbody id="fila-tabela"><tr><td colspan="6">Carregando...</td></tr></tbody>
+                            <tbody id="fila-tabela"><tr><td colspan="7">Carregando...</td></tr></tbody>
                         </table>
                     </div>
                     <div style="margin-top: 10px;"><button onclick="atualizarFila()" class="btn btn-primary">🔄 Atualizar</button></div>
+                </div>
+                
+                <!-- HISTÓRICO DA FILA (COM BUSCA POR UID) -->
+                <div class="card historico-fila">
+                    <h2>📜 Histórico da Fila</h2>
+                    <div class="busca-uid">
+                        <input type="text" id="historico-filtro-uid" placeholder="Filtrar por UID..." oninput="filtrarHistorico()">
+                        <button onclick="filtrarHistorico()" class="btn btn-primary">🔍 Filtrar</button>
+                        <button onclick="document.getElementById('historico-filtro-uid').value=''; filtrarHistorico();" class="btn btn-secondary">Limpar</button>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table style="width:100%">
+                            <thead>
+                                <tr><th>#</th><th>Jogador</th><th>Serviço</th><th>Jogo</th><th>UID</th><th>Status</th><th>Data</th></tr>
+                            </thead>
+                            <tbody id="historico-tabela"><tr><td colspan="7">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             
@@ -2730,6 +2800,7 @@ def dashboard():
             let configAtual = {{}};
             let botoesPrecos = {botoes_precos_json};
             let recompensas = {recompensas_json};
+            let historicoCompleto = {json.dumps(historico)};
             
             // ========== FUNÇÕES DE RECOMPENSAS ==========
             function carregarRecompensas() {{
@@ -2846,6 +2917,47 @@ def dashboard():
                 return [];
             }}
 
+            // ========== FUNÇÕES DE HISTÓRICO DA FILA ==========
+            function renderizarHistorico(historico) {{
+                const tbody = document.getElementById('historico-tabela');
+                if (!historico || historico.length === 0) {{
+                    tbody.innerHTML = '<tr><td colspan="7">Nenhum registro no histórico.</td></tr>';
+                    return;
+                }}
+                let html = '';
+                historico.forEach((e, idx) => {{
+                    const dataStr = e.concluido_em || e.removido_em || e.limpo_em || e.timestamp || '';
+                    const dataFormatada = dataStr ? new Date(dataStr).toLocaleDateString('pt-BR') : '-';
+                    const status = e.status || 'concluido';
+                    const uid = e.uid || e.usuario_id || '';
+                    html += `
+                        <tr>
+                            <td>${{idx + 1}}</td>
+                            <td>${{escapeHtml(e.nome_usuario || '')}}</td>
+                            <td>${{escapeHtml(e.servico || '')}}</td>
+                            <td>${{escapeHtml(e.jogo || '')}}</td>
+                            <td>${{escapeHtml(uid)}}</td>
+                            <td>${{status}}</td>
+                            <td>${{dataFormatada}}</td>
+                        </tr>
+                    `;
+                }});
+                tbody.innerHTML = html;
+            }}
+
+            function filtrarHistorico() {{
+                const filtro = document.getElementById('historico-filtro-uid').value.trim().toLowerCase();
+                if (!filtro) {{
+                    renderizarHistorico(historicoCompleto);
+                    return;
+                }}
+                const filtrados = historicoCompleto.filter(e => {
+                    const uid = (e.uid || e.usuario_id || '').toString().toLowerCase();
+                    return uid.includes(filtro);
+                });
+                renderizarHistorico(filtrados);
+            }}
+
             // ========== FUNÇÕES EXISTENTES ==========
             async function carregarDados() {{
                 try {{
@@ -2931,10 +3043,15 @@ def dashboard():
                         listaDiv.innerHTML = comandos.map(c => `<span style="background:#333; padding:4px 12px; border-radius:20px;">${{c.trim()}}</span>`).join('');
                     }}
                     
-                    if (filaConfig.sucesso && filaConfig.links) {{
-                        document.getElementById('link-discord').value = filaConfig.links.discord_convite || '';
-                        if (filaConfig.links.botoes_precos) {{
-                            botoesPrecos = filaConfig.links.botoes_precos;
+                    if (filaConfig.sucesso) {{
+                        if (filaConfig.links) {{
+                            document.getElementById('link-discord').value = filaConfig.links.discord_convite || '';
+                            if (filaConfig.links.botoes_precos) {{
+                                botoesPrecos = filaConfig.links.botoes_precos;
+                            }}
+                        }}
+                        if (filaConfig.pix_link) {{
+                            document.getElementById('pix-link').value = filaConfig.pix_link;
                         }}
                     }}
                     
@@ -2942,6 +3059,7 @@ def dashboard():
                     carregarFila();
                     carregarBotoesPrecos();
                     carregarRecompensas();
+                    renderizarHistorico(historicoCompleto);
                 }} catch(e) {{ console.error(e); }}
             }}
             
@@ -3412,23 +3530,27 @@ def dashboard():
                         const fila = data.fila;
                         const tbody = document.getElementById('fila-tabela');
                         if (fila.entradas.length === 0) {{
-                            tbody.innerHTML = '<tr><td colspan="6">📭 Ninguém na fila</td></tr>';
+                            tbody.innerHTML = '<tr><td colspan="7">📭 Ninguém na fila</td></tr>';
                         }} else {{
-                            tbody.innerHTML = fila.entradas.map(e => `
-                                <tr>
-                                    <td><strong style="color:#ffd93d;">#${{e.posicao}}</strong></td>
-                                    <td>${{escapeHtml(e.nome_usuario)}}</td>
-                                    <td style="color:#a8e6cf;">${{escapeHtml(e.servico)}}</td>
-                                    <td style="color:#ffb347;">${{escapeHtml(e.jogo || '')}}</td>
-                                    <td>${{new Date(e.timestamp).toLocaleTimeString()}}</td>
-                                    <td>
-                                        <button onclick="moverCima('${{e.id}}')" class="btn btn-primary btn-sm">⬆️</button>
-                                        <button onclick="moverBaixo('${{e.id}}')" class="btn btn-primary btn-sm">⬇️</button>
-                                        <button onclick="concluir('${{e.id}}')" class="btn btn-success btn-sm">✅</button>
-                                        <button onclick="remover('${{e.id}}')" class="btn btn-danger btn-sm">❌</button>
-                                    </td>
-                                </tr>
-                            `).join('');
+                            tbody.innerHTML = fila.entradas.map(e => {{
+                                const dataFormatada = new Date(e.timestamp).toLocaleDateString('pt-BR');
+                                return `
+                                    <tr>
+                                        <td><strong style="color:#ffd93d;">#${{e.posicao}}</strong></td>
+                                        <td>${{escapeHtml(e.nome_usuario)}}</td>
+                                        <td style="color:#a8e6cf;">${{escapeHtml(e.servico)}}</td>
+                                        <td style="color:#ffb347;">${{escapeHtml(e.jogo || '')}}</td>
+                                        <td>${{escapeHtml(e.uid || '')}}</td>
+                                        <td>${{dataFormatada}}</td>
+                                        <td>
+                                            <button onclick="moverCima('${{e.id}}')" class="btn btn-primary btn-sm">⬆️</button>
+                                            <button onclick="moverBaixo('${{e.id}}')" class="btn btn-primary btn-sm">⬇️</button>
+                                            <button onclick="concluir('${{e.id}}')" class="btn btn-success btn-sm">✅</button>
+                                            <button onclick="remover('${{e.id}}')" class="btn btn-danger btn-sm">❌</button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }}).join('');
                         }}
                         const filaStatus = document.getElementById('fila-status');
                         if (filaStatus) {{
@@ -3447,18 +3569,20 @@ def dashboard():
                 const nome = document.getElementById('add-nome').value.trim();
                 const servico = document.getElementById('add-servico').value.trim();
                 const jogo = document.getElementById('add-jogo').value.trim();
+                const uid = document.getElementById('add-uid').value.trim();
                 if (!nome || !servico) {{
                     showAlert('add-result', 'Preencha nome e serviço', false);
                     return;
                 }}
                 try {{
-                    const resp = await fetch('/api/fila/adicionar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{nome_usuario: nome, servico, jogo}})}});
+                    const resp = await fetch('/api/fila/adicionar', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{nome_usuario: nome, servico, jogo, uid}})}});
                     const data = await resp.json();
                     showAlert('add-result', data.mensagem, data.sucesso);
                     if (data.sucesso) {{
                         document.getElementById('add-nome').value = '';
                         document.getElementById('add-servico').value = '';
                         document.getElementById('add-jogo').value = '';
+                        document.getElementById('add-uid').value = '';
                         carregarFila();
                     }}
                 }} catch(e) {{ showAlert('add-result', 'Erro: ' + e.message, false); }}
@@ -3473,7 +3597,8 @@ def dashboard():
                 const data = {{
                     nome: document.getElementById('fila-nome').value,
                     tamanho_maximo: parseInt(document.getElementById('fila-max').value),
-                    discord_convite: document.getElementById('link-discord').value
+                    discord_convite: document.getElementById('link-discord').value,
+                    pix_link: document.getElementById('pix-link').value
                 }};
                 await fetch('/api/fila/configuracoes', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(data)}});
                 carregarFila();
