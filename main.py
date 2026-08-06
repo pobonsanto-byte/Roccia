@@ -2476,7 +2476,7 @@ def dashboard():
                     </div>
 
                     <div class="form-group">
-                        <label>Link do PIX (exibido em /pedido)</label>
+                        <label>Link do PIX (no /pedido)</label>
                         <input type="url" id="pix-link" class="form-control" value="{{ pix_link }}" placeholder="https://... ou chave pix">
                     </div>
                     
