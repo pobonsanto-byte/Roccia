@@ -5,6 +5,7 @@ import re
 import requests
 import time
 import secrets
+import hashlib
 from io import BytesIO
 from threading import Thread
 from datetime import datetime, timezone, timedelta
@@ -165,7 +166,8 @@ dados = {
             "tipo": "cupom",
             "desconto": 20.0
         }
-    ]
+    ],
+    "credenciais": {}  # { "uid": { "hash": "sha256(salt+senha)", "salt": "..." } }
 }
 
 mensagens_recentes = {}
@@ -213,6 +215,28 @@ def obter_ou_criar_perfil_fidelidade(uid: str):
                 cupom["expirado"] = True
 
     return perfil
+
+
+# ========================
+# FUNÇÕES DE HASH DE SENHA
+# ========================
+def hash_senha(senha: str) -> dict:
+    salt = secrets.token_hex(16)
+    hash_obj = hashlib.sha256((salt + senha).encode()).hexdigest()
+    return {"salt": salt, "hash": hash_obj}
+
+
+def verificar_senha(senha: str, cred: dict) -> bool:
+    if not cred:
+        return False
+    hash_calculado = hashlib.sha256((cred["salt"] + senha).encode()).hexdigest()
+    return hash_calculado == cred["hash"]
+
+
+def validar_senha(senha: str) -> bool:
+    # Mínimo 8 caracteres, pelo menos uma minúscula, uma maiúscula, um número e um caractere especial
+    padrao = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$'
+    return re.match(padrao, senha) is not None
 
 
 # ========================
@@ -296,6 +320,8 @@ def carregar_dados_github():
                          "tipo": "servico", "desconto": 0},
                         {"id": "cupom_20", "nome": "Cupom de R$ 20,00", "pontos": 400, "tipo": "cupom", "desconto": 20.0}
                     ]
+                if "credenciais" not in dados:
+                    dados["credenciais"] = {}
                 print("✅ Dados carregados do GitHub.")
                 return True
         else:
@@ -1138,6 +1164,11 @@ def pagina_fidelidade():
     config = dados.get("config", {})
     pix_link = config.get("pix_link", "")
     pix_html = f'<a href="{pix_link}" target="_blank" class="btn-pix">💳 Pagar via PIX</a>' if pix_link else ''
+
+    # Verifica se o cliente está logado
+    cliente = session.get('cliente')
+    uid_logado = cliente.get('uid') if cliente else None
+
     return render_template_string("""
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -1167,33 +1198,55 @@ def pagina_fidelidade():
             .btn-pix { display: inline-block; background: #00b894; color: #000; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 10px 0; }
             .btn-pix:hover { background: #00d2d3; }
             .validade { color: #feca57; font-size: 0.9rem; margin-top: 5px; }
+            .login-box { max-width: 400px; margin: 20px auto; }
+            .login-box input { margin-bottom: 10px; }
+            .login-box .btn-login { background: #5865F2; }
+            .login-box .btn-login:hover { background: #4752C4; }
+            .btn-sair { background: #dc3545; }
+            .btn-sair:hover { background: #c82333; }
+            .btn-voltar { background: #6c757d; }
+            .btn-voltar:hover { background: #5a6268; }
+            .link-pedido { margin-top: 20px; display: inline-block; background: #00b894; color: #000; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; }
         </style>
     </head>
     <body>
         <div class="container">
             <center><h1>Services & Pontos ZankonYTB</h1></center>
-            
+
             <div id="msg-alert" class="alert"></div>
 
+            {% if not session.get('cliente') %}
+            <!-- TELA DE LOGIN / CADASTRO -->
+            <div class="card login-box">
+                <h2>🔐 Acesso Cliente</h2>
+                <div id="login-status" style="color:#feca57; margin-bottom:10px;"></div>
+                <input type="text" id="login-uid" placeholder="Seu UID" style="margin-bottom:5px;">
+                <input type="password" id="login-senha" placeholder="Senha">
+                <button onclick="loginCliente()" class="btn-login">Entrar</button>
+                <hr style="border-color:#333;">
+                <h3>Novo cliente? Cadastre-se</h3>
+                <input type="text" id="cad-uid" placeholder="UID">
+                <input type="password" id="cad-senha" placeholder="Senha (mín 8 caracteres, com maiúscula, minúscula, número e caractere especial)">
+                <input type="password" id="cad-senha2" placeholder="Confirmar senha">
+                <button onclick="cadastrarCliente()">Cadastrar</button>
+                <div id="cad-msg" style="margin-top:10px; color:#aaa;"></div>
+            </div>
+            {% else %}
+            <!-- PAINEL DO CLIENTE LOGADO -->
             <div class="card">
-                <h2>Login</h2>
-                <label>Digite seu UID do Jogo:</label>
-                <div style="display:flex; gap: 10px;">
-                    <input type="text" id="cliente-uid" placeholder="Ex: 100234891" style="margin:0;">
-                    <button onclick="consultarPerfil()" style="width: 150px; margin:0;">Consultar</button>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h2>Bem-vindo, <span id="disp-uid" style="color:#00d2d3;">{{ session['cliente']['uid'] }}</span></h2>
+                    <button onclick="logoutCliente()" class="btn-sair" style="width:auto; padding:8px 16px;">🚪 Sair</button>
                 </div>
             </div>
 
-            <div id="painel-cliente" style="display: none;">
+            <div id="painel-cliente">
                 <div class="card">
                     <h2>Seu Saldo de Pontos</h2>
-                    <p>UID: <strong id="disp-uid" style="color:#00d2d3;">-</strong></p>
                     <div class="points-badge"><span id="disp-pontos">0</span> Pontos</div>
                     <p style="font-size:0.85rem; color:#aaa; margin-top:10px;">* R$ 1,00 gasto em serviços = 1 Ponto acumulado.</p>
                     <div id="validade-pontos" class="validade"></div>
                 </div>
-
-                {{ pix_html|safe }}
 
                 <div class="card">
                     <h2>Trocar Pontos por Vantagens</h2>
@@ -1217,6 +1270,9 @@ def pagina_fidelidade():
                     <button onclick="enviarPedidoServico()">Enviar Pedido para Aprovação</button>
                 </div>
 
+                <!-- BOTÃO PIX movido para cá (entre Solicitar Serviço e Histórico) -->
+                {{ pix_html|safe }}
+
                 <div class="card">
                     <h2>Seu Histórico de Pedidos</h2>
                     <table>
@@ -1225,6 +1281,7 @@ def pagina_fidelidade():
                     </table>
                 </div>
             </div>
+            {% endif %}
 
             <div class="card rules">
                 <h3>📌 Regras de Uso - Sistema de Fidelidade ZankonYTB</h3>
@@ -1241,6 +1298,13 @@ def pagina_fidelidade():
         <script>
             let currentUID = '';
             let recompensas = [];
+            let isLoggedIn = {{ 'true' if session.get('cliente') else 'false' }};
+
+            // Se já estiver logado, carregar os dados
+            if (isLoggedIn) {
+                currentUID = '{{ session["cliente"]["uid"] }}';
+                consultarPerfil();
+            }
 
             async function carregarRecompensas() {
                 try {
@@ -1275,15 +1339,11 @@ def pagina_fidelidade():
             }
 
             async function consultarPerfil() {
-                const uid = document.getElementById('cliente-uid').value.trim();
-                if (!uid) { alert('Digite seu UID!'); return; }
-                currentUID = uid;
+                if (!currentUID) return;
                 try {
-                    const resp = await fetch('/api/fidelidade/consultar?uid=' + encodeURIComponent(uid));
+                    const resp = await fetch('/api/fidelidade/consultar?uid=' + encodeURIComponent(currentUID));
                     const data = await resp.json();
                     if (data.sucesso) {
-                        document.getElementById('painel-cliente').style.display = 'block';
-                        document.getElementById('disp-uid').textContent = data.uid;
                         document.getElementById('disp-pontos').textContent = data.perfil.pontos;
                         const validadeDiv = document.getElementById('validade-pontos');
                         if (data.perfil.pontos > 0 && data.validade_pontos) {
@@ -1322,7 +1382,7 @@ def pagina_fidelidade():
                         }
                     }
                 } catch(e) {
-                    alert('Erro ao consultar UID: ' + e.message);
+                    mostrarAlerta('Erro ao consultar perfil: ' + e.message, false);
                 }
             }
 
@@ -1338,9 +1398,9 @@ def pagina_fidelidade():
                         body: JSON.stringify({ uid: currentUID, recompensa: recompensaId })
                     });
                     const res = await resp.json();
-                    alert(res.mensagem);
+                    mostrarAlerta(res.mensagem, res.sucesso);
                     if (res.sucesso) consultarPerfil();
-                } catch(e) { alert('Erro: ' + e.message); }
+                } catch(e) { mostrarAlerta('Erro: ' + e.message, false); }
             }
 
             async function enviarPedidoServico() {
@@ -1368,7 +1428,7 @@ def pagina_fidelidade():
                         })
                     });
                     const res = await resp.json();
-                    alert(res.mensagem);
+                    mostrarAlerta(res.mensagem, res.sucesso);
                     if (res.sucesso) {
                         document.getElementById('ped-servico').value = '';
                         document.getElementById('ped-jogo').value = '';
@@ -1376,46 +1436,218 @@ def pagina_fidelidade():
                         document.getElementById('ped-cupom').value = '';
                         consultarPerfil();
                     }
-                } catch(e) { alert('Erro: ' + e.message); }
+                } catch(e) { mostrarAlerta('Erro: ' + e.message, false); }
+            }
+
+            // Funções de login/cadastro
+            async function cadastrarCliente() {
+                const uid = document.getElementById('cad-uid').value.trim();
+                const senha = document.getElementById('cad-senha').value;
+                const senha2 = document.getElementById('cad-senha2').value;
+                const msg = document.getElementById('cad-msg');
+
+                if (!uid || !senha || !senha2) {
+                    msg.textContent = 'Preencha todos os campos.';
+                    msg.style.color = '#ff4757';
+                    return;
+                }
+                if (senha !== senha2) {
+                    msg.textContent = 'As senhas não coincidem.';
+                    msg.style.color = '#ff4757';
+                    return;
+                }
+                try {
+                    const resp = await fetch('/api/cliente/cadastrar', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid, senha })
+                    });
+                    const data = await resp.json();
+                    msg.textContent = data.mensagem;
+                    msg.style.color = data.sucesso ? '#2ed573' : '#ff4757';
+                    if (data.sucesso) {
+                        // Limpa campos
+                        document.getElementById('cad-uid').value = '';
+                        document.getElementById('cad-senha').value = '';
+                        document.getElementById('cad-senha2').value = '';
+                        // Faz login automático
+                        await loginCliente(uid, senha);
+                    }
+                } catch(e) {
+                    msg.textContent = 'Erro: ' + e.message;
+                    msg.style.color = '#ff4757';
+                }
+            }
+
+            async function loginCliente(uid, senha) {
+                if (!uid) uid = document.getElementById('login-uid').value.trim();
+                if (!senha) senha = document.getElementById('login-senha').value;
+                const status = document.getElementById('login-status');
+                if (!uid || !senha) {
+                    status.textContent = 'Preencha UID e senha.';
+                    status.style.color = '#ff4757';
+                    return;
+                }
+                try {
+                    const resp = await fetch('/api/cliente/login', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid, senha })
+                    });
+                    const data = await resp.json();
+                    if (data.sucesso) {
+                        window.location.reload(); // recarrega a página para mostrar o painel
+                    } else {
+                        status.textContent = data.mensagem;
+                        status.style.color = '#ff4757';
+                    }
+                } catch(e) {
+                    status.textContent = 'Erro: ' + e.message;
+                    status.style.color = '#ff4757';
+                }
+            }
+
+            async function logoutCliente() {
+                const resp = await fetch('/api/cliente/logout', { method: 'POST' });
+                const data = await resp.json();
+                if (data.sucesso) {
+                    window.location.reload();
+                }
+            }
+
+            function mostrarAlerta(msg, sucesso) {
+                const el = document.getElementById('msg-alert');
+                if (!el) return;
+                el.textContent = msg;
+                el.className = 'alert ' + (sucesso ? 'alert-success' : 'alert-error');
+                el.style.display = 'block';
+                setTimeout(() => el.style.display = 'none', 4000);
             }
 
             document.addEventListener('DOMContentLoaded', async function() {
                 await carregarRecompensas();
                 renderizarRecompensas();
+                if (isLoggedIn) {
+                    consultarPerfil();
+                }
             });
         </script>
     </body>
     </html>
-    """, pix_html=pix_html)
+    """, pix_html=pix_html, session=session)
 
+
+# ==========================================
+# ROTAS DE AUTENTICAÇÃO DO CLIENTE
+# ==========================================
+
+@app.route("/api/cliente/cadastrar", methods=["POST"])
+def api_cliente_cadastrar():
+    req = request.get_json() or {}
+    uid = str(req.get("uid", "")).strip()
+    senha = req.get("senha", "")
+
+    if not uid or not senha:
+        return jsonify({"sucesso": False, "mensagem": "UID e senha são obrigatórios."})
+
+    # Verificar se senha atende aos requisitos
+    if not validar_senha(senha):
+        return jsonify({
+            "sucesso": False,
+            "mensagem": "A senha deve ter no mínimo 8 caracteres, com letra maiúscula, minúscula, número e caractere especial."
+        })
+
+    credenciais = dados.setdefault("credenciais", {})
+    if uid in credenciais:
+        return jsonify({"sucesso": False, "mensagem": "Este UID já possui cadastro."})
+
+    # Criar hash
+    cred = hash_senha(senha)
+    credenciais[uid] = cred
+    salvar_dados_github(f"Novo cadastro de cliente: {uid}")
+    return jsonify({"sucesso": True, "mensagem": "Cadastro realizado com sucesso! Faça login."})
+
+
+@app.route("/api/cliente/login", methods=["POST"])
+def api_cliente_login():
+    req = request.get_json() or {}
+    uid = str(req.get("uid", "")).strip()
+    senha = req.get("senha", "")
+
+    if not uid or not senha:
+        return jsonify({"sucesso": False, "mensagem": "UID e senha são obrigatórios."})
+
+    credenciais = dados.get("credenciais", {})
+    cred = credenciais.get(uid)
+    if not cred:
+        return jsonify({"sucesso": False, "mensagem": "UID não cadastrado."})
+
+    if not verificar_senha(senha, cred):
+        return jsonify({"sucesso": False, "mensagem": "Senha incorreta."})
+
+    session['cliente'] = {"uid": uid}
+    return jsonify({"sucesso": True, "mensagem": "Login realizado com sucesso."})
+
+
+@app.route("/api/cliente/logout", methods=["POST"])
+def api_cliente_logout():
+    session.pop('cliente', None)
+    return jsonify({"sucesso": True, "mensagem": "Logout realizado."})
+
+
+# ==========================================
+# ROTAS DA API DE FIDELIDADE (AGORA COM AUTENTICAÇÃO)
+# ==========================================
 
 @app.route("/api/fidelidade/consultar")
 def api_fidelidade_consultar():
-    uid = request.args.get('uid')
-    if not uid:
+    # Verifica se o cliente está logado
+    cliente = session.get('cliente')
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Você precisa estar logado."}), 401
+
+    uid_sessao = cliente.get('uid')
+    uid_param = request.args.get('uid')
+    if not uid_param:
         return jsonify({"sucesso": False, "mensagem": "UID não informado"})
-    perfil = obter_ou_criar_perfil_fidelidade(uid)
+
+    # Garantir que o cliente só consulte seu próprio UID
+    if uid_sessao != uid_param:
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado."}), 403
+
+    perfil = obter_ou_criar_perfil_fidelidade(uid_param)
     validade_pontos = None
     if perfil.get("pontos", 0) > 0:
         ultimo_pedido = perfil.get("ultimo_pedido_ts", time.time())
         data_validade = datetime.fromtimestamp(ultimo_pedido + 60 * 86400).strftime("%d/%m/%Y")
         validade_pontos = data_validade
-    return jsonify({"sucesso": True, "uid": uid, "perfil": perfil, "validade_pontos": validade_pontos})
+    return jsonify({"sucesso": True, "uid": uid_param, "perfil": perfil, "validade_pontos": validade_pontos})
 
 
 @app.route("/api/fidelidade/resgatar", methods=["POST"])
 def api_fidelidade_resgatar():
+    cliente = session.get('cliente')
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado."}), 401
+
     req = request.get_json() or {}
     uid = req.get("uid")
     recompensa_id = req.get("recompensa")
+
     if not uid or not recompensa_id:
         return jsonify({"sucesso": False, "mensagem": "Dados inválidos"})
+
+    if cliente['uid'] != uid:
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado."}), 403
+
     rec = obter_recompensa_por_id(recompensa_id)
     if not rec:
         return jsonify({"sucesso": False, "mensagem": "Recompensa não encontrada"})
+
     perfil = obter_ou_criar_perfil_fidelidade(uid)
     if perfil["pontos"] < rec["pontos"]:
         return jsonify({"sucesso": False, "mensagem": f"Pontos insuficientes! Você precisa de {rec['pontos']} pontos."})
+
     perfil["pontos"] -= rec["pontos"]
     token = f"ZNK-{secrets.token_hex(3).upper()}"
     agora = time.time()
@@ -1441,6 +1673,10 @@ def api_fidelidade_resgatar():
 
 @app.route("/api/fidelidade/solicitar_servico", methods=["POST"])
 def api_fidelidade_solicitar_servico():
+    cliente = session.get('cliente')
+    if not cliente:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado."}), 401
+
     req = request.get_json() or {}
     uid = req.get("uid")
     servico = req.get("servico")
@@ -1448,8 +1684,13 @@ def api_fidelidade_solicitar_servico():
     valor = float(req.get("valor", 0))
     discord = req.get("discord")
     cupom_token = req.get("cupom_token", "").strip().upper()
+
     if not uid or not servico or valor <= -1:
         return jsonify({"sucesso": False, "mensagem": "Preencha todos os campos corretamente"})
+
+    if cliente['uid'] != uid:
+        return jsonify({"sucesso": False, "mensagem": "Acesso negado."}), 403
+
     perfil = obter_ou_criar_perfil_fidelidade(uid)
     cupom_aplicado = None
     if cupom_token:
@@ -1468,6 +1709,7 @@ def api_fidelidade_solicitar_servico():
             valor = max(0.0, valor - encontrado["desconto"])
         encontrado["usado"] = True
         cupom_aplicado = encontrado["nome"]
+
     dados.setdefault("pedidos_fidelidade_pendentes", [])
     novo_pedido = {
         "id": str(uuid.uuid4())[:8],
@@ -1490,7 +1732,7 @@ def api_fidelidade_solicitar_servico():
 
 
 # ==========================================
-# ROTAS DE ADMIN PARA GERENCIAR RECOMPENSAS
+# ROTAS DE ADMIN PARA GERENCIAR RECOMPENSAS (mantidas)
 # ==========================================
 
 @app.route("/api/fidelidade/recompensas", methods=["GET"])
@@ -1555,17 +1797,21 @@ def api_fidelidade_recompensas_remover(recompensa_id):
 
 
 # ==========================================
-# ROTAS DO ADMINISTRADOR PARA GESTÃO DE PEDIDOS
+# ROTAS DO ADMINISTRADOR PARA GESTÃO DE PEDIDOS (mantidas)
 # ==========================================
 
 @app.route("/api/fidelidade/admin/pendentes")
 def api_fidelidade_admin_pendentes():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado"}), 401
     pendentes = dados.get("pedidos_fidelidade_pendentes", [])
     return jsonify({"sucesso": True, "pedidos": pendentes})
 
 
 @app.route("/api/fidelidade/admin/aprovar", methods=["POST"])
 def api_fidelidade_admin_aprovar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado"}), 401
     req = request.get_json() or {}
     pedido_id = req.get("pedido_id")
     pendentes = dados.get("pedidos_fidelidade_pendentes", [])
@@ -1596,6 +1842,8 @@ def api_fidelidade_admin_aprovar():
 
 @app.route("/api/fidelidade/admin/recusar", methods=["POST"])
 def api_fidelidade_admin_recusar():
+    if 'usuario' not in session:
+        return jsonify({"sucesso": False, "mensagem": "Não autorizado"}), 401
     req = request.get_json() or {}
     pedido_id = req.get("pedido_id")
     pendentes = dados.get("pedidos_fidelidade_pendentes", [])
@@ -1605,7 +1853,7 @@ def api_fidelidade_admin_recusar():
 
 
 # ========================
-# ROTAS DA FILA
+# ROTAS DA FILA (com link para /pedido)
 # ========================
 
 @app.route("/fila")
@@ -1616,6 +1864,8 @@ def fila_publica():
     botoes_html = ""
     for botao in botoes_precos:
         botoes_html += f'<a href="{escape_html(botao["url"])}" target="_blank" class="btn-link btn-link-precos">💰 {escape_html(botao["nome"])}</a>'
+    # Adiciona botão para /pedido
+    link_pedido = '<a href="/pedido" class="btn-link btn-link-pedido">📝 Solicitar Serviço</a>'
     return render_template_string("""
     <!DOCTYPE html>
     <html>
@@ -1638,6 +1888,8 @@ def fila_publica():
             .btn-link-discord:hover { background: #4752C4; transform: translateY(-2px); }
             .btn-link-precos { background: #f59e0b; color: white; }
             .btn-link-precos:hover { background: #d97706; transform: translateY(-2px); }
+            .btn-link-pedido { background: #00b894; color: white; }
+            .btn-link-pedido:hover { background: #00a381; transform: translateY(-2px); }
             .lista-fila { background:rgba(0,0,0,0.4); border-radius:20px; overflow:hidden; }
             .cabecalho-fila { display:grid; grid-template-columns:60px 1fr 1fr 1fr 80px; padding:15px; background:rgba(255,255,255,0.1); font-weight:bold; }
             .item-fila { display:grid; grid-template-columns:60px 1fr 1fr 1fr 80px; padding:12px 15px; border-bottom:1px solid rgba(255,255,255,0.1); }
@@ -1660,6 +1912,7 @@ def fila_publica():
                     <a href="{{ links.discord_convite }}" target="_blank" class="btn-link btn-link-discord">💬 Entrar no Discord</a>
                 {% endif %}
                 {{ botoes_html|safe }}
+                {{ link_pedido|safe }}
             </div>
             <div class="lista-fila">
                 <div class="cabecalho-fila"><span>#</span><span>Jogador</span><span>Serviço</span><span>Jogo</span><span></span></div>
@@ -1681,8 +1934,12 @@ def fila_publica():
         </div>
     </body>
     </html>
-    """, fila=fila, links=links, botoes_html=botoes_html, agora_br=agora_br)
+    """, fila=fila, links=links, botoes_html=botoes_html, link_pedido=link_pedido, agora_br=agora_br)
 
+
+# ========================
+# ROTAS DA FILA (embed, api, etc) - inalteradas
+# ========================
 
 @app.route("/fila/embed")
 def fila_embed():
@@ -1703,7 +1960,6 @@ def fila_embed():
 @app.route("/fila/api")
 def fila_api():
     fila = obter_dados_fila()
-    # Retorna também o histórico para atualização no frontend
     return jsonify({
         "sucesso": True,
         "fila": {
@@ -1714,13 +1970,13 @@ def fila_api():
             "entradas": [{"posicao": e["posicao"], "nome_usuario": e["nome_usuario"], "servico": e["servico"],
                           "jogo": e.get("jogo", ""), "timestamp": e["timestamp"], "id": e["id"], "uid": e.get("uid", "")} for e in
                          fila["entradas"]],
-            "historico": fila["historico"]  # incluído para atualizar o histórico no frontend
+            "historico": fila["historico"]
         }
     })
 
 
 # ========================
-# APIs DA FILA
+# APIs DA FILA (mantidas)
 # ========================
 
 @app.route("/api/fila/adicionar", methods=["POST"])
@@ -1781,7 +2037,6 @@ def api_fila_concluir():
                 "pontos": pontos_ganhos,
                 "data": time.strftime("%d/%m/%Y")
             })
-        # Move para histórico
         sucesso, removido = concluir_servico(entrada_id)
         if sucesso:
             return jsonify({"sucesso": True, "mensagem": "Serviço concluído e pontos creditados ao cliente!"})
@@ -1829,7 +2084,7 @@ def api_fila_configuracoes():
 
 
 # ========================
-# APIs DOS BOTÕES DE PREÇO
+# APIs DOS BOTÕES DE PREÇO (mantidas)
 # ========================
 
 @app.route("/api/fila/botoes", methods=["GET"])
@@ -1877,7 +2132,7 @@ def api_fila_botoes_atualizar():
 
 
 # ========================
-# APIs DE CONFIGURAÇÃO
+# APIs DE CONFIGURAÇÃO (mantidas)
 # ========================
 
 @app.route("/api/servidor/canais")
@@ -2020,7 +2275,7 @@ def api_config_links():
 
 
 # ========================
-# APIs DE COMANDOS
+# APIs DE COMANDOS (mantidas)
 # ========================
 
 @app.route("/api/comando/embed", methods=["POST"])
@@ -2073,7 +2328,7 @@ def api_botoes_cargo_criar():
 
 
 # ========================
-# DASHBOARD PRINCIPAL (COM GESTÃO DE RECOMPENSAS E HISTÓRICO DA FILA)
+# DASHBOARD PRINCIPAL (mantido)
 # ========================
 
 @app.route("/dashboard")
@@ -2091,7 +2346,6 @@ def dashboard():
     historico = fila.get("historico", [])
     pix_link = config.get("pix_link", "")
 
-    # Pré-calcular estatísticas para o template
     total_usuarios_xp = len(dados.get("xp", {}))
     total_advertencias = sum(len(w) for w in dados.get("advertencias", {}).values())
     total_fila = len(fila["entradas"])
@@ -3369,7 +3623,6 @@ def dashboard():
                     const data = await resp.json();
                     if (data.sucesso) {
                         const fila = data.fila;
-                        // Atualiza lista de espera
                         const tbody = document.getElementById('fila-tabela');
                         if (fila.entradas.length === 0) {
                             tbody.innerHTML = '<tr><td colspan="7">📭 Ninguém na fila</td></tr>';
@@ -3394,12 +3647,10 @@ def dashboard():
                                 `;
                             }).join('');
                         }
-                        // Atualiza histórico
                         if (fila.historico) {
                             historicoCompleto = fila.historico;
                             renderizarHistorico(historicoCompleto);
                         }
-                        // Atualiza status
                         const filaStatus = document.getElementById('fila-status');
                         if (filaStatus) {
                             filaStatus.innerHTML = `Status: ${fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'} | ${fila.contagem}/${fila.tamanho_maximo}`;
