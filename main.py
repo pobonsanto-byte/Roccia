@@ -501,7 +501,7 @@ def adicionar_fila(nome_usuario: str, servico: str, jogo: str = "", usuario_id: 
         "servico": servico,
         "jogo": jogo,
         "usuario_id": usuario_id or nome_usuario,
-        "uid": uid or usuario_id or "",
+        "uid": uid or "",  # não usar fallback para nome
         "timestamp": agora_br().isoformat(),
         "status": "aguardando",
         "posicao": len(fila["entradas"]) + 1
@@ -1703,6 +1703,7 @@ def fila_embed():
 @app.route("/fila/api")
 def fila_api():
     fila = obter_dados_fila()
+    # Retorna também o histórico para atualização no frontend
     return jsonify({
         "sucesso": True,
         "fila": {
@@ -1711,8 +1712,9 @@ def fila_api():
             "tamanho_maximo": fila["configuracoes"]["tamanho_maximo"],
             "contagem": len(fila["entradas"]),
             "entradas": [{"posicao": e["posicao"], "nome_usuario": e["nome_usuario"], "servico": e["servico"],
-                          "jogo": e.get("jogo", ""), "timestamp": e["timestamp"], "id": e["id"]} for e in
-                         fila["entradas"]]
+                          "jogo": e.get("jogo", ""), "timestamp": e["timestamp"], "id": e["id"], "uid": e.get("uid", "")} for e in
+                         fila["entradas"]],
+            "historico": fila["historico"]  # incluído para atualizar o histórico no frontend
         }
     })
 
@@ -1779,11 +1781,12 @@ def api_fila_concluir():
                 "pontos": pontos_ganhos,
                 "data": time.strftime("%d/%m/%Y")
             })
-        dados["fila"]["entradas"] = [e for e in fila if e["id"] != entrada_id]
-        for idx, entrada in enumerate(dados["fila"]["entradas"], 1):
-            entrada["posicao"] = idx
-        salvar_dados_github("Serviço concluído na fila e pontos creditados")
-        return jsonify({"sucesso": True, "mensagem": "Serviço concluído e pontos creditados ao cliente!"})
+        # Move para histórico
+        sucesso, removido = concluir_servico(entrada_id)
+        if sucesso:
+            return jsonify({"sucesso": True, "mensagem": "Serviço concluído e pontos creditados ao cliente!"})
+        else:
+            return jsonify({"sucesso": False, "mensagem": "Erro ao concluir serviço"})
     return jsonify({"sucesso": False, "mensagem": "Entrada não encontrada na fila"})
 
 
@@ -3359,13 +3362,14 @@ def dashboard():
                 } catch(e) { showAlert('embed-alert', 'Erro: ' + e.message, false); }
             }
             
-            // Funções da Fila
+            // ========== FUNÇÕES DA FILA (COM ATUALIZAÇÃO DO HISTÓRICO) ==========
             async function carregarFila() {
                 try {
                     const resp = await fetch('/fila/api');
                     const data = await resp.json();
                     if (data.sucesso) {
                         const fila = data.fila;
+                        // Atualiza lista de espera
                         const tbody = document.getElementById('fila-tabela');
                         if (fila.entradas.length === 0) {
                             tbody.innerHTML = '<tr><td colspan="7">📭 Ninguém na fila</td></tr>';
@@ -3390,6 +3394,12 @@ def dashboard():
                                 `;
                             }).join('');
                         }
+                        // Atualiza histórico
+                        if (fila.historico) {
+                            historicoCompleto = fila.historico;
+                            renderizarHistorico(historicoCompleto);
+                        }
+                        // Atualiza status
                         const filaStatus = document.getElementById('fila-status');
                         if (filaStatus) {
                             filaStatus.innerHTML = `Status: ${fila.aberta ? '🟢 ABERTA' : '🔴 FECHADA'} | ${fila.contagem}/${fila.tamanho_maximo}`;
@@ -3501,7 +3511,7 @@ def dashboard():
                     body: JSON.stringify({pedido_id: id})
                 });
                 carregarPedidosPendentes();
-                if (typeof carregarFila === 'function') carregarFila();
+                carregarFila();
             }
 
             async function recusarPedido(id) {
