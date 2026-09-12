@@ -890,7 +890,7 @@ def iniciar_processador_acoes():
         print(f"❌ Erro ao iniciar processador: {e}")
         return False
  
- # ========================
+# ========================
 # ROTAS DO SITE
 # ========================
 
@@ -2155,7 +2155,9 @@ def api_membro_advertencias():
     membro_id = request.args.get('membro_id')
     if not membro_id:
         return jsonify({"sucesso": False, "advertencias": []})
-    return jsonify({"sucesso": True, "advertencias": dados.get("advertencias", {}).get(str(membro_id), [])})# ========================
+    return jsonify({"sucesso": True, "advertencias": dados.get("advertencias", {}).get(str(membro_id), [])})
+
+# ========================
 # ROTAS DO SITE
 # ========================
 
