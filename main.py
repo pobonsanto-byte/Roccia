@@ -954,6 +954,15 @@ def home():
     """, status_bot=status_bot, classe_bot=classe_bot, session=session)
 
 
+@app.route("/health")
+def health():
+    status = {
+        "status": "ok",
+        "bot_ready": bot.is_ready() if bot else False,
+        "timestamp": agora_br().isoformat()
+    }
+    return jsonify(status), 200
+
 @app.route("/login")
 def login():
     if not CLIENT_ID or not CLIENT_SECRET:
